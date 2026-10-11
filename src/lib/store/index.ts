@@ -21,17 +21,11 @@ import { createEmpty, createSeed, type SeedData } from "./seed"
 interface TenantConfig {
   id: string
   demo: boolean
-  limits: { locations: number; products: number }
-  planName: string
 }
-let tenant: TenantConfig = { id: "none", demo: true, limits: { locations: Infinity, products: Infinity }, planName: "" }
+let tenant: TenantConfig = { id: "none", demo: true }
 let loaded = false
 const storageKey = (id: string) => `friday-inventory:${id}`
 const initialData = () => (tenant.demo ? createSeed() : createEmpty())
-
-function overLimit(count: number, limit: number, what: string) {
-  if (count >= limit) throw new Error(`Your ${tenant.planName} plan allows ${limit} ${what}. Ask the platform admin to upgrade.`)
-}
 
 // Client-side data store for the frontend test, saved in localStorage.
 // Every mutation lives here, so swapping in Django REST calls later only
@@ -108,7 +102,6 @@ export const useStore = create<Store>()(
 
         addProduct(input, initial, by) {
           const { products } = get()
-          overLimit(products.length, tenant.limits.products, "products")
           if (products.some((p) => p.sku.toLowerCase() === input.sku.toLowerCase())) {
             throw new Error(`SKU "${input.sku}" is already used by another product.`)
           }
@@ -172,7 +165,6 @@ export const useStore = create<Store>()(
         },
 
         addLocation(input, by) {
-          overLimit(get().locations.length, tenant.limits.locations, "locations")
           const location: Location = { ...input, id: uid("loc") }
           set((s) => ({ locations: [...s.locations, location] }))
           log(by, "Location added", `${location.name} (${location.type})`)

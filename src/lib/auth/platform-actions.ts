@@ -2,8 +2,7 @@
 
 import { refresh } from "next/cache"
 import { z } from "zod"
-import { PLAN_IDS } from "@/lib/plans"
-import type { BusinessStatus, BusinessSummary, ManagedUser, PlanId } from "@/lib/types"
+import type { BusinessStatus, BusinessSummary, ManagedUser } from "@/lib/types"
 import { requireRole } from "./dal"
 import { findBusiness, insertBusiness, listBusinesses, patchBusiness, removeBusiness } from "./tenants"
 import type { ActionResult } from "./user-actions"
@@ -41,7 +40,6 @@ export async function getBusiness(id: string): Promise<{ business: BusinessSumma
 const CreateSchema = z.object({
   name: z.string().trim().min(2, "Business name must be at least 2 characters").max(80),
   industry: z.string().trim().max(60),
-  plan: z.enum(PLAN_IDS as [PlanId, ...PlanId[]]),
   trial: z.boolean(),
   ownerName: z.string().trim().min(2, "Owner name must be at least 2 characters").max(80),
   ownerEmail: z.email("Enter a valid owner email").trim(),
@@ -55,17 +53,10 @@ export async function createBusiness(input: z.input<typeof CreateSchema>): Promi
   const d = parsed.data
   if (emailTaken(d.ownerEmail)) return { ok: false, error: "An account with this email already exists." }
 
-  const business = insertBusiness({ name: d.name, industry: d.industry, plan: d.plan, status: d.trial ? "trial" : "active" })
+  const business = insertBusiness({ name: d.name, industry: d.industry, status: d.trial ? "trial" : "active" })
   insertUser({ name: d.ownerName, email: d.ownerEmail, password: d.ownerPassword, role: "owner", tenantId: business.id, locationIds: [], createdBy: user.id })
   refresh()
   return { ok: true, id: business.id }
-}
-
-export async function setBusinessPlan(id: string, plan: PlanId): Promise<ActionResult> {
-  await requireSuper()
-  if (!PLAN_IDS.includes(plan) || !patchBusiness(id, { plan })) return { ok: false, error: "Business not found." }
-  refresh()
-  return { ok: true }
 }
 
 export async function setBusinessStatus(id: string, status: BusinessStatus): Promise<ActionResult> {

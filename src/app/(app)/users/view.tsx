@@ -24,7 +24,6 @@ import { creatableRoles, ROLE_LABEL } from "@/lib/auth/roles"
 import { createUser, deleteUser, resetUserPassword, setUserActive, type ActionResult } from "@/lib/auth/user-actions"
 import { formatDate } from "@/lib/format"
 import { useStore } from "@/lib/store"
-import { PLANS, formatLimit } from "@/lib/plans"
 import type { ManagedUser, Role, TenantRole } from "@/lib/types"
 
 const ROLE_TONE: Record<Role, PillTone> = { superadmin: "violet", owner: "violet", manager: "blue", staff: "gray" }
@@ -40,11 +39,9 @@ function showResult(result: ActionResult, success: string) {
   return result.ok
 }
 
-export function UsersView({ users, teamSize }: { users: ManagedUser[]; teamSize: number }) {
+export function UsersView({ users }: { users: ManagedUser[] }) {
   const me = useSessionUser()
   const business = useBusiness()
-  const limit = PLANS[business.plan].limits.users
-  const full = teamSize >= limit
   const locations = useStore((s) => s.locations)
   const [creating, setCreating] = useState(false)
   const [resetting, setResetting] = useState<ManagedUser | null>(null)
@@ -58,11 +55,11 @@ export function UsersView({ users, teamSize }: { users: ManagedUser[]; teamSize:
         title={me.role === "owner" ? "Users & staff" : "My staff"}
         description={
           me.role === "owner"
-            ? `Accounts for ${business.name}. There is no public sign-up. ${teamSize} of ${formatLimit(limit)} users on the ${PLANS[business.plan].name} plan.`
+            ? `Accounts for ${business.name}. There is no public sign-up.`
             : "Create logins for staff at your shops. Staff can only add products and stock."
         }
         actions={
-          <Button onClick={() => setCreating(true)} disabled={full} title={full ? "User limit reached for your plan" : undefined}>
+          <Button onClick={() => setCreating(true)}>
             <UserPlus />
             {me.role === "owner" ? "Create account" : "Add staff member"}
           </Button>

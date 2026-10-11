@@ -5,16 +5,16 @@ import { ArrowRight, Building2, CircleDollarSign, Clock, Users } from "lucide-re
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { PageBody, PageHeader, StatCard } from "@/components/common"
-import { BusinessStatusPill, PlanPill } from "@/components/platform"
+import { BusinessStatusPill, STATUS } from "@/components/platform"
 import { formatNumber, timeAgo } from "@/lib/format"
-import { PLAN_IDS, PLANS } from "@/lib/plans"
-import type { BusinessSummary } from "@/lib/types"
+import { PRICE_LABEL, SUBSCRIPTION, formatTaka } from "@/lib/business"
+import type { BusinessStatus, BusinessSummary } from "@/lib/types"
 
-const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })
+const ORDER: BusinessStatus[] = ["active", "trial", "suspended"]
 
 export function PlatformOverview({ businesses }: { businesses: BusinessSummary[] }) {
   const paying = businesses.filter((b) => b.status === "active")
-  const mrr = paying.reduce((sum, b) => sum + PLANS[b.plan].price, 0)
+  const mrr = paying.length * SUBSCRIPTION.price
   const trials = businesses.filter((b) => b.status === "trial").length
   const suspended = businesses.filter((b) => b.status === "suspended").length
   const users = businesses.reduce((sum, b) => sum + b.userCount, 0)
@@ -34,7 +34,7 @@ export function PlatformOverview({ businesses }: { businesses: BusinessSummary[]
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Businesses" value={businesses.length} hint={`${suspended} suspended`} icon={Building2} />
-        <StatCard label="Monthly revenue" value={usd.format(mrr)} hint={`${paying.length} paying`} icon={CircleDollarSign} tone="green" />
+        <StatCard label="Monthly revenue" value={formatTaka(mrr)} hint={`${paying.length} paying × ${PRICE_LABEL}`} icon={CircleDollarSign} tone="green" />
         <StatCard label="On free trial" value={trials} icon={Clock} tone="amber" />
         <StatCard label="Users" value={formatNumber(users)} hint="Across all businesses" icon={Users} tone="violet" />
       </div>
@@ -42,19 +42,16 @@ export function PlatformOverview({ businesses }: { businesses: BusinessSummary[]
       <div className="grid gap-6 lg:grid-cols-3">
         <Card>
           <CardHeader>
-            <CardTitle>Plans</CardTitle>
-            <CardDescription>How many businesses use each plan</CardDescription>
+            <CardTitle>Subscriptions</CardTitle>
+            <CardDescription>{PRICE_LABEL} per business</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {PLAN_IDS.map((id) => {
-              const count = businesses.filter((b) => b.plan === id).length
+            {ORDER.map((status) => {
+              const count = businesses.filter((b) => b.status === status).length
               return (
-                <div key={id} className="space-y-1.5">
+                <div key={status} className="space-y-1.5">
                   <div className="flex items-center justify-between text-sm">
-                    <span>
-                      <span className="font-medium">{PLANS[id].name}</span>
-                      <span className="text-muted-foreground"> · {usd.format(PLANS[id].price)}/mo</span>
-                    </span>
+                    <span className="font-medium">{status === "active" ? "Paying" : STATUS[status].label}</span>
                     <span className="font-medium tabular-nums">{count}</span>
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-muted">
@@ -89,10 +86,7 @@ export function PlatformOverview({ businesses }: { businesses: BusinessSummary[]
                     {b.owner?.name ?? "No owner"} · joined {timeAgo(b.createdAt)}
                   </span>
                 </span>
-                <span className="flex shrink-0 gap-1.5">
-                  <PlanPill plan={b.plan} />
-                  <BusinessStatusPill status={b.status} />
-                </span>
+                <BusinessStatusPill status={b.status} />
               </Link>
             ))}
             {businesses.length === 0 && <p className="text-sm text-muted-foreground">No businesses yet.</p>}

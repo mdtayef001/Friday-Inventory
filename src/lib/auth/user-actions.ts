@@ -2,7 +2,6 @@
 
 import { refresh } from "next/cache"
 import { z } from "zod"
-import { PLANS } from "@/lib/plans"
 import type { ManagedUser, SessionUser } from "@/lib/types"
 import { requireAccess } from "./dal"
 import { creatableRoles } from "./roles"
@@ -41,17 +40,13 @@ const CreateUserSchema = z.object({
 })
 
 export async function createUser(input: z.input<typeof CreateUserSchema>): Promise<ActionResult> {
-  const { user: actor, business } = await requireAccess("/users")
+  const { user: actor } = await requireAccess("/users")
   const parsed = CreateUserSchema.safeParse(input)
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0].message }
   const data = parsed.data
 
   if (!creatableRoles(actor.role).includes(data.role)) {
     return { ok: false, error: "You are not allowed to create this type of account." }
-  }
-  const limit = PLANS[business.plan].limits.users
-  if (listUsers(actor.tenantId).length >= limit) {
-    return { ok: false, error: `Your ${PLANS[business.plan].name} plan allows ${limit} users. Ask the platform admin to upgrade.` }
   }
   if (data.role !== "owner" && data.locationIds.length === 0) {
     return { ok: false, error: "Assign at least one location." }

@@ -11,15 +11,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ConfirmAction, Field, PageBody, PageHeader, Pill, SimpleSelect } from "@/components/common"
-import { BusinessStatusPill, PlanPill } from "@/components/platform"
+import { ConfirmAction, Field, PageBody, PageHeader, Pill } from "@/components/common"
+import { BusinessStatusPill } from "@/components/platform"
 import { initials } from "@/components/user-menu"
-import { deleteBusiness, resetOwnerPassword, setBusinessPlan, setBusinessStatus } from "@/lib/auth/platform-actions"
+import { deleteBusiness, resetOwnerPassword, setBusinessStatus } from "@/lib/auth/platform-actions"
 import type { ActionResult } from "@/lib/auth/user-actions"
 import { ROLE_LABEL } from "@/lib/auth/roles"
 import { formatDate, timeAgo } from "@/lib/format"
-import { MODULES, PERMISSIONS, PLAN_IDS, PLANS, formatLimit } from "@/lib/plans"
-import type { BusinessSummary, ManagedUser, ModuleId, PermissionId, PlanId } from "@/lib/types"
+import { MODULES, PERMISSIONS, PRICE_LABEL } from "@/lib/business"
+import type { BusinessSummary, ManagedUser, ModuleId, PermissionId } from "@/lib/types"
 
 function showResult(result: ActionResult, success: string) {
   if (result.ok) toast.success(success)
@@ -31,7 +31,6 @@ export function BusinessDetailView({ business, users }: { business: BusinessSumm
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [resetting, setResetting] = useState<ManagedUser | null>(null)
-  const plan = PLANS[business.plan]
   const run = (fn: () => Promise<ActionResult>, success: string) => startTransition(async () => void showResult(await fn(), success))
 
   return (
@@ -76,37 +75,28 @@ export function BusinessDetailView({ business, users }: { business: BusinessSumm
 
       <div className="flex flex-wrap items-center gap-2">
         <BusinessStatusPill status={business.status} />
-        <PlanPill plan={business.plan} />
         <Pill tone="gray">{business.settings.currency}</Pill>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card>
           <CardHeader>
-            <CardTitle>Plan</CardTitle>
-            <CardDescription>
-              {plan.price} USD / month · {plan.blurb}
-            </CardDescription>
+            <CardTitle>Subscription</CardTitle>
+            <CardDescription>Monthly, everything included</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <Field label="Change plan">
-              <SimpleSelect
-                value={business.plan}
-                onChange={(v) => run(() => setBusinessPlan(business.id, v as PlanId), `Plan changed to ${PLANS[v as PlanId].name}`)}
-                options={PLAN_IDS.map((id) => ({ value: id, label: `${PLANS[id].name} · ${PLANS[id].price} USD/mo` }))}
-              />
-            </Field>
-            <dl className="grid grid-cols-3 gap-2 text-center">
-              {(["locations", "users", "products"] as const).map((k) => (
-                <div key={k} className="rounded-lg border p-2">
-                  <dt className="text-xs text-muted-foreground capitalize">{k}</dt>
-                  <dd className="font-semibold tabular-nums">
-                    {k === "users" ? `${business.userCount} / ` : ""}
-                    {formatLimit(plan.limits[k])}
-                  </dd>
-                </div>
-              ))}
+          <CardContent className="space-y-3">
+            <p className="text-2xl font-semibold tabular-nums">{PRICE_LABEL}</p>
+            <dl className="grid grid-cols-2 gap-2 text-sm">
+              <div className="rounded-lg border p-2">
+                <dt className="text-xs text-muted-foreground">Status</dt>
+                <dd className="font-medium">{business.status === "active" ? "Paying" : business.status === "trial" ? "Free trial" : "Suspended"}</dd>
+              </div>
+              <div className="rounded-lg border p-2">
+                <dt className="text-xs text-muted-foreground">Users</dt>
+                <dd className="font-medium tabular-nums">{business.userCount}</dd>
+              </div>
             </dl>
+            <p className="text-xs text-muted-foreground">Online payment isn&apos;t set up yet. Suspend a business that hasn&apos;t paid and restore it once it does.</p>
           </CardContent>
         </Card>
 
@@ -144,7 +134,7 @@ export function BusinessDetailView({ business, users }: { business: BusinessSumm
         <CardHeader className="pt-6">
           <CardTitle>People</CardTitle>
           <CardDescription>
-            {users.length} of {formatLimit(plan.limits.users)} users. The owner creates and manages everyone else.
+            {users.length} {users.length === 1 ? "account" : "accounts"}. The owner creates and manages everyone else.
           </CardDescription>
         </CardHeader>
         <div className="overflow-x-auto">

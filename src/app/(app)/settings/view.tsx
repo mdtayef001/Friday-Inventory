@@ -6,16 +6,15 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Progress } from "@/components/ui/progress"
 import { Switch } from "@/components/ui/switch"
-import { Field, PageBody, PageHeader, Pill, SimpleSelect } from "@/components/common"
+import { Field, PageBody, PageHeader, SimpleSelect } from "@/components/common"
+import { BusinessStatusPill } from "@/components/platform"
 import { useBusiness } from "@/components/session-provider"
 import { updateBusinessSettings } from "@/lib/auth/business-actions"
-import { CURRENCIES, MODULES, PERMISSIONS, PLANS, formatLimit } from "@/lib/plans"
-import { useStore } from "@/lib/store"
+import { CURRENCIES, MODULES, PERMISSIONS, PRICE_LABEL } from "@/lib/business"
 import type { BusinessSettings, ModuleId, PermissionId } from "@/lib/types"
 
-export function SettingsView({ userCount }: { userCount: number }) {
+export function SettingsView() {
   const business = useBusiness()
   const [name, setName] = useState(business.name)
   const [industry, setIndustry] = useState(business.industry)
@@ -145,7 +144,7 @@ export function SettingsView({ userCount }: { userCount: number }) {
         </div>
       </form>
 
-      <PlanCard userCount={userCount} />
+      <SubscriptionCard />
     </PageBody>
   )
 }
@@ -174,46 +173,23 @@ function ToggleRow({
   )
 }
 
-function PlanCard({ userCount }: { userCount: number }) {
+function SubscriptionCard() {
   const business = useBusiness()
-  const plan = PLANS[business.plan]
-  const locations = useStore((s) => s.locations.length)
-  const products = useStore((s) => s.products.length)
-  const usage = [
-    { label: "Locations", used: locations, limit: plan.limits.locations },
-    { label: "Users", used: userCount, limit: plan.limits.users },
-    { label: "Products", used: products, limit: plan.limits.products },
-  ]
-
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Sparkles className="size-4 text-primary" />
-          Plan & usage
+          Subscription
         </CardTitle>
-        <CardDescription>
-          You&apos;re on the <span className="font-medium text-foreground">{plan.name}</span> plan
-          {plan.price > 0 ? ` (${plan.price} USD / month)` : ""}. To change plan, contact the platform admin.
-        </CardDescription>
+        <CardDescription>One simple plan with everything included and no limits.</CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-4 sm:grid-cols-3">
-        {usage.map(({ label, used, limit }) => {
-          const pct = Number.isFinite(limit) ? Math.min(100, (used / limit) * 100) : 0
-          return (
-            <div key={label} className="space-y-2 rounded-lg border p-3">
-              <div className="flex items-center justify-between text-sm">
-                <span className="font-medium">{label}</span>
-                {Number.isFinite(limit) && used >= limit && <Pill tone="amber">Limit reached</Pill>}
-              </div>
-              <p className="text-2xl font-semibold tabular-nums">
-                {used}
-                <span className="text-sm font-normal text-muted-foreground"> / {formatLimit(limit)}</span>
-              </p>
-              {Number.isFinite(limit) && <Progress value={pct} />}
-            </div>
-          )
-        })}
+      <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-2xl font-semibold tabular-nums">{PRICE_LABEL}</p>
+          <p className="text-sm text-muted-foreground">Online payment is coming soon. Until then, pay the platform admin directly.</p>
+        </div>
+        <BusinessStatusPill status={business.status} />
       </CardContent>
     </Card>
   )

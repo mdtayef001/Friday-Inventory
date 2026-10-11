@@ -29,7 +29,6 @@ export interface ManagedUser extends SessionUser {
 
 // ---------- Platform (multi-business) ----------
 
-export type PlanId = "free" | "starter" | "pro"
 export type BusinessStatus = "trial" | "active" | "suspended"
 export type ModuleId = "rentals" | "tracking" | "transfers"
 
@@ -53,7 +52,6 @@ export interface Business {
   id: string
   name: string
   industry: string
-  plan: PlanId
   status: BusinessStatus
   createdAt: string
   settings: BusinessSettings

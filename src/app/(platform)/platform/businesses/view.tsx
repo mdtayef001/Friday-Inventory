@@ -12,11 +12,11 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { EmptyState, Field, PageBody, PageHeader, SimpleSelect } from "@/components/common"
-import { BusinessStatusPill, PlanPill, STATUS } from "@/components/platform"
+import { BusinessStatusPill, STATUS } from "@/components/platform"
 import { createBusiness } from "@/lib/auth/platform-actions"
 import { formatDate, timeAgo } from "@/lib/format"
-import { PLAN_IDS, PLANS } from "@/lib/plans"
-import type { BusinessStatus, BusinessSummary, PlanId } from "@/lib/types"
+import { PRICE_LABEL } from "@/lib/business"
+import type { BusinessStatus, BusinessSummary } from "@/lib/types"
 
 export function BusinessesView({ businesses, openNew }: { businesses: BusinessSummary[]; openNew: boolean }) {
   const router = useRouter()
@@ -69,7 +69,6 @@ export function BusinessesView({ businesses, openNew }: { businesses: BusinessSu
                 <TableRow>
                   <TableHead className="pl-4">Business</TableHead>
                   <TableHead>Owner</TableHead>
-                  <TableHead>Plan</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Users</TableHead>
                   <TableHead>Last active</TableHead>
@@ -88,9 +87,6 @@ export function BusinessesView({ businesses, openNew }: { businesses: BusinessSu
                     <TableCell>
                       <div className="text-sm">{b.owner?.name ?? "No owner"}</div>
                       <div className="text-xs text-muted-foreground">{b.owner?.email}</div>
-                    </TableCell>
-                    <TableCell>
-                      <PlanPill plan={b.plan} />
                     </TableCell>
                     <TableCell>
                       <BusinessStatusPill status={b.status} />
@@ -121,7 +117,7 @@ export function BusinessesView({ businesses, openNew }: { businesses: BusinessSu
 function CreateBusinessDialog({ onClose }: { onClose: () => void }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
-  const [form, setForm] = useState({ name: "", industry: "", plan: "starter" as PlanId, trial: true, ownerName: "", ownerEmail: "", ownerPassword: "" })
+  const [form, setForm] = useState({ name: "", industry: "", trial: true, ownerName: "", ownerEmail: "", ownerPassword: "" })
   const [error, setError] = useState("")
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
 
@@ -159,16 +155,9 @@ function CreateBusinessDialog({ onClose }: { onClose: () => void }) {
               <Input id="nb-industry" value={form.industry} onChange={(e) => set("industry", e.target.value)} placeholder="e.g. Clothing" />
             </Field>
           </div>
-          <Field label="Plan" hint={`${PLANS[form.plan].blurb}.`}>
-            <SimpleSelect
-              value={form.plan}
-              onChange={(v) => set("plan", v as PlanId)}
-              options={PLAN_IDS.map((id) => ({ value: id, label: `${PLANS[id].name} · ${PLANS[id].price} USD/mo` }))}
-            />
-          </Field>
           <label className="flex items-center gap-2 text-sm">
             <Checkbox checked={form.trial} onCheckedChange={(on) => set("trial", on)} />
-            Start as a free trial
+            Start as a free trial (otherwise billed {PRICE_LABEL})
           </label>
           <div className="space-y-4 rounded-lg border p-3">
             <p className="text-sm font-medium">Owner account</p>

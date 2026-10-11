@@ -2,7 +2,7 @@
 
 import { refresh } from "next/cache"
 import { z } from "zod"
-import { CURRENCIES } from "@/lib/plans"
+import { CURRENCIES } from "@/lib/business"
 import { requireAccess } from "./dal"
 import { patchBusiness } from "./tenants"
 import type { ActionResult } from "./user-actions"
