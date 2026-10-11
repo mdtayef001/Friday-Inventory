@@ -8,7 +8,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { attempt, ConfirmAction, EmptyState, Field, PageBody, PageHeader, Pill, SimpleSelect } from "@/components/common"
-import { useScope, useSessionUser } from "@/components/session-provider"
+import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { formatMoney, formatNumber } from "@/lib/format"
 import { useStore } from "@/lib/store"
 import type { Location, LocationType } from "@/lib/types"
@@ -20,6 +20,8 @@ export function LocationsView() {
   const products = useStore((s) => s.products)
   const deleteLocation = useStore((s) => s.deleteLocation)
   const [editing, setEditing] = useState<Location | "new" | null>(null)
+  // Owners add and delete locations; managers may edit their own if the owner allows it.
+  const canEdit = usePermissions().can("managerLocations")
 
   const stats = useMemo(() => {
     const product = new Map(products.map((p) => [p.id, p]))
@@ -90,11 +92,13 @@ export function LocationsView() {
           <Button variant="outline" size="sm" className="flex-1" render={<Link href={`/locations/${l.id}`} />} nativeButton={false}>
             View stock
           </Button>
-          {scope.isAdmin && (
+          {canEdit && (
+            <Button variant="ghost" size="icon-sm" onClick={() => setEditing(l)} aria-label="Edit">
+              <Pencil />
+            </Button>
+          )}
+          {scope.isOwner && (
             <>
-              <Button variant="ghost" size="icon-sm" onClick={() => setEditing(l)} aria-label="Edit">
-                <Pencil />
-              </Button>
               <ConfirmAction
                 trigger={
                   <Button variant="ghost" size="icon-sm" aria-label="Delete">
@@ -120,7 +124,7 @@ export function LocationsView() {
         title="Warehouses & shops"
         description="Every place you keep stock. Open one to see exactly what's there."
         actions={
-          scope.isAdmin && (
+          scope.isOwner && (
             <Button onClick={() => setEditing("new")}>
               <Plus />
               Add location

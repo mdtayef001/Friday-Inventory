@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { attempt, EmptyState, PageBody, PageHeader, SimpleSelect } from "@/components/common"
 import { ProductForm } from "@/components/product-form"
 import { CameraScanner, CodeInput } from "@/components/scanner"
-import { useScope, useSessionUser } from "@/components/session-provider"
+import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { timeAgo } from "@/lib/format"
 import { qtyAt, useStore } from "@/lib/store"
 import type { Product } from "@/lib/types"
@@ -19,6 +19,7 @@ type Result = { kind: "found"; product: Product; code: string } | { kind: "new";
 export function EntryView() {
   const user = useSessionUser()
   const { locations } = useScope()
+  const { canCreateProducts } = usePermissions()
   const products = useStore((s) => s.products)
   const activity = useStore((s) => s.activity)
   const [locationId, setLocationId] = useState(locations[0]?.id ?? "")
@@ -46,7 +47,7 @@ export function EntryView() {
     <PageBody className="max-w-4xl">
       <PageHeader
         title={`Hi ${user.name.split(" ")[0]}, what came in?`}
-        description="Scan a QR code or barcode, type it, or add a new product by hand."
+        description={canCreateProducts ? "Scan a QR code or barcode, type it, or add a new product by hand." : "Scan a QR code or barcode, or type it, to add stock."}
       />
 
       <Card>
@@ -71,6 +72,19 @@ export function EntryView() {
 
       {result?.kind === "found" ? (
         <FoundProduct product={result.product} locationId={locationId} onDone={() => setResult(null)} />
+      ) : result && result.kind !== "manual" && !canCreateProducts ? (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
+            <SearchX className="size-10 text-amber-500" />
+            <p className="font-medium">
+              No product uses <code className="font-mono">{result.code}</code>
+            </p>
+            <p className="max-w-sm text-sm text-muted-foreground">Ask your manager or the owner to add this product first, then scan it again.</p>
+            <Button variant="outline" onClick={() => setResult(null)}>
+              Scan something else
+            </Button>
+          </CardContent>
+        </Card>
       ) : result?.kind === "new" || result?.kind === "manual" ? (
         <Card>
           <CardHeader>
@@ -100,7 +114,7 @@ export function EntryView() {
         </Card>
       ) : (
         <Tabs value={tab} onValueChange={(v) => setTab(String(v))}>
-          <TabsList className="grid h-auto! w-full grid-cols-3">
+          <TabsList className={`grid h-auto! w-full ${canCreateProducts ? "grid-cols-3" : "grid-cols-2"}`}>
             <TabsTrigger value="camera" className="py-2">
               <Camera />
               <span className="hidden sm:inline">Scan with</span> camera
@@ -109,10 +123,12 @@ export function EntryView() {
               <Keyboard />
               Type code
             </TabsTrigger>
-            <TabsTrigger value="manual" className="py-2">
-              <PackagePlus />
-              New product
-            </TabsTrigger>
+            {canCreateProducts && (
+              <TabsTrigger value="manual" className="py-2">
+                <PackagePlus />
+                New product
+              </TabsTrigger>
+            )}
           </TabsList>
           <TabsContent value="camera" className="mt-4">
             <Card>

@@ -1,14 +1,22 @@
 // Shared domain types. These mirror the shapes the Django REST API will
 // return later, so pages won't need to change when the backend lands.
 
-export type Role = "admin" | "manager" | "staff"
+/**
+ * superadmin: runs the platform (you). Creates businesses and their owners.
+ * owner: runs one business. Decides features and what everyone else can do.
+ * manager / staff: work at a business, limited to their assigned locations.
+ */
+export type Role = "superadmin" | "owner" | "manager" | "staff"
+export type TenantRole = Exclude<Role, "superadmin">
 
 export interface SessionUser {
   id: string
   name: string
   email: string
   role: Role
-  /** Locations this user works at. Empty for admins (they see everything). */
+  /** The business this user belongs to. Null for the platform super admin. */
+  tenantId: string | null
+  /** Locations this user works at. Empty for owners (they see everything). */
   locationIds: string[]
 }
 
@@ -16,6 +24,45 @@ export interface ManagedUser extends SessionUser {
   active: boolean
   createdAt: string
   createdBy: string | null
+  lastLoginAt?: string
+}
+
+// ---------- Platform (multi-business) ----------
+
+export type PlanId = "free" | "starter" | "pro"
+export type BusinessStatus = "trial" | "active" | "suspended"
+export type ModuleId = "rentals" | "tracking" | "transfers"
+
+/** Things an owner can switch on or off for managers and staff. */
+export interface Permissions {
+  managerUsers: boolean
+  managerActivity: boolean
+  managerProducts: boolean
+  managerLocations: boolean
+  staffCreateProducts: boolean
+}
+export type PermissionId = keyof Permissions
+
+export interface BusinessSettings {
+  currency: string
+  modules: Record<ModuleId, boolean>
+  permissions: Permissions
+}
+
+export interface Business {
+  id: string
+  name: string
+  industry: string
+  plan: PlanId
+  status: BusinessStatus
+  createdAt: string
+  settings: BusinessSettings
+}
+
+export interface BusinessSummary extends Business {
+  owner: { id: string; name: string; email: string } | null
+  userCount: number
+  lastActiveAt?: string
 }
 
 export type LocationType = "warehouse" | "outlet"

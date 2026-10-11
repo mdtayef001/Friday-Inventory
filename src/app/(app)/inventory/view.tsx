@@ -57,7 +57,7 @@ export function InventoryView() {
       <PageHeader
         title="Stock levels"
         description={
-          scope.isAdmin ? "How much of every product is in each warehouse and shop." : `Stock at ${scope.locations.map((l) => l.name).join(", ")}.`
+          scope.isOwner ? "How much of every product is in each warehouse and shop." : `Stock at ${scope.locations.map((l) => l.name).join(", ")}.`
         }
       />
 
@@ -80,7 +80,7 @@ export function InventoryView() {
       </div>
 
       {scope.locations.length === 0 ? (
-        <EmptyState icon={Warehouse} title="No locations assigned" description="Ask an admin to assign you to a warehouse or shop." />
+        <EmptyState icon={Warehouse} title="No locations assigned" description="Ask the owner to assign you to a warehouse or shop." />
       ) : (
         <Card className="py-0">
           <div className="overflow-x-auto">

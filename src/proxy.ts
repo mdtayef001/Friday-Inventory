@@ -17,7 +17,7 @@ export default async function proxy(req: NextRequest) {
     if (!session) {
       return NextResponse.redirect(new URL("/login", req.nextUrl))
     }
-    if (!canAccess(session.role, path)) {
+    if (!canAccess(session, path)) {
       return NextResponse.redirect(new URL(ROLE_HOME[session.role], req.nextUrl))
     }
   }

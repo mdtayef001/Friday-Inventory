@@ -14,32 +14,40 @@ npm run dev                  # http://localhost:3000
 
 Demo accounts (also listed on the login page in development):
 
-| Role    | Email              | Password   | Can do |
-|---------|--------------------|------------|--------|
-| Admin   | admin@friday.app   | admin123   | Everything, all locations, all accounts |
-| Manager | manager@friday.app | manager123 | Their outlets (Downtown, Uptown) + creating staff for them |
-| Staff   | staff@friday.app   | staff123   | Quick Entry only (scan / add products and stock) |
+| Role        | Email              | Password   | Can do |
+|-------------|--------------------|------------|--------|
+| Super admin | super@friday.app   | super123   | Runs the platform: creates businesses and their owners, changes plans, suspends |
+| Owner       | owner@friday.app   | owner123   | Everything inside Friday Demo Store, including Business Settings |
+| Manager     | manager@friday.app | manager123 | Their outlets (Downtown, Uptown); extra rights set by the owner |
+| Staff       | staff@friday.app   | staff123   | Quick Entry only (scan / add stock, new products if the owner allows) |
+| Owner       | cafe@friday.app    | cafe1234   | Green Leaf Café, a second business that starts empty |
+| Owner       | urban@friday.app   | urban123   | Urban Party Rentals, suspended, so login is refused |
+
+## How the SaaS works
+
+- **Super admin** (`/platform`): sees every business, revenue by plan, adds a business together with its
+  owner's login, changes plan (Free / Starter / Pro with location, user and product limits), suspends or
+  restores, resets the owner's password, deletes. They don't see a business's inventory.
+- **Owner** (`/settings`): business name and currency, turns features on or off (rentals, order tracking,
+  transfers) and decides what managers and staff may do. Creates owners, managers and staff.
+- **Manager / staff**: work only at the locations they're assigned to, with what the owner allows.
+- Every business's data is kept separate. Accounts can never see or manage another business.
 
 ## Features
 
-- **Login only, no sign-up.** Admins create any account; managers create staff for their own shops.
-- **Role-based access**: every route is checked in `src/proxy.ts`, again in each page (`requireRole`), and in every server action.
-- **Products**: add, edit or delete products; SKU auto-generated; QR label printing; per-product stock by location.
-- **Quick Entry**: scan with the camera (QR, EAN, UPC, Code 128…), type a code or use a USB scanner, or add by hand. Unknown codes open a pre-filled new-product form.
-- **Stock levels**: product × location grid; click any number to add or remove stock with a reason.
-- **Warehouses & shops**: what's at each location; managers only see their assigned ones.
-- **Transfers** between locations (in transit → received / cancelled).
-- **Order tracking**: pending → processing → in delivery → delivered, plus returned or cancelled (restocked), with a history timeline.
-- **Rentals**: client, days, per day / week / month or fixed price, deposit; total worked out automatically; overdue alerts.
-- **Clients**, **dashboard**, **activity log**, global search (Ctrl K) and dark mode.
-
+- **Login only, no sign-up.** The super admin creates businesses; owners create their team; managers create staff if allowed.
+- **Role-based access**: every route is checked in `src/proxy.ts`, again in each page (`requireAccess`, which also
+  applies the owner's feature switches and permissions) and in every server action.
 ## Where things live
 
 | Path | What |
 |------|------|
 | `src/proxy.ts` | Route guard (runs before every page) |
 | `src/lib/auth/` | Session cookie (signed JWT, httpOnly), password hashing, login, user management |
-| `src/lib/auth/roles.ts` | Which role can open which route |
+| `src/lib/auth/roles.ts` | Which role can open which route, plus feature and permission rules |
+| `src/lib/auth/tenants.ts` | Businesses (in memory for now) |
+| `src/lib/plans.ts` | Plans, limits, features and permission definitions |
+| `src/app/(platform)/` | Super admin console |
 | `src/lib/store/` | All inventory data + mutations (Zustand, saved to localStorage) and demo seed data |
 | `src/lib/types.ts` | Data shapes (to mirror in Django serializers) |
 | `src/app/(app)/*` | One folder per page: `page.tsx` checks the role, `view.tsx` is the UI |
@@ -47,7 +55,8 @@ Demo accounts (also listed on the login page in development):
 ## Limits of this test version
 
 - Inventory data lives in each browser's localStorage, so different browsers don't share it.
-  Admins can use **Reset demo data** in the user menu.
-- Accounts created in the app are kept in server memory and reset when the server restarts.
+  Each business has its own saved data. Owners can use **Reset data** in the user menu.
+- Businesses and accounts are kept in server memory and reset when the server restarts.
+- Location and product plan limits are checked in the browser for now; user limits on the server.
 - Both are replaced by the Django REST backend in the next phase: swap `src/lib/store/index.ts`
-  and `src/lib/auth/users.ts` for API calls.
+  `src/lib/auth/users.ts` and `src/lib/auth/tenants.ts` for API calls.

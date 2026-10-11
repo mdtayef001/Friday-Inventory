@@ -2,8 +2,9 @@
 
 import { refresh } from "next/cache"
 import { z } from "zod"
+import { PLANS } from "@/lib/plans"
 import type { ManagedUser, SessionUser } from "@/lib/types"
-import { requireRole } from "./dal"
+import { requireAccess } from "./dal"
 import { creatableRoles } from "./roles"
 import { emailTaken, findUserById, insertUser, listUsers, patchUser, removeUser } from "./users"
 
@@ -12,10 +13,13 @@ import { emailTaken, findUserById, insertUser, listUsers, patchUser, removeUser 
 
 export type ActionResult = { ok: true } | { ok: false; error: string }
 
-/** Admins manage everyone; managers only manage staff at their own locations. */
+/**
+ * Never across businesses. Owners manage everyone in their business;
+ * managers only manage staff at their own locations.
+ */
 function canManage(actor: SessionUser, target: ManagedUser) {
-  if (actor.id === target.id) return false
-  if (actor.role === "admin") return true
+  if (actor.id === target.id || !actor.tenantId || actor.tenantId !== target.tenantId) return false
+  if (actor.role === "owner") return true
   return (
     actor.role === "manager" &&
     target.role === "staff" &&
@@ -24,20 +28,20 @@ function canManage(actor: SessionUser, target: ManagedUser) {
 }
 
 export async function getManageableUsers(): Promise<ManagedUser[]> {
-  const actor = await requireRole(["admin", "manager"])
-  return listUsers().filter((u) => u.id === actor.id || canManage(actor, u))
+  const { user: actor } = await requireAccess("/users")
+  return listUsers(actor.tenantId).filter((u) => u.id === actor.id || canManage(actor, u))
 }
 
 const CreateUserSchema = z.object({
   name: z.string().trim().min(2, "Name must be at least 2 characters").max(80),
   email: z.email("Enter a valid email address").trim(),
   password: z.string().min(8, "Password must be at least 8 characters").max(128),
-  role: z.enum(["admin", "manager", "staff"]),
+  role: z.enum(["owner", "manager", "staff"]),
   locationIds: z.array(z.string()).max(50),
 })
 
 export async function createUser(input: z.input<typeof CreateUserSchema>): Promise<ActionResult> {
-  const actor = await requireRole(["admin", "manager"])
+  const { user: actor, business } = await requireAccess("/users")
   const parsed = CreateUserSchema.safeParse(input)
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0].message }
   const data = parsed.data
@@ -45,7 +49,11 @@ export async function createUser(input: z.input<typeof CreateUserSchema>): Promi
   if (!creatableRoles(actor.role).includes(data.role)) {
     return { ok: false, error: "You are not allowed to create this type of account." }
   }
-  if (data.role !== "admin" && data.locationIds.length === 0) {
+  const limit = PLANS[business.plan].limits.users
+  if (listUsers(actor.tenantId).length >= limit) {
+    return { ok: false, error: `Your ${PLANS[business.plan].name} plan allows ${limit} users. Ask the platform admin to upgrade.` }
+  }
+  if (data.role !== "owner" && data.locationIds.length === 0) {
     return { ok: false, error: "Assign at least one location." }
   }
   if (actor.role === "manager" && !data.locationIds.every((id) => actor.locationIds.includes(id))) {
@@ -53,13 +61,13 @@ export async function createUser(input: z.input<typeof CreateUserSchema>): Promi
   }
   if (emailTaken(data.email)) return { ok: false, error: "An account with this email already exists." }
 
-  insertUser({ ...data, createdBy: actor.id })
+  insertUser({ ...data, tenantId: actor.tenantId, createdBy: actor.id })
   refresh()
   return { ok: true }
 }
 
 async function withTarget(id: string, fn: (target: ManagedUser) => void): Promise<ActionResult> {
-  const actor = await requireRole(["admin", "manager"])
+  const { user: actor } = await requireAccess("/users")
   const target = findUserById(id)
   if (!target || !canManage(actor, target)) {
     return { ok: false, error: "You can't change this account." }

@@ -14,7 +14,24 @@ import type {
 } from "@/lib/types"
 import { quoteRental } from "@/lib/rental"
 import { refCode, uid } from "@/lib/format"
-import { createSeed, type SeedData } from "./seed"
+import { createEmpty, createSeed, type SeedData } from "./seed"
+
+// Each business gets its own saved data. <StoreGate> calls loadTenant() with
+// the logged-in business before any page renders.
+interface TenantConfig {
+  id: string
+  demo: boolean
+  limits: { locations: number; products: number }
+  planName: string
+}
+let tenant: TenantConfig = { id: "none", demo: true, limits: { locations: Infinity, products: Infinity }, planName: "" }
+let loaded = false
+const storageKey = (id: string) => `friday-inventory:${id}`
+const initialData = () => (tenant.demo ? createSeed() : createEmpty())
+
+function overLimit(count: number, limit: number, what: string) {
+  if (count >= limit) throw new Error(`Your ${tenant.planName} plan allows ${limit} ${what}. Ask the platform admin to upgrade.`)
+}
 
 // Client-side data store for the frontend test, saved in localStorage.
 // Every mutation lives here, so swapping in Django REST calls later only
@@ -50,6 +67,7 @@ interface Actions {
   receiveTransfer(id: string, by: string): void
   cancelTransfer(id: string, by: string): void
 
+  /** Back to the starting data: demo data for the demo business, empty otherwise. */
   resetDemoData(): void
 }
 
@@ -86,10 +104,11 @@ export const useStore = create<Store>()(
       const clientName = (id: string) => get().clients.find((c) => c.id === id)?.name ?? "Unknown client"
 
       return {
-        ...createSeed(),
+        ...createEmpty(),
 
         addProduct(input, initial, by) {
           const { products } = get()
+          overLimit(products.length, tenant.limits.products, "products")
           if (products.some((p) => p.sku.toLowerCase() === input.sku.toLowerCase())) {
             throw new Error(`SKU "${input.sku}" is already used by another product.`)
           }
@@ -153,6 +172,7 @@ export const useStore = create<Store>()(
         },
 
         addLocation(input, by) {
+          overLimit(get().locations.length, tenant.limits.locations, "locations")
           const location: Location = { ...input, id: uid("loc") }
           set((s) => ({ locations: [...s.locations, location] }))
           log(by, "Location added", `${location.name} (${location.type})`)
@@ -320,12 +340,12 @@ export const useStore = create<Store>()(
         },
 
         resetDemoData() {
-          set(createSeed())
+          set(initialData())
         },
       }
     },
     {
-      name: "friday-inventory",
+      name: storageKey("none"),
       version: 1,
       storage: createJSONStorage(() => localStorage),
       // Rehydrated manually in <StoreGate> to avoid server/client mismatches.
@@ -343,3 +363,24 @@ export const useStore = create<Store>()(
     },
   ),
 )
+
+/**
+ * Switch the store to a business. Loads its saved data, or its starting data
+ * the first time. Safe to call again with the same business.
+ */
+export async function loadTenant(config: TenantConfig) {
+  const changed = config.id !== tenant.id
+  tenant = config
+  if (!changed && loaded) return
+  const name = storageKey(config.id)
+  useStore.persist.setOptions({ name })
+  let saved = false
+  try {
+    saved = localStorage.getItem(name) !== null
+  } catch {
+    // Storage blocked (private mode etc.): fall back to starting data.
+  }
+  if (saved) await useStore.persist.rehydrate()
+  else useStore.setState(initialData())
+  loaded = true
+}

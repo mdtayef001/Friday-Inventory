@@ -218,3 +218,17 @@ export function createSeed(): SeedData {
 
   return { locations, products, stock, clients, shipments, rentals, transfers, activity }
 }
+
+/** A brand-new business starts with one shop and nothing else. */
+export function createEmpty(): SeedData {
+  return {
+    locations: [{ id: "loc-main", name: "Main Store", type: "outlet", address: "Add your address in Warehouses & Shops" }],
+    products: [],
+    stock: [],
+    clients: [],
+    shipments: [],
+    rentals: [],
+    transfers: [],
+    activity: [],
+  }
+}

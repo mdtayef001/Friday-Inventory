@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Package,
   ScanBarcode,
+  Settings,
   Store,
   Truck,
   UserCog,
@@ -31,10 +32,9 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { canAccess } from "@/lib/auth/roles"
 import { isOverdue } from "@/lib/rental"
 import { useStore } from "@/lib/store"
-import { useScope, useSessionUser } from "./session-provider"
+import { useBusiness, usePermissions, useScope, useSessionUser } from "./session-provider"
 import { UserMenu } from "./user-menu"
 
 const NAV = [
@@ -67,6 +67,7 @@ const NAV = [
     items: [
       { href: "/users", label: "Users & Staff", icon: UserCog },
       { href: "/activity", label: "Activity Log", icon: History },
+      { href: "/settings", label: "Business Settings", icon: Settings },
     ],
   },
 ]
@@ -76,6 +77,8 @@ export function AppSidebar() {
   const pathname = usePathname()
   const { setOpenMobile } = useSidebar()
   const scope = useScope()
+  const business = useBusiness()
+  const { canOpen } = usePermissions()
   const overdue = useStore((s) => s.rentals.filter((r) => scope.has(r.locationId) && isOverdue(r)).length)
   const openShipments = useStore(
     (s) => s.shipments.filter((sh) => scope.has(sh.fromLocationId) && ["pending", "processing", "in_delivery"].includes(sh.status)).length,
@@ -92,8 +95,8 @@ export function AppSidebar() {
                 <Store className="size-4" />
               </div>
               <div className="grid flex-1 text-left leading-tight">
-                <span className="truncate font-semibold">Friday</span>
-                <span className="truncate text-xs text-muted-foreground">Inventory Manager</span>
+                <span className="truncate font-semibold">{business.name}</span>
+                <span className="truncate text-xs text-muted-foreground">{business.status === "trial" ? "Free trial" : "Inventory Manager"}</span>
               </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -102,7 +105,7 @@ export function AppSidebar() {
 
       <SidebarContent>
         {NAV.map((group) => {
-          const items = group.items.filter((item) => canAccess(user.role, item.href))
+          const items = group.items.filter((item) => canOpen(item.href))
           if (items.length === 0) return null
           return (
             <SidebarGroup key={group.label}>

@@ -1,10 +1,13 @@
 import { format, formatDistanceToNow } from "date-fns"
 
-// Change these to match your business.
-export const CURRENCY = "USD"
 export const LOCALE = "en-US"
 
-const money = new Intl.NumberFormat(LOCALE, { style: "currency", currency: CURRENCY })
+// The currency is a per-business setting. <StoreGate> sets it before any
+// money is shown, since all money is rendered on the client.
+let money = new Intl.NumberFormat(LOCALE, { style: "currency", currency: "USD" })
+export function setCurrency(code: string) {
+  money = new Intl.NumberFormat(LOCALE, { style: "currency", currency: code })
+}
 const number = new Intl.NumberFormat(LOCALE)
 
 export const formatMoney = (value: number) => money.format(value)

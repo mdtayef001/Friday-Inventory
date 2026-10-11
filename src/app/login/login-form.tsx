@@ -9,9 +9,11 @@ import { Label } from "@/components/ui/label"
 import { login, type LoginState } from "@/lib/auth/actions"
 
 const DEMO_ACCOUNTS = [
-  { role: "Admin", email: "admin@friday.app", password: "admin123", note: "Full access" },
+  { role: "Super admin", email: "super@friday.app", password: "super123", note: "Runs the platform: all businesses" },
+  { role: "Owner", email: "owner@friday.app", password: "owner123", note: "Friday Demo Store: full access" },
   { role: "Manager", email: "manager@friday.app", password: "manager123", note: "Downtown & Uptown outlets" },
   { role: "Staff", email: "staff@friday.app", password: "staff123", note: "Product entry only" },
+  { role: "Owner (new business)", email: "cafe@friday.app", password: "cafe1234", note: "Green Leaf Café: starts empty" },
 ]
 
 export function LoginForm({ showDemoAccounts }: { showDemoAccounts: boolean }) {
@@ -29,7 +31,7 @@ export function LoginForm({ showDemoAccounts }: { showDemoAccounts: boolean }) {
     <div className="space-y-6">
       <div className="space-y-2">
         <h1 className="text-2xl font-semibold tracking-tight">Welcome back</h1>
-        <p className="text-sm text-muted-foreground">Log in with the account your administrator gave you.</p>
+        <p className="text-sm text-muted-foreground">Log in with the account your business owner gave you.</p>
       </div>
 
       <form action={action} className="space-y-4">
@@ -81,7 +83,7 @@ export function LoginForm({ showDemoAccounts }: { showDemoAccounts: boolean }) {
           {pending ? "Logging in…" : "Log in"}
         </Button>
         <p className="text-center text-xs text-muted-foreground">
-          No account? Ask your administrator to create one for you.
+          No account? Ask your business owner to create one for you.
         </p>
       </form>
 

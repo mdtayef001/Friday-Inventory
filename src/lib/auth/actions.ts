@@ -4,7 +4,8 @@ import { redirect } from "next/navigation"
 import { z } from "zod"
 import { ROLE_HOME } from "./roles"
 import { createSession, deleteSession } from "./session"
-import { authenticate } from "./users"
+import { findBusiness } from "./tenants"
+import { authenticate, markLogin } from "./users"
 
 export interface LoginState {
   error?: string
@@ -44,6 +45,14 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   }
 
   attempts.delete(key)
+  if (user.role !== "superadmin") {
+    const business = user.tenantId ? findBusiness(user.tenantId) : null
+    if (!business) return { error: "Your business account no longer exists.", email }
+    if (business.status === "suspended") {
+      return { error: `${business.name} is suspended. Please contact support to restore access.`, email }
+    }
+  }
+  markLogin(user.id)
   await createSession(user.id, user.role)
   redirect(ROLE_HOME[user.role])
 }

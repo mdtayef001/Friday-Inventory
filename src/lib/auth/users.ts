@@ -1,6 +1,7 @@
 import "server-only"
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto"
 import type { ManagedUser, Role } from "@/lib/types"
+import { DEMO_TENANT_ID } from "./tenants"
 
 // Temporary in-memory user store for the frontend test. It resets when the
 // dev server restarts. The Django backend will replace this module.
@@ -27,9 +28,12 @@ function seed(): Map<string, StoredUser> {
   const users: (Omit<StoredUser, "passwordHash" | "createdAt" | "active" | "createdBy"> & {
     password: string
   })[] = [
-    { id: "u-admin", name: "Ayesha Rahman", email: "admin@friday.app", role: "admin", locationIds: [], password: "admin123" },
-    { id: "u-manager", name: "Karim Hasan", email: "manager@friday.app", role: "manager", locationIds: ["loc-downtown", "loc-uptown"], password: "manager123" },
-    { id: "u-staff", name: "Nadia Islam", email: "staff@friday.app", role: "staff", locationIds: ["loc-main"], password: "staff123" },
+    { id: "u-super", name: "Platform Admin", email: "super@friday.app", role: "superadmin", tenantId: null, locationIds: [], password: "super123" },
+    { id: "u-owner", name: "Ayesha Rahman", email: "owner@friday.app", role: "owner", tenantId: DEMO_TENANT_ID, locationIds: [], password: "owner123" },
+    { id: "u-manager", name: "Karim Hasan", email: "manager@friday.app", role: "manager", tenantId: DEMO_TENANT_ID, locationIds: ["loc-downtown", "loc-uptown"], password: "manager123" },
+    { id: "u-staff", name: "Nadia Islam", email: "staff@friday.app", role: "staff", tenantId: DEMO_TENANT_ID, locationIds: ["loc-main"], password: "staff123" },
+    { id: "u-cafe", name: "Sara Khan", email: "cafe@friday.app", role: "owner", tenantId: "b-greenleaf", locationIds: [], password: "cafe1234" },
+    { id: "u-urban", name: "Jamal Uddin", email: "urban@friday.app", role: "owner", tenantId: "b-urban", locationIds: [], password: "urban123" },
   ]
   return new Map(
     users.map(({ password, ...u }) => [
@@ -62,8 +66,21 @@ export function authenticate(email: string, password: string): ManagedUser | nul
   return toPublic(user)
 }
 
-export function listUsers(): ManagedUser[] {
-  return [...store.values()].map(toPublic).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+/** Users of one business, or everyone when `tenantId` is undefined. */
+export function listUsers(tenantId?: string | null): ManagedUser[] {
+  return [...store.values()]
+    .filter((u) => tenantId === undefined || u.tenantId === tenantId)
+    .map(toPublic)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+}
+
+export function markLogin(id: string) {
+  const user = store.get(id)
+  if (user) user.lastLoginAt = new Date().toISOString()
+}
+
+export function removeTenantUsers(tenantId: string) {
+  for (const [id, u] of store) if (u.tenantId === tenantId) store.delete(id)
 }
 
 export function emailTaken(email: string) {
@@ -75,6 +92,7 @@ export function insertUser(input: {
   email: string
   password: string
   role: Role
+  tenantId: string | null
   locationIds: string[]
   createdBy: string
 }): ManagedUser {
@@ -83,7 +101,8 @@ export function insertUser(input: {
     name: input.name,
     email: input.email.toLowerCase(),
     role: input.role,
-    locationIds: input.role === "admin" ? [] : input.locationIds,
+    tenantId: input.tenantId,
+    locationIds: input.role === "owner" || input.role === "superadmin" ? [] : input.locationIds,
     active: true,
     createdAt: new Date().toISOString(),
     createdBy: input.createdBy,

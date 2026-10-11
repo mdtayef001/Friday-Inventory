@@ -16,7 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { attempt, ConfirmAction, EmptyState, PageBody, PageHeader, Pill, SimpleSelect } from "@/components/common"
-import { useSessionUser } from "@/components/session-provider"
+import { usePermissions, useSessionUser } from "@/components/session-provider"
 import { StockPill } from "@/components/status"
 import { formatMoney, formatNumber } from "@/lib/format"
 import { useStore } from "@/lib/store"
@@ -56,6 +56,7 @@ export function ProductsView() {
   }, [products, totals, query, category, stockFilter])
 
   const toDelete = products.find((p) => p.id === deleting)
+  const canEdit = usePermissions().can("managerProducts")
 
   return (
     <PageBody>
@@ -63,10 +64,12 @@ export function ProductsView() {
         title="Products"
         description={`${products.length} products in your catalogue`}
         actions={
-          <Button render={<Link href="/products/new" />} nativeButton={false}>
-            <Plus />
-            Add product
-          </Button>
+          canEdit && (
+            <Button render={<Link href="/products/new" />} nativeButton={false}>
+              <Plus />
+              Add product
+            </Button>
+          )
         }
       />
 
@@ -90,7 +93,8 @@ export function ProductsView() {
           title={products.length === 0 ? "No products yet" : "No products match your filters"}
           description={products.length === 0 ? "Add your first product, or scan its barcode from Quick Entry." : "Try a different search or clear the filters."}
           action={
-            products.length === 0 && (
+            products.length === 0 &&
+            canEdit && (
               <Button render={<Link href="/products/new" />} nativeButton={false}>
                 <Plus />
                 Add product
@@ -154,15 +158,19 @@ export function ProductsView() {
                               <Package />
                               View details
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => router.push(`/products/${p.id}/edit`)}>
-                              <Pencil />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem variant="destructive" onClick={() => setDeleting(p.id)}>
-                              <Trash2 />
-                              Delete
-                            </DropdownMenuItem>
+                            {canEdit && (
+                              <>
+                                <DropdownMenuItem onClick={() => router.push(`/products/${p.id}/edit`)}>
+                                  <Pencil />
+                                  Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem variant="destructive" onClick={() => setDeleting(p.id)}>
+                                  <Trash2 />
+                                  Delete
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

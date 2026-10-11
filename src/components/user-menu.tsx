@@ -1,6 +1,6 @@
 "use client"
 
-import { useTransition } from "react"
+import { useState, useTransition } from "react"
 import { ChevronsUpDown, LogOut, MapPin, Moon, RotateCcw, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
@@ -18,6 +18,7 @@ import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui
 import { logout } from "@/lib/auth/actions"
 import { ROLE_LABEL } from "@/lib/auth/roles"
 import { useStore } from "@/lib/store"
+import { ConfirmAction } from "./common"
 import { useScope, useSessionUser } from "./session-provider"
 
 export function initials(name: string) {
@@ -29,11 +30,53 @@ export function initials(name: string) {
     .toUpperCase()
 }
 
+/** Account menu for the business app: adds the user's shops and a data reset for owners. */
 export function UserMenu() {
   const user = useSessionUser()
   const scope = useScope()
-  const { resolvedTheme, setTheme } = useTheme()
   const resetDemoData = useStore((s) => s.resetDemoData)
+  const [confirming, setConfirming] = useState(false)
+
+  return (
+    <>
+      <AccountMenu>
+        {!scope.isOwner && (
+          <DropdownMenuGroup>
+            <DropdownMenuLabel className="flex items-start gap-2 text-xs font-normal">
+              <MapPin className="mt-0.5 size-3.5 shrink-0" />
+              {scope.locations.map((l) => l.name).join(", ") || "No locations assigned"}
+            </DropdownMenuLabel>
+          </DropdownMenuGroup>
+        )}
+        {user.role === "owner" && (
+          <DropdownMenuItem onClick={() => setConfirming(true)}>
+            <RotateCcw />
+            Reset data
+          </DropdownMenuItem>
+        )}
+      </AccountMenu>
+      {confirming && (
+        <ConfirmAction
+          defaultOpen
+          onOpenChange={(open) => !open && setConfirming(false)}
+          title="Reset this business's data?"
+          description="Products, stock, orders and rentals saved in this browser go back to the starting data. Accounts are not affected."
+          confirmLabel="Reset data"
+          destructive
+          onConfirm={() => {
+            resetDemoData()
+            toast.success("Data reset")
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+/** Name, theme toggle and log out. `children` go between the theme toggle and log out. */
+export function AccountMenu({ children }: { children?: React.ReactNode }) {
+  const user = useSessionUser()
+  const { resolvedTheme, setTheme } = useTheme()
   const [pending, startTransition] = useTransition()
 
   return (
@@ -57,30 +100,12 @@ export function UserMenu() {
                 <div className="text-xs font-normal">{user.email}</div>
               </DropdownMenuLabel>
             </DropdownMenuGroup>
-            {!scope.isAdmin && (
-              <DropdownMenuGroup>
-                <DropdownMenuLabel className="flex items-start gap-2 text-xs font-normal">
-                  <MapPin className="mt-0.5 size-3.5 shrink-0" />
-                  {scope.locations.map((l) => l.name).join(", ") || "No locations assigned"}
-                </DropdownMenuLabel>
-              </DropdownMenuGroup>
-            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}>
               {resolvedTheme === "dark" ? <Sun /> : <Moon />}
               {resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
             </DropdownMenuItem>
-            {user.role === "admin" && (
-              <DropdownMenuItem
-                onClick={() => {
-                  resetDemoData()
-                  toast.success("Demo data restored")
-                }}
-              >
-                <RotateCcw />
-                Reset demo data
-              </DropdownMenuItem>
-            )}
+            {children}
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" disabled={pending} onClick={() => startTransition(() => logout())}>
               <LogOut />

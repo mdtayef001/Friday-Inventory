@@ -5,6 +5,7 @@ import type { Role } from "@/lib/types"
 
 export const SESSION_COOKIE = "friday_session"
 const SESSION_HOURS = 12
+const ROLES: Role[] = ["superadmin", "owner", "manager", "staff"]
 
 export interface SessionPayload {
   userId: string
@@ -32,7 +33,7 @@ export async function decrypt(token: string | undefined): Promise<SessionPayload
   if (!token) return null
   try {
     const { payload } = await jwtVerify(token, key(), { algorithms: ["HS256"] })
-    if (typeof payload.userId !== "string" || typeof payload.role !== "string") return null
+    if (typeof payload.userId !== "string" || !ROLES.includes(payload.role as Role)) return null
     return payload as unknown as SessionPayload
   } catch {
     return null

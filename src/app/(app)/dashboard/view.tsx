@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
 import { PageBody, PageHeader, Pill, StatCard } from "@/components/common"
-import { useScope, useSessionUser } from "@/components/session-provider"
+import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { SHIPMENT_STATUS } from "@/components/status"
 import { formatMoney, formatNumber, timeAgo } from "@/lib/format"
 import { isOverdue, rentalOverdueDays } from "@/lib/rental"
@@ -22,6 +22,9 @@ const OPEN: ShipmentStatus[] = ["pending", "processing", "in_delivery"]
 export function DashboardView() {
   const user = useSessionUser()
   const scope = useScope()
+  const { canOpen, module } = usePermissions()
+  const showOrders = module("tracking")
+  const showRentals = module("rentals")
   const products = useStore((s) => s.products)
   const stock = useStore((s) => s.stock)
   const rentals = useStore((s) => s.rentals)
@@ -68,24 +71,34 @@ export function DashboardView() {
     <PageBody>
       <PageHeader
         title={`${greeting}, ${user.name.split(" ")[0]}`}
-        description={scope.isAdmin ? "Here's what's happening across all your locations." : `Here's what's happening at ${scope.locations.map((l) => l.name).join(" & ")}.`}
+        description={
+          scope.isOwner
+            ? "Here's what's happening across all your locations."
+            : `Here's what's happening at ${scope.locations.map((l) => l.name).join(" & ")}.`
+        }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Products" value={formatNumber(products.length)} hint={`${formatNumber(data.units)} units in stock`} icon={Package} />
         <StatCard label="Stock value (cost)" value={formatMoney(data.value)} icon={DollarSign} tone="green" />
-        <StatCard label="Open orders" value={data.openOrders} hint={`${data.byStatus[2].count} out for delivery`} icon={Truck} tone="violet" />
-        <StatCard
-          label="Active rentals"
-          value={data.active.length}
-          hint={data.overdue.length ? <span className="font-medium text-red-600 dark:text-red-400">{data.overdue.length} overdue</span> : "None overdue"}
-          icon={CalendarClock}
-          tone={data.overdue.length ? "red" : "amber"}
-        />
+        {showOrders && (
+          <StatCard label="Open orders" value={data.openOrders} hint={`${data.byStatus[2].count} out for delivery`} icon={Truck} tone="violet" />
+        )}
+        {showRentals && (
+          <StatCard
+            label="Active rentals"
+            value={data.active.length}
+            hint={
+              data.overdue.length ? <span className="font-medium text-red-600 dark:text-red-400">{data.overdue.length} overdue</span> : "None overdue"
+            }
+            icon={CalendarClock}
+            tone={data.overdue.length ? "red" : "amber"}
+          />
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+        <Card className={showOrders ? "lg:col-span-2" : "lg:col-span-3"}>
           <CardHeader>
             <CardTitle>Units in stock by location</CardTitle>
             <CardDescription>Hover a bar for the exact number.</CardDescription>
@@ -103,34 +116,36 @@ export function DashboardView() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Orders in progress</CardTitle>
-            <CardAction>
-              <Button variant="ghost" size="sm" render={<Link href="/tracking" />} nativeButton={false}>
-                View
-                <ArrowRight />
-              </Button>
-            </CardAction>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {data.byStatus.map(({ status, count }) => (
-              <div key={status} className="space-y-1.5">
-                <div className="flex items-center justify-between text-sm">
-                  <span>{SHIPMENT_STATUS[status].label}</span>
-                  <span className="font-medium tabular-nums">{count}</span>
+        {showOrders && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Orders in progress</CardTitle>
+              <CardAction>
+                <Button variant="ghost" size="sm" render={<Link href="/tracking" />} nativeButton={false}>
+                  View
+                  <ArrowRight />
+                </Button>
+              </CardAction>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {data.byStatus.map(({ status, count }) => (
+                <div key={status} className="space-y-1.5">
+                  <div className="flex items-center justify-between text-sm">
+                    <span>{SHIPMENT_STATUS[status].label}</span>
+                    <span className="font-medium tabular-nums">{count}</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-muted">
+                    <div className="h-full rounded-full bg-primary" style={{ width: `${data.openOrders ? (count / data.openOrders) * 100 : 0}%` }} />
+                  </div>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-muted">
-                  <div className="h-full rounded-full bg-primary" style={{ width: `${data.openOrders ? (count / data.openOrders) * 100 : 0}%` }} />
-                </div>
-              </div>
-            ))}
-            {data.openOrders === 0 && <p className="text-sm text-muted-foreground">No orders in progress.</p>}
-          </CardContent>
-        </Card>
+              ))}
+              {data.openOrders === 0 && <p className="text-sm text-muted-foreground">No orders in progress.</p>}
+            </CardContent>
+          </Card>
+        )}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className={showRentals ? "grid gap-6 lg:grid-cols-3" : "grid gap-6 lg:grid-cols-2"}>
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -141,7 +156,11 @@ export function DashboardView() {
           </CardHeader>
           <CardContent className="space-y-3">
             {data.lowStock.slice(0, 6).map(({ product, location, quantity }) => (
-              <Link key={product.id + location} href={`/products/${product.id}`} className="flex items-center justify-between gap-3 rounded-lg text-sm hover:underline">
+              <Link
+                key={product.id + location}
+                href={`/products/${product.id}`}
+                className="flex items-center justify-between gap-3 rounded-lg text-sm hover:underline"
+              >
                 <span className="min-w-0">
                   <span className="block truncate font-medium">{product.name}</span>
                   <span className="block truncate text-xs text-muted-foreground">{location}</span>
@@ -158,34 +177,36 @@ export function DashboardView() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <CalendarClock className="size-4 text-red-500" />
-              Overdue rentals
-            </CardTitle>
-            <CardDescription>Items that should be back by now</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {data.overdue.slice(0, 6).map((r) => {
-              const client = lookups.client.get(r.clientId)
-              const days = rentalOverdueDays(r)
-              return (
-                <Link key={r.id} href="/rentals" className="flex items-center justify-between gap-3 text-sm hover:underline">
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium">{lookups.product.get(r.productId)?.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {client?.name}
-                      {client?.phone ? ` · ${client.phone}` : ""}
+        {showRentals && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CalendarClock className="size-4 text-red-500" />
+                Overdue rentals
+              </CardTitle>
+              <CardDescription>Items that should be back by now</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {data.overdue.slice(0, 6).map((r) => {
+                const client = lookups.client.get(r.clientId)
+                const days = rentalOverdueDays(r)
+                return (
+                  <Link key={r.id} href="/rentals" className="flex items-center justify-between gap-3 text-sm hover:underline">
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">{lookups.product.get(r.productId)?.name}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {client?.name}
+                        {client?.phone ? ` · ${client.phone}` : ""}
+                      </span>
                     </span>
-                  </span>
-                  <Pill tone="red">{days}d late</Pill>
-                </Link>
-              )
-            })}
-            {data.overdue.length === 0 && <p className="text-sm text-muted-foreground">No overdue rentals. Nice!</p>}
-          </CardContent>
-        </Card>
+                    <Pill tone="red">{days}d late</Pill>
+                  </Link>
+                )
+              })}
+              {data.overdue.length === 0 && <p className="text-sm text-muted-foreground">No overdue rentals. Nice!</p>}
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
@@ -193,7 +214,7 @@ export function DashboardView() {
               <Boxes className="size-4 text-primary" />
               Recent activity
             </CardTitle>
-            {user.role === "admin" && (
+            {canOpen("/activity") && (
               <CardAction>
                 <Button variant="ghost" size="sm" render={<Link href="/activity" />} nativeButton={false}>
                   All

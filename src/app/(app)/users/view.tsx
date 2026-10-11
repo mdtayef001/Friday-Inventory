@@ -18,19 +18,20 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ConfirmAction, Field, PageBody, PageHeader, Pill, SimpleSelect, type PillTone } from "@/components/common"
-import { useScope, useSessionUser } from "@/components/session-provider"
+import { useBusiness, useScope, useSessionUser } from "@/components/session-provider"
 import { initials } from "@/components/user-menu"
 import { creatableRoles, ROLE_LABEL } from "@/lib/auth/roles"
 import { createUser, deleteUser, resetUserPassword, setUserActive, type ActionResult } from "@/lib/auth/user-actions"
 import { formatDate } from "@/lib/format"
 import { useStore } from "@/lib/store"
-import type { ManagedUser, Role } from "@/lib/types"
+import { PLANS, formatLimit } from "@/lib/plans"
+import type { ManagedUser, Role, TenantRole } from "@/lib/types"
 
-const ROLE_TONE: Record<Role, PillTone> = { admin: "violet", manager: "blue", staff: "gray" }
-const ROLE_HELP: Record<Role, string> = {
-  admin: "Full access to everything, including all locations and accounts.",
-  manager: "Runs their assigned shops: stock, orders, rentals, clients and staff.",
-  staff: "Can only use Quick Entry to add products and stock.",
+const ROLE_TONE: Record<Role, PillTone> = { superadmin: "violet", owner: "violet", manager: "blue", staff: "gray" }
+const ROLE_HELP: Record<TenantRole, string> = {
+  owner: "Full access to the business: every location, account and setting.",
+  manager: "Runs their assigned shops. What else they can do is set in Business Settings.",
+  staff: "Uses Quick Entry to add products and stock at their shops.",
 }
 
 function showResult(result: ActionResult, success: string) {
@@ -39,8 +40,11 @@ function showResult(result: ActionResult, success: string) {
   return result.ok
 }
 
-export function UsersView({ users }: { users: ManagedUser[] }) {
+export function UsersView({ users, teamSize }: { users: ManagedUser[]; teamSize: number }) {
   const me = useSessionUser()
+  const business = useBusiness()
+  const limit = PLANS[business.plan].limits.users
+  const full = teamSize >= limit
   const locations = useStore((s) => s.locations)
   const [creating, setCreating] = useState(false)
   const [resetting, setResetting] = useState<ManagedUser | null>(null)
@@ -51,16 +55,16 @@ export function UsersView({ users }: { users: ManagedUser[] }) {
   return (
     <PageBody>
       <PageHeader
-        title={me.role === "admin" ? "Users & staff" : "My staff"}
+        title={me.role === "owner" ? "Users & staff" : "My staff"}
         description={
-          me.role === "admin"
-            ? "Only admins and managers can create accounts. There is no public sign-up."
+          me.role === "owner"
+            ? `Accounts for ${business.name}. There is no public sign-up. ${teamSize} of ${formatLimit(limit)} users on the ${PLANS[business.plan].name} plan.`
             : "Create logins for staff at your shops. Staff can only add products and stock."
         }
         actions={
-          <Button onClick={() => setCreating(true)}>
+          <Button onClick={() => setCreating(true)} disabled={full} title={full ? "User limit reached for your plan" : undefined}>
             <UserPlus />
-            {me.role === "admin" ? "Create account" : "Add staff member"}
+            {me.role === "owner" ? "Create account" : "Add staff member"}
           </Button>
         }
       />
@@ -100,7 +104,7 @@ export function UsersView({ users }: { users: ManagedUser[] }) {
                       <Pill tone={ROLE_TONE[u.role]}>{ROLE_LABEL[u.role]}</Pill>
                     </TableCell>
                     <TableCell className="max-w-64 text-sm text-muted-foreground">
-                      {u.role === "admin" ? "All locations" : u.locationIds.map(locationName).join(", ")}
+                      {u.role === "owner" ? "All locations" : u.locationIds.map(locationName).join(", ")}
                     </TableCell>
                     <TableCell>{u.active ? <Pill tone="green">Active</Pill> : <Pill tone="red">Disabled</Pill>}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{formatDate(u.createdAt)}</TableCell>
@@ -172,7 +176,7 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
   const scope = useScope()
   const roles = creatableRoles(me.role)
   const [pending, startTransition] = useTransition()
-  const [role, setRole] = useState<Role>(roles.includes("staff") ? "staff" : roles[0])
+  const [role, setRole] = useState<TenantRole>(roles.includes("staff") ? "staff" : roles[0])
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -190,7 +194,7 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
     e.preventDefault()
     setError("")
     startTransition(async () => {
-      const result = await createUser({ name, email, password, role, locationIds: role === "admin" ? [] : locationIds })
+      const result = await createUser({ name, email, password, role, locationIds: role === "owner" ? [] : locationIds })
       if (result.ok) {
         toast.success(`Account created for ${name}`)
         onClose()
@@ -203,12 +207,12 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
       <DialogContent className="sm:max-w-lg">
         <form onSubmit={submit} className="grid gap-4">
           <DialogHeader>
-            <DialogTitle>{me.role === "admin" ? "Create account" : "Add staff member"}</DialogTitle>
+            <DialogTitle>{me.role === "owner" ? "Create account" : "Add staff member"}</DialogTitle>
             <DialogDescription>They log in on the normal login page with this email and password.</DialogDescription>
           </DialogHeader>
           {roles.length > 1 && (
             <Field label="Role" hint={ROLE_HELP[role]}>
-              <SimpleSelect value={role} onChange={(v) => setRole(v as Role)} options={roles.map((r) => ({ value: r, label: ROLE_LABEL[r] }))} />
+              <SimpleSelect value={role} onChange={(v) => setRole(v as TenantRole)} options={roles.map((r) => ({ value: r, label: ROLE_LABEL[r] }))} />
             </Field>
           )}
           <div className="grid gap-4 sm:grid-cols-2">
@@ -227,7 +231,7 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
               </Button>
             </div>
           </Field>
-          {role !== "admin" && (
+          {role !== "owner" && (
             <Field label="Works at">
               <div className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">
                 {scope.locations.map((l) => (

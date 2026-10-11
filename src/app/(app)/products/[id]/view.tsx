@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { EmptyState, PageBody, PageHeader, Pill, StatCard } from "@/components/common"
-import { useScope } from "@/components/session-provider"
+import { usePermissions, useScope } from "@/components/session-provider"
 import { RentalStatusPill, ShipmentStatusPill, StockPill } from "@/components/status"
 import { StockAdjustDialog } from "@/components/stock-adjust-dialog"
 import { formatDate, formatMoney, formatNumber } from "@/lib/format"
@@ -18,6 +18,7 @@ import { useLookups } from "@/lib/store/hooks"
 
 export function ProductDetailView({ id }: { id: string }) {
   const scope = useScope()
+  const canEdit = usePermissions().can("managerProducts")
   const product = useStore((s) => s.products.find((p) => p.id === id))
   const stock = useStore((s) => s.stock)
   const rentals = useStore((s) => s.rentals)
@@ -78,10 +79,12 @@ export function ProductDetailView({ id }: { id: string }) {
         description={`${product.category} · SKU ${product.sku}${product.barcode ? ` · Barcode ${product.barcode}` : ""}`}
         actions={
           <>
-            <Button variant="outline" render={<Link href={`/products/${id}/edit`} />} nativeButton={false}>
-              <Pencil />
-              Edit
-            </Button>
+            {canEdit && (
+              <Button variant="outline" render={<Link href={`/products/${id}/edit`} />} nativeButton={false}>
+                <Pencil />
+                Edit
+              </Button>
+            )}
             <Button onClick={() => setAdjust({ key: Date.now() })}>
               <Boxes />
               Update stock

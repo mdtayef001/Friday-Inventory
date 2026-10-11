@@ -5,7 +5,7 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { SessionProvider } from "@/components/session-provider"
 import { PageSkeleton, StoreGate } from "@/components/store-gate"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
-import { getCurrentUser } from "@/lib/auth/dal"
+import { getContext } from "@/lib/auth/dal"
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   // The session is read at request time, so it streams in behind Suspense.
@@ -17,12 +17,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 }
 
 async function AuthenticatedShell({ children }: { children: React.ReactNode }) {
-  const user = await getCurrentUser()
-  if (!user) redirect("/logout")
+  const ctx = await getContext()
+  if (!ctx) redirect("/logout")
+  const { user, business } = ctx
+  if (!business) redirect("/platform")
 
   return (
-    <SessionProvider user={user}>
-      <StoreGate>
+    <SessionProvider user={user} business={business}>
+      <StoreGate business={business}>
         <SidebarProvider>
           <AppSidebar />
           <SidebarInset>
