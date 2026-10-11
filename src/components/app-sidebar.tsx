@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   ArrowLeftRight,
+  CreditCard,
   Boxes,
   CalendarClock,
   History,
@@ -68,6 +69,7 @@ const NAV = [
       { href: "/users", label: "Users & Staff", icon: UserCog },
       { href: "/activity", label: "Activity Log", icon: History },
       { href: "/settings", label: "Business Settings", icon: Settings },
+      { href: "/billing", label: "Billing", icon: CreditCard },
     ],
   },
 ]

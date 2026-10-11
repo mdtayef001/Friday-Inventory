@@ -12,14 +12,14 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ConfirmAction, Field, PageBody, PageHeader, Pill } from "@/components/common"
-import { BusinessStatusPill } from "@/components/platform"
+import { BusinessStatusPill, PaymentsTable } from "@/components/platform"
 import { initials } from "@/components/user-menu"
-import { deleteBusiness, resetOwnerPassword, setBusinessStatus } from "@/lib/auth/platform-actions"
+import { deleteBusiness, resetOwnerPassword, setBusinessSuspended } from "@/lib/auth/platform-actions"
 import type { ActionResult } from "@/lib/auth/user-actions"
 import { ROLE_LABEL } from "@/lib/auth/roles"
 import { formatDate, timeAgo } from "@/lib/format"
-import { MODULES, PERMISSIONS, PRICE_LABEL } from "@/lib/business"
-import type { BusinessSummary, ManagedUser, ModuleId, PermissionId } from "@/lib/types"
+import { MODULES, PERMISSIONS, PRICE_LABEL, accessEndsAt, daysLeft } from "@/lib/business"
+import type { BusinessSummary, ManagedUser, ModuleId, Payment, PermissionId } from "@/lib/types"
 
 function showResult(result: ActionResult, success: string) {
   if (result.ok) toast.success(success)
@@ -27,7 +27,7 @@ function showResult(result: ActionResult, success: string) {
   return result.ok
 }
 
-export function BusinessDetailView({ business, users }: { business: BusinessSummary; users: ManagedUser[] }) {
+export function BusinessDetailView({ business, users, payments }: { business: BusinessSummary; users: ManagedUser[]; payments: Payment[] }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [resetting, setResetting] = useState<ManagedUser | null>(null)
@@ -43,33 +43,26 @@ export function BusinessDetailView({ business, users }: { business: BusinessSumm
         title={business.name}
         description={`${business.industry || "No industry set"} · joined ${formatDate(business.createdAt)}`}
         actions={
-          <>
-            {business.status === "suspended" ? (
-              <Button disabled={pending} onClick={() => run(() => setBusinessStatus(business.id, "active"), "Business restored")}>
-                <CheckCircle2 />
-                Restore access
-              </Button>
-            ) : (
-              <ConfirmAction
-                trigger={
-                  <Button variant="outline" disabled={pending}>
-                    <Ban />
-                    Suspend
-                  </Button>
-                }
-                title={`Suspend ${business.name}?`}
-                description="Everyone in this business is logged out and can't log in until you restore access. Nothing is deleted."
-                confirmLabel="Suspend"
-                destructive
-                onConfirm={async () => showResult(await setBusinessStatus(business.id, "suspended"), "Business suspended")}
-              />
-            )}
-            {business.status === "trial" && (
-              <Button variant="outline" disabled={pending} onClick={() => run(() => setBusinessStatus(business.id, "active"), "Marked as paying")}>
-                End trial
-              </Button>
-            )}
-          </>
+          business.suspended ? (
+            <Button disabled={pending} onClick={() => run(() => setBusinessSuspended(business.id, false), "Access restored")}>
+              <CheckCircle2 />
+              Restore access
+            </Button>
+          ) : (
+            <ConfirmAction
+              trigger={
+                <Button variant="outline" disabled={pending}>
+                  <Ban />
+                  Suspend
+                </Button>
+              }
+              title={`Suspend ${business.name}?`}
+              description="Everyone in this business is logged out and can't log in, even if they pay, until you restore access. Nothing is deleted."
+              confirmLabel="Suspend"
+              destructive
+              onConfirm={async () => showResult(await setBusinessSuspended(business.id, true), "Business suspended")}
+            />
+          )
         }
       />
 
@@ -88,15 +81,21 @@ export function BusinessDetailView({ business, users }: { business: BusinessSumm
             <p className="text-2xl font-semibold tabular-nums">{PRICE_LABEL}</p>
             <dl className="grid grid-cols-2 gap-2 text-sm">
               <div className="rounded-lg border p-2">
-                <dt className="text-xs text-muted-foreground">Status</dt>
-                <dd className="font-medium">{business.status === "active" ? "Paying" : business.status === "trial" ? "Free trial" : "Suspended"}</dd>
+                <dt className="text-xs text-muted-foreground">{business.paidUntil ? "Paid until" : "Trial ends"}</dt>
+                <dd className="font-medium">{formatDate(accessEndsAt(business))}</dd>
               </div>
               <div className="rounded-lg border p-2">
-                <dt className="text-xs text-muted-foreground">Users</dt>
-                <dd className="font-medium tabular-nums">{business.userCount}</dd>
+                <dt className="text-xs text-muted-foreground">Days left</dt>
+                <dd className="font-medium tabular-nums">{daysLeft(accessEndsAt(business))}</dd>
               </div>
             </dl>
-            <p className="text-xs text-muted-foreground">Online payment isn&apos;t set up yet. Suspend a business that hasn&apos;t paid and restore it once it does.</p>
+            <p className="text-xs text-muted-foreground">
+              {business.status === "unpaid"
+                ? "Locked for not paying. The owner can log in only to pay; access comes back as soon as they do."
+                : business.suspended
+                  ? "Suspended by you. Paying won't unlock it until you restore access."
+                  : "Locks itself automatically if the owner hasn't paid by this date."}
+            </p>
           </CardContent>
         </Card>
 
@@ -180,6 +179,14 @@ export function BusinessDetailView({ business, users }: { business: BusinessSumm
             </TableBody>
           </Table>
         </div>
+      </Card>
+
+      <Card className="py-0">
+        <CardHeader className="pt-6">
+          <CardTitle>Payments</CardTitle>
+          <CardDescription>Every payment attempt by this business through SSLCommerz.</CardDescription>
+        </CardHeader>
+        <PaymentsTable payments={payments} />
       </Card>
 
       <Card className="border-destructive/30">

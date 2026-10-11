@@ -9,5 +9,5 @@ export default async function BusinessPage({ params }: PageProps<"/platform/busi
   const { id } = await params
   const data = await getBusiness(id)
   if (!data) notFound()
-  return <BusinessDetailView business={data.business} users={data.users} />
+  return <BusinessDetailView business={data.business} users={data.users} payments={data.payments} />
 }

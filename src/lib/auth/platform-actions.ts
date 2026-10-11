@@ -2,7 +2,8 @@
 
 import { refresh } from "next/cache"
 import { z } from "zod"
-import type { BusinessStatus, BusinessSummary, ManagedUser } from "@/lib/types"
+import { listPayments, removeBusinessPayments } from "@/lib/billing/payments"
+import type { BusinessSummary, ManagedUser, Payment } from "@/lib/types"
 import { requireRole } from "./dal"
 import { findBusiness, insertBusiness, listBusinesses, patchBusiness, removeBusiness } from "./tenants"
 import type { ActionResult } from "./user-actions"
@@ -29,18 +30,23 @@ export async function getBusinesses(): Promise<BusinessSummary[]> {
   return listBusinesses().map((b) => summarize(b, users))
 }
 
-export async function getBusiness(id: string): Promise<{ business: BusinessSummary; users: ManagedUser[] } | null> {
+export async function getBusiness(id: string): Promise<{ business: BusinessSummary; users: ManagedUser[]; payments: Payment[] } | null> {
   await requireSuper()
   const business = findBusiness(id)
   if (!business) return null
   const users = listUsers(id)
-  return { business: summarize(business, users), users }
+  return { business: summarize(business, users), users, payments: listPayments(id) }
+}
+
+/** Every payment attempt on the platform, newest first. */
+export async function getPayments(): Promise<Payment[]> {
+  await requireSuper()
+  return listPayments()
 }
 
 const CreateSchema = z.object({
   name: z.string().trim().min(2, "Business name must be at least 2 characters").max(80),
   industry: z.string().trim().max(60),
-  trial: z.boolean(),
   ownerName: z.string().trim().min(2, "Owner name must be at least 2 characters").max(80),
   ownerEmail: z.email("Enter a valid owner email").trim(),
   ownerPassword: z.string().min(8, "Password must be at least 8 characters").max(128),
@@ -53,17 +59,16 @@ export async function createBusiness(input: z.input<typeof CreateSchema>): Promi
   const d = parsed.data
   if (emailTaken(d.ownerEmail)) return { ok: false, error: "An account with this email already exists." }
 
-  const business = insertBusiness({ name: d.name, industry: d.industry, status: d.trial ? "trial" : "active" })
+  const business = insertBusiness({ name: d.name, industry: d.industry })
   insertUser({ name: d.ownerName, email: d.ownerEmail, password: d.ownerPassword, role: "owner", tenantId: business.id, locationIds: [], createdBy: user.id })
   refresh()
   return { ok: true, id: business.id }
 }
 
-export async function setBusinessStatus(id: string, status: BusinessStatus): Promise<ActionResult> {
+/** Switch a business off by hand, or back on. Paying doesn't lift a manual suspension. */
+export async function setBusinessSuspended(id: string, suspended: boolean): Promise<ActionResult> {
   await requireSuper()
-  if (!["trial", "active", "suspended"].includes(status) || !patchBusiness(id, { status })) {
-    return { ok: false, error: "Business not found." }
-  }
+  if (typeof suspended !== "boolean" || !patchBusiness(id, { suspended })) return { ok: false, error: "Business not found." }
   refresh()
   return { ok: true }
 }
@@ -84,6 +89,7 @@ export async function deleteBusiness(id: string): Promise<ActionResult> {
   await requireSuper()
   if (!removeBusiness(id)) return { ok: false, error: "Business not found." }
   removeTenantUsers(id)
+  removeBusinessPayments(id)
   refresh()
   return { ok: true }
 }

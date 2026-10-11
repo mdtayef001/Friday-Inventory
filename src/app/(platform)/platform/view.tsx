@@ -1,23 +1,27 @@
 "use client"
 
 import Link from "next/link"
-import { ArrowRight, Building2, CircleDollarSign, Clock, Users } from "lucide-react"
+import { ArrowRight, Building2, CircleDollarSign, Clock, Lock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { PageBody, PageHeader, StatCard } from "@/components/common"
-import { BusinessStatusPill, STATUS } from "@/components/platform"
-import { formatNumber, timeAgo } from "@/lib/format"
-import { PRICE_LABEL, SUBSCRIPTION, formatTaka } from "@/lib/business"
-import type { BusinessStatus, BusinessSummary } from "@/lib/types"
+import { BusinessStatusPill, PaymentStatusPill, STATUS } from "@/components/platform"
+import { timeAgo } from "@/lib/format"
+import { PRICE_LABEL, formatTaka } from "@/lib/business"
+import type { BusinessStatus, BusinessSummary, Payment } from "@/lib/types"
 
-const ORDER: BusinessStatus[] = ["active", "trial", "suspended"]
+const ORDER: BusinessStatus[] = ["active", "trial", "unpaid", "suspended"]
 
-export function PlatformOverview({ businesses }: { businesses: BusinessSummary[] }) {
-  const paying = businesses.filter((b) => b.status === "active")
-  const mrr = paying.length * SUBSCRIPTION.price
+export function PlatformOverview({ businesses, payments }: { businesses: BusinessSummary[]; payments: Payment[] }) {
+  const paid = payments.filter((p) => p.status === "paid")
+  const monthStart = new Date()
+  monthStart.setDate(1)
+  monthStart.setHours(0, 0, 0, 0)
+  const thisMonth = paid.filter((p) => p.paidAt && new Date(p.paidAt) >= monthStart)
+  const collected = thisMonth.reduce((sum, p) => sum + p.amount, 0)
+  const paying = businesses.filter((b) => b.status === "active").length
   const trials = businesses.filter((b) => b.status === "trial").length
-  const suspended = businesses.filter((b) => b.status === "suspended").length
-  const users = businesses.reduce((sum, b) => sum + b.userCount, 0)
+  const unpaid = businesses.filter((b) => b.status === "unpaid").length
 
   return (
     <PageBody>
@@ -33,10 +37,10 @@ export function PlatformOverview({ businesses }: { businesses: BusinessSummary[]
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Businesses" value={businesses.length} hint={`${suspended} suspended`} icon={Building2} />
-        <StatCard label="Monthly revenue" value={formatTaka(mrr)} hint={`${paying.length} paying × ${PRICE_LABEL}`} icon={CircleDollarSign} tone="green" />
-        <StatCard label="On free trial" value={trials} icon={Clock} tone="amber" />
-        <StatCard label="Users" value={formatNumber(users)} hint="Across all businesses" icon={Users} tone="violet" />
+        <StatCard label="Businesses" value={businesses.length} hint={`${paying} paying`} icon={Building2} />
+        <StatCard label="Collected this month" value={formatTaka(collected)} hint={`${thisMonth.length} payment(s)`} icon={CircleDollarSign} tone="green" />
+        <StatCard label="On free trial" value={trials} icon={Clock} tone="violet" />
+        <StatCard label="Locked for not paying" value={unpaid} hint="They can log in only to pay" icon={Lock} tone={unpaid ? "amber" : "default"} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -65,34 +69,66 @@ export function PlatformOverview({ businesses }: { businesses: BusinessSummary[]
 
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Newest businesses</CardTitle>
+            <CardTitle>Latest payments</CardTitle>
             <CardAction>
-              <Button variant="ghost" size="sm" render={<Link href="/platform/businesses" />} nativeButton={false}>
+              <Button variant="ghost" size="sm" render={<Link href="/platform/payments" />} nativeButton={false}>
                 All
                 <ArrowRight />
               </Button>
             </CardAction>
           </CardHeader>
           <CardContent className="space-y-1">
-            {businesses.slice(0, 6).map((b) => (
+            {payments.slice(0, 6).map((p) => (
               <Link
-                key={b.id}
-                href={`/platform/businesses/${b.id}`}
+                key={p.id}
+                href={`/platform/businesses/${p.businessId}`}
                 className="-mx-2 flex items-center justify-between gap-3 rounded-lg px-2 py-2 text-sm hover:bg-muted/60"
               >
                 <span className="min-w-0">
-                  <span className="block truncate font-medium">{b.name}</span>
+                  <span className="block truncate font-medium">{p.businessName}</span>
                   <span className="block truncate text-xs text-muted-foreground">
-                    {b.owner?.name ?? "No owner"} · joined {timeAgo(b.createdAt)}
+                    {p.payer.name} · {p.method ?? "—"} · {timeAgo(p.paidAt ?? p.createdAt)}
                   </span>
                 </span>
-                <BusinessStatusPill status={b.status} />
+                <span className="flex shrink-0 items-center gap-2">
+                  <span className="font-medium tabular-nums">{formatTaka(p.amount)}</span>
+                  <PaymentStatusPill status={p.status} />
+                </span>
               </Link>
             ))}
-            {businesses.length === 0 && <p className="text-sm text-muted-foreground">No businesses yet.</p>}
+            {payments.length === 0 && <p className="text-sm text-muted-foreground">No payments yet.</p>}
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Newest businesses</CardTitle>
+          <CardAction>
+            <Button variant="ghost" size="sm" render={<Link href="/platform/businesses" />} nativeButton={false}>
+              All
+              <ArrowRight />
+            </Button>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="space-y-1">
+          {businesses.slice(0, 5).map((b) => (
+            <Link
+              key={b.id}
+              href={`/platform/businesses/${b.id}`}
+              className="-mx-2 flex items-center justify-between gap-3 rounded-lg px-2 py-2 text-sm hover:bg-muted/60"
+            >
+              <span className="min-w-0">
+                <span className="block truncate font-medium">{b.name}</span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {b.owner?.name ?? "No owner"} · joined {timeAgo(b.createdAt)}
+                </span>
+              </span>
+              <BusinessStatusPill status={b.status} />
+            </Link>
+          ))}
+        </CardContent>
+      </Card>
     </PageBody>
   )
 }

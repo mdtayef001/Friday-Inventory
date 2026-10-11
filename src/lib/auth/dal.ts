@@ -12,6 +12,8 @@ export interface Context {
   user: SessionUser
   /** The user's business. Null only for the platform super admin. */
   business: Business | null
+  /** Trial or paid month ran out. Only the owner gets in, and only to pay. */
+  locked: boolean
 }
 
 /**
@@ -28,10 +30,12 @@ export const getContext = cache(async (): Promise<Context | null> => {
   const { id, name, email, role, tenantId, locationIds } = record
   const user: SessionUser = { id, name, email, role, tenantId, locationIds }
 
-  if (role === "superadmin") return { user, business: null }
+  if (role === "superadmin") return { user, business: null, locked: false }
   const business = tenantId ? findBusiness(tenantId) : null
   if (!business || business.status === "suspended") return null
-  return { user, business }
+  const locked = business.status === "unpaid"
+  if (locked && role !== "owner") return null
+  return { user, business, locked }
 })
 
 export async function getCurrentUser() {
@@ -42,6 +46,7 @@ export async function getCurrentUser() {
 export async function requireRole(roles: Role[]): Promise<Context> {
   const ctx = await getContext()
   if (!ctx) redirect("/logout")
+  if (ctx.locked) redirect("/subscribe")
   if (!roles.includes(ctx.user.role)) redirect(ROLE_HOME[ctx.user.role])
   return ctx
 }
@@ -50,7 +55,16 @@ export async function requireRole(roles: Role[]): Promise<Context> {
 export async function requireAccess(path: string): Promise<{ user: SessionUser; business: Business }> {
   const ctx = await getContext()
   if (!ctx) redirect("/logout")
+  if (ctx.locked) redirect("/subscribe")
   const { user, business } = ctx
   if (!business || !canAccess(user, path, business.settings)) redirect(ROLE_HOME[user.role])
   return { user, business }
+}
+
+/** Billing pages: the owner, even while the business is locked for not paying. */
+export async function requireOwner(): Promise<{ user: SessionUser; business: Business; locked: boolean }> {
+  const ctx = await getContext()
+  if (!ctx) redirect("/logout")
+  if (ctx.user.role !== "owner" || !ctx.business) redirect(ROLE_HOME[ctx.user.role])
+  return { user: ctx.user, business: ctx.business, locked: ctx.locked }
 }

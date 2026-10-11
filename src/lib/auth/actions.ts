@@ -45,16 +45,24 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   }
 
   attempts.delete(key)
+  let home = ROLE_HOME[user.role]
   if (user.role !== "superadmin") {
     const business = user.tenantId ? findBusiness(user.tenantId) : null
     if (!business) return { error: "Your business account no longer exists.", email }
     if (business.status === "suspended") {
       return { error: `${business.name} is suspended. Please contact support to restore access.`, email }
     }
+    if (business.status === "unpaid") {
+      // The owner can log in to pay; everyone else waits for the owner.
+      if (user.role !== "owner") {
+        return { error: `The subscription for ${business.name} has ended. Ask the owner to renew it.`, email }
+      }
+      home = "/subscribe"
+    }
   }
   markLogin(user.id)
   await createSession(user.id, user.role)
-  redirect(ROLE_HOME[user.role])
+  redirect(home)
 }
 
 export async function logout() {

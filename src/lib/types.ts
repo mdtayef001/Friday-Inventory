@@ -29,7 +29,13 @@ export interface ManagedUser extends SessionUser {
 
 // ---------- Platform (multi-business) ----------
 
-export type BusinessStatus = "trial" | "active" | "suspended"
+/**
+ * Worked out from dates on every request, never stored:
+ * trial: inside the 7-day free trial. active: paid up.
+ * unpaid: trial or paid month ran out, so access is locked until the owner pays.
+ * suspended: the super admin switched the business off by hand.
+ */
+export type BusinessStatus = "trial" | "active" | "unpaid" | "suspended"
 export type ModuleId = "rentals" | "tracking" | "transfers"
 
 /** Things an owner can switch on or off for managers and staff. */
@@ -53,8 +59,38 @@ export interface Business {
   name: string
   industry: string
   status: BusinessStatus
+  /** Set by the super admin. Blocks everyone, even after paying. */
+  suspended: boolean
+  trialEndsAt: string
+  /** End of the last paid month. Null until the first payment. */
+  paidUntil: string | null
   createdAt: string
   settings: BusinessSettings
+}
+
+export type PaymentStatus = "pending" | "paid" | "failed" | "cancelled"
+
+export interface Payment {
+  id: string
+  /** Our transaction id, sent to SSLCommerz as tran_id. */
+  tranId: string
+  businessId: string
+  businessName: string
+  amount: number
+  currency: string
+  status: PaymentStatus
+  /** e.g. "bKash", "VISA-Dutch Bangla". Filled in once paid. */
+  method?: string
+  createdAt: string
+  paidAt?: string
+  /** The month this payment covers. */
+  periodStart?: string
+  periodEnd?: string
+  invoiceNo?: string
+  /** SSLCommerz references, kept for support and refunds. */
+  valId?: string
+  bankTranId?: string
+  payer: { name: string; email: string; phone: string }
 }
 
 export interface BusinessSummary extends Business {

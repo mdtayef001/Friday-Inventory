@@ -7,7 +7,6 @@ import { Building2, Loader2, Plus, Search } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -15,7 +14,7 @@ import { EmptyState, Field, PageBody, PageHeader, SimpleSelect } from "@/compone
 import { BusinessStatusPill, STATUS } from "@/components/platform"
 import { createBusiness } from "@/lib/auth/platform-actions"
 import { formatDate, timeAgo } from "@/lib/format"
-import { PRICE_LABEL } from "@/lib/business"
+import { PRICE_LABEL, SUBSCRIPTION, accessEndsAt } from "@/lib/business"
 import type { BusinessStatus, BusinessSummary } from "@/lib/types"
 
 export function BusinessesView({ businesses, openNew }: { businesses: BusinessSummary[]; openNew: boolean }) {
@@ -71,6 +70,7 @@ export function BusinessesView({ businesses, openNew }: { businesses: BusinessSu
                   <TableHead>Owner</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Users</TableHead>
+                  <TableHead>Access until</TableHead>
                   <TableHead>Last active</TableHead>
                   <TableHead className="pr-4">Joined</TableHead>
                 </TableRow>
@@ -92,6 +92,7 @@ export function BusinessesView({ businesses, openNew }: { businesses: BusinessSu
                       <BusinessStatusPill status={b.status} />
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{b.userCount}</TableCell>
+                    <TableCell className="text-sm whitespace-nowrap text-muted-foreground">{formatDate(accessEndsAt(b))}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{b.lastActiveAt ? timeAgo(b.lastActiveAt) : "Never"}</TableCell>
                     <TableCell className="pr-4 text-sm text-muted-foreground">{formatDate(b.createdAt)}</TableCell>
                   </TableRow>
@@ -117,7 +118,7 @@ export function BusinessesView({ businesses, openNew }: { businesses: BusinessSu
 function CreateBusinessDialog({ onClose }: { onClose: () => void }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
-  const [form, setForm] = useState({ name: "", industry: "", trial: true, ownerName: "", ownerEmail: "", ownerPassword: "" })
+  const [form, setForm] = useState({ name: "", industry: "", ownerName: "", ownerEmail: "", ownerPassword: "" })
   const [error, setError] = useState("")
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
 
@@ -155,10 +156,10 @@ function CreateBusinessDialog({ onClose }: { onClose: () => void }) {
               <Input id="nb-industry" value={form.industry} onChange={(e) => set("industry", e.target.value)} placeholder="e.g. Clothing" />
             </Field>
           </div>
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox checked={form.trial} onCheckedChange={(on) => set("trial", on)} />
-            Start as a free trial (otherwise billed {PRICE_LABEL})
-          </label>
+          <p className="rounded-lg bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+            Starts with a {SUBSCRIPTION.trialDays}-day free trial, then {PRICE_LABEL}. If the owner doesn&apos;t pay by then, the business locks
+            itself until they do.
+          </p>
           <div className="space-y-4 rounded-lg border p-3">
             <p className="text-sm font-medium">Owner account</p>
             <div className="grid gap-4 sm:grid-cols-2">

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useTransition } from "react"
+import Link from "next/link"
 import { Building2, Loader2, Puzzle, ShieldCheck, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -11,7 +12,8 @@ import { Field, PageBody, PageHeader, SimpleSelect } from "@/components/common"
 import { BusinessStatusPill } from "@/components/platform"
 import { useBusiness } from "@/components/session-provider"
 import { updateBusinessSettings } from "@/lib/auth/business-actions"
-import { CURRENCIES, MODULES, PERMISSIONS, PRICE_LABEL } from "@/lib/business"
+import { CURRENCIES, MODULES, PERMISSIONS, PRICE_LABEL, accessEndsAt, daysLeft } from "@/lib/business"
+import { formatDate } from "@/lib/format"
 import type { BusinessSettings, ModuleId, PermissionId } from "@/lib/types"
 
 export function SettingsView() {
@@ -175,6 +177,7 @@ function ToggleRow({
 
 function SubscriptionCard() {
   const business = useBusiness()
+  const endsAt = accessEndsAt(business)
   return (
     <Card>
       <CardHeader>
@@ -187,9 +190,16 @@ function SubscriptionCard() {
       <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-2xl font-semibold tabular-nums">{PRICE_LABEL}</p>
-          <p className="text-sm text-muted-foreground">Online payment is coming soon. Until then, pay the platform admin directly.</p>
+          <p className="text-sm text-muted-foreground">
+            {business.status === "trial" ? "Free trial ends" : "Paid until"} {formatDate(endsAt)} · {daysLeft(endsAt)} days left
+          </p>
         </div>
-        <BusinessStatusPill status={business.status} />
+        <div className="flex items-center gap-3">
+          <BusinessStatusPill status={business.status} />
+          <Button variant="outline" render={<Link href="/billing" />} nativeButton={false}>
+            Billing & invoices
+          </Button>
+        </div>
       </CardContent>
     </Card>
   )

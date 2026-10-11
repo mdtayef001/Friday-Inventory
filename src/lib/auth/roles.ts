@@ -35,6 +35,9 @@ const ROUTE_RULES: Rule[] = [
   { test: prefix("/platform"), roles: ["superadmin"] },
   { test: prefix("/entry"), roles: TEAM },
   { test: prefix("/settings"), roles: ["owner"] },
+  { test: prefix("/billing"), roles: ["owner"] },
+  { test: prefix("/subscribe"), roles: ["owner"] },
+  { test: prefix("/invoice"), roles: ["owner", "superadmin"] },
   { test: prefix("/activity"), roles: LEADS, permission: "managerActivity" },
   { test: prefix("/users"), roles: LEADS, permission: "managerUsers" },
   { test: (p) => p === "/products/new" || /^\/products\/[^/]+\/edit$/.test(p), roles: LEADS, permission: "managerProducts" },
@@ -56,6 +59,9 @@ export const APP_ROUTES = [
   "/users",
   "/activity",
   "/settings",
+  "/billing",
+  "/subscribe",
+  "/invoice",
   "/entry",
 ]
 
