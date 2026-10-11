@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Friday Inventory: frontend
 
-## Getting Started
+Inventory management web app built with Next.js 16, TypeScript, Tailwind CSS and shadcn/ui.
+This is the **frontend test version**: data is kept in the browser, and accounts are kept in
+server memory until the Django REST backend is built.
 
-First, run the development server:
+## Run it
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env.local   # then put a long random string in SESSION_SECRET
+npm run dev                  # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Demo accounts (also listed on the login page in development):
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Role    | Email              | Password   | Can do |
+|---------|--------------------|------------|--------|
+| Admin   | admin@friday.app   | admin123   | Everything, all locations, all accounts |
+| Manager | manager@friday.app | manager123 | Their outlets (Downtown, Uptown) + creating staff for them |
+| Staff   | staff@friday.app   | staff123   | Quick Entry only (scan / add products and stock) |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Features
 
-## Learn More
+- **Login only, no sign-up.** Admins create any account; managers create staff for their own shops.
+- **Role-based access**: every route is checked in `src/proxy.ts`, again in each page (`requireRole`), and in every server action.
+- **Products**: add, edit or delete products; SKU auto-generated; QR label printing; per-product stock by location.
+- **Quick Entry**: scan with the camera (QR, EAN, UPC, Code 128…), type a code or use a USB scanner, or add by hand. Unknown codes open a pre-filled new-product form.
+- **Stock levels**: product × location grid; click any number to add or remove stock with a reason.
+- **Warehouses & shops**: what's at each location; managers only see their assigned ones.
+- **Transfers** between locations (in transit → received / cancelled).
+- **Order tracking**: pending → processing → in delivery → delivered, plus returned or cancelled (restocked), with a history timeline.
+- **Rentals**: client, days, per day / week / month or fixed price, deposit; total worked out automatically; overdue alerts.
+- **Clients**, **dashboard**, **activity log**, global search (Ctrl K) and dark mode.
 
-To learn more about Next.js, take a look at the following resources:
+## Where things live
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Path | What |
+|------|------|
+| `src/proxy.ts` | Route guard (runs before every page) |
+| `src/lib/auth/` | Session cookie (signed JWT, httpOnly), password hashing, login, user management |
+| `src/lib/auth/roles.ts` | Which role can open which route |
+| `src/lib/store/` | All inventory data + mutations (Zustand, saved to localStorage) and demo seed data |
+| `src/lib/types.ts` | Data shapes (to mirror in Django serializers) |
+| `src/app/(app)/*` | One folder per page: `page.tsx` checks the role, `view.tsx` is the UI |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Limits of this test version
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Inventory data lives in each browser's localStorage, so different browsers don't share it.
+  Admins can use **Reset demo data** in the user menu.
+- Accounts created in the app are kept in server memory and reset when the server restarts.
+- Both are replaced by the Django REST backend in the next phase: swap `src/lib/store/index.ts`
+  and `src/lib/auth/users.ts` for API calls.
