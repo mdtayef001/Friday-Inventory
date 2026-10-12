@@ -31,7 +31,7 @@ async function Invoice({ params }: Pick<PageProps<"/invoice/[id]">, "params">) {
   const rows: [string, string][] = [
     ["Invoice no.", payment.invoiceNo!],
     ["Date paid", formatDateTime(payment.paidAt!)],
-    ["Payment method", payment.method ?? "SSLCommerz"],
+    ["Payment method", payment.method || "SSLCommerz"],
     ["Transaction ID", payment.tranId],
     ...(payment.bankTranId ? ([["Bank reference", payment.bankTranId]] as [string, string][]) : []),
   ]
@@ -69,7 +69,7 @@ async function Invoice({ params }: Pick<PageProps<"/invoice/[id]">, "params">) {
             <p className="mt-1 font-medium">{payment.businessName}</p>
             <p className="text-sm">{payment.payer.name}</p>
             <p className="text-sm text-muted-foreground">{payment.payer.email}</p>
-            <p className="text-sm text-muted-foreground">{payment.payer.phone}</p>
+            {payment.payer.phone && <p className="text-sm text-muted-foreground">{payment.payer.phone}</p>}
           </div>
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm sm:justify-self-end">
             {rows.map(([k, v]) => (

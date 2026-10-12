@@ -63,7 +63,8 @@ def init_payment(payment):
             "ipn_url": callback("ipn"),
             "cus_name": payment.payer_name,
             "cus_email": payment.payer_email,
-            "cus_phone": payment.payer_phone,
+            # Required by SSLCommerz; the payer gives their number on its own page.
+            "cus_phone": payment.payer_phone or "N/A",
             "cus_add1": payment.business.name,
             "cus_city": "Dhaka",
             "cus_country": "Bangladesh",

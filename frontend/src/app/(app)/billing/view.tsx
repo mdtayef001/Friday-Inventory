@@ -19,7 +19,6 @@ export function BillingView({ payments, notice, testGateway }: { payments: Payme
   const endsAt = accessEndsAt(business)
   const left = daysLeft(endsAt)
   const onTrial = business.status === "trial"
-  const lastPhone = payments[0]?.payer.phone
 
   return (
     <PageBody className="max-w-5xl">
@@ -91,7 +90,7 @@ export function BillingView({ payments, notice, testGateway }: { payments: Payme
                 SSLCommerz isn&apos;t connected yet, so this opens a test payment page. No real money moves.
               </p>
             )}
-            <PayForm defaultPhone={lastPhone} />
+            <PayForm />
           </CardContent>
         </Card>
       </div>

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Pill, type PillTone } from "@/components/common"
 import { formatTaka } from "@/lib/business"
-import { formatDate, formatDateTime } from "@/lib/format"
+import { formatDate, formatDateTime, shortMethod } from "@/lib/format"
 import type { BusinessStatus, Payment, PaymentStatus } from "@/lib/types"
 
 export const STATUS: Record<BusinessStatus, { label: string; tone: PillTone }> = {
@@ -66,15 +66,18 @@ export function PaymentsTable({ payments, showBusiness = false }: { payments: Pa
                     {p.businessName}
                   </Link>
                   <div className="text-xs text-muted-foreground">
-                    {p.payer.name} · {p.payer.phone}
+                    {p.payer.name}
+                    {p.payer.phone && ` · ${p.payer.phone}`}
                   </div>
                 </TableCell>
               )}
-              <TableCell className="font-mono text-xs">{p.invoiceNo ?? "—"}</TableCell>
+              <TableCell className="font-mono text-xs whitespace-nowrap">{p.invoiceNo || "—"}</TableCell>
               <TableCell className="text-sm whitespace-nowrap text-muted-foreground">
                 {p.periodStart && p.periodEnd ? `${formatDate(p.periodStart)} – ${formatDate(p.periodEnd)}` : "—"}
               </TableCell>
-              <TableCell className="text-sm">{p.method ?? "—"}</TableCell>
+              <TableCell className="text-sm whitespace-nowrap" title={p.method || undefined}>
+                {shortMethod(p.method)}
+              </TableCell>
               <TableCell className="text-right font-medium tabular-nums">{formatTaka(p.amount)}</TableCell>
               <TableCell>
                 <PaymentStatusPill status={p.status} />

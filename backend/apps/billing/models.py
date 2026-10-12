@@ -30,7 +30,8 @@ class Payment(models.Model):
     bank_tran_id = models.CharField(max_length=100, blank=True)
     payer_name = models.CharField(max_length=150)
     payer_email = models.EmailField()
-    payer_phone = models.CharField(max_length=40)
+    # Not asked for: the owner enters their bKash or card details on SSLCommerz.
+    payer_phone = models.CharField(max_length=40, blank=True)
 
     class Meta:
         ordering = ["-created_at"]

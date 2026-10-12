@@ -16,6 +16,15 @@ export const formatDate = (iso: string) => format(new Date(iso), "MMM d, yyyy")
 export const formatDateTime = (iso: string) => format(new Date(iso), "MMM d, yyyy · h:mm a")
 export const timeAgo = (iso: string) => formatDistanceToNow(new Date(iso), { addSuffix: true })
 
+/**
+ * Short payment method for tables: "VISA-Dutch Bangla Bank" -> "VISA",
+ * "bKash (test)" -> "bKash". The invoice shows the full name.
+ */
+export function shortMethod(method?: string | null) {
+  if (!method) return "—"
+  return method.split(/\s*(?:·|\(|-)\s*/)[0].trim() || method
+}
+
 export function uid(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`
 }

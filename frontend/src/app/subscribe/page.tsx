@@ -32,7 +32,6 @@ async function Subscribe({ searchParams }: Pick<PageProps<"/subscribe">, "search
 
   const history = await listPayments()
   const everPaid = history.some((p) => p.status === "paid")
-  const lastPhone = history[0]?.payer.phone
 
   return (
     <div className="w-full max-w-md space-y-4">
@@ -77,7 +76,7 @@ async function Subscribe({ searchParams }: Pick<PageProps<"/subscribe">, "search
               ))}
             </ul>
           </div>
-          <PayForm defaultPhone={lastPhone} label={`Subscribe · ${PRICE_LABEL}`} />
+          <PayForm label={`Subscribe · ${PRICE_LABEL}`} />
         </CardContent>
       </Card>
       <div className="flex items-center justify-between text-sm text-muted-foreground">

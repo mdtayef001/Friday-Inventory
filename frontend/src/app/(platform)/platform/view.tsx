@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { PageBody, PageHeader, StatCard } from "@/components/common"
 import { BusinessStatusPill, PaymentStatusPill, STATUS } from "@/components/platform"
-import { timeAgo } from "@/lib/format"
+import { shortMethod, timeAgo } from "@/lib/format"
 import { PRICE_LABEL, formatTaka } from "@/lib/business"
 import type { BusinessStatus, BusinessSummary, Payment } from "@/lib/types"
 
@@ -87,7 +87,7 @@ export function PlatformOverview({ businesses, payments }: { businesses: Busines
                 <span className="min-w-0">
                   <span className="block truncate font-medium">{p.businessName}</span>
                   <span className="block truncate text-xs text-muted-foreground">
-                    {p.payer.name} · {p.method ?? "—"} · {timeAgo(p.paidAt ?? p.createdAt)}
+                    {p.payer.name} · {shortMethod(p.method)} · {timeAgo(p.paidAt ?? p.createdAt)}
                   </span>
                 </span>
                 <span className="flex shrink-0 items-center gap-2">

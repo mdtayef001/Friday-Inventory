@@ -23,7 +23,7 @@ class TestGatewayPaymentTests(APITestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.json()['access']}")
 
     def checkout(self):
-        res = self.client.post("/api/billing/checkout/", {"phone": "01711000000"}, format="json")
+        res = self.client.post("/api/billing/checkout/", {}, format="json")
         self.assertEqual(res.status_code, 200, res.content)
         return res.json()["url"].rsplit("/", 1)[1]
 

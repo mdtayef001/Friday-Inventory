@@ -4,16 +4,13 @@ import { useState, useTransition } from "react"
 import Link from "next/link"
 import { AlertTriangle, Loader2, LockKeyhole } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Field } from "@/components/common"
 import { useBusiness, useSessionUser } from "@/components/session-provider"
 import { PRICE_LABEL, REMINDER_DAYS, accessEndsAt, daysLeft } from "@/lib/business"
 import { startPayment } from "@/lib/billing/actions"
 import { formatDate } from "@/lib/format"
 
-/** Mobile number + pay button. Sends the owner to SSLCommerz to pay one month. */
-export function PayForm({ defaultPhone = "", label }: { defaultPhone?: string; label?: string }) {
-  const [phone, setPhone] = useState(defaultPhone)
+/** Pay button. Sends the owner to SSLCommerz, which asks for any payment details itself. */
+export function PayForm({ label }: { label?: string }) {
   const [error, setError] = useState("")
   const [pending, startTransition] = useTransition()
   const [leaving, setLeaving] = useState(false)
@@ -22,7 +19,7 @@ export function PayForm({ defaultPhone = "", label }: { defaultPhone?: string; l
     e.preventDefault()
     setError("")
     startTransition(async () => {
-      const result = await startPayment(phone)
+      const result = await startPayment()
       if (!result.ok) return setError(result.error)
       setLeaving(true)
       window.location.assign(result.url)
@@ -32,19 +29,6 @@ export function PayForm({ defaultPhone = "", label }: { defaultPhone?: string; l
   const busy = pending || leaving
   return (
     <form onSubmit={submit} className="grid gap-3">
-      <Field label="Mobile number" htmlFor="pay-phone" hint="For your payment receipt from SSLCommerz.">
-        <Input
-          id="pay-phone"
-          type="tel"
-          inputMode="tel"
-          autoComplete="tel"
-          placeholder="01712345678"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          className="h-10"
-          required
-        />
-      </Field>
       {error && <p className="text-sm font-medium text-destructive">{error}</p>}
       <Button type="submit" size="lg" className="h-11" disabled={busy}>
         {busy ? <Loader2 className="animate-spin" /> : <LockKeyhole />}

@@ -1,5 +1,3 @@
-import re
-
 from rest_framework import serializers
 
 from apps.api import IdField
@@ -25,13 +23,3 @@ class PaymentSerializer(serializers.ModelSerializer):
 
     def get_payer(self, payment):
         return {"name": payment.payer_name, "email": payment.payer_email, "phone": payment.payer_phone}
-
-
-class CheckoutSerializer(serializers.Serializer):
-    phone = serializers.CharField(max_length=20)
-
-    def validate_phone(self, value):
-        value = re.sub(r"[\s-]", "", value.strip())
-        if not re.fullmatch(r"(\+?880|0)1[3-9]\d{8}", value):
-            raise serializers.ValidationError("Enter a valid Bangladeshi mobile number, e.g. 01712345678")
-        return value

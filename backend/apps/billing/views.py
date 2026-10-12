@@ -11,7 +11,7 @@ from apps.accounts.models import User
 
 from . import services, sslcommerz
 from .models import Payment
-from .serializers import CheckoutSerializer, PaymentSerializer
+from .serializers import PaymentSerializer
 
 
 class IsOwner(BasePermission):
@@ -56,9 +56,7 @@ class CheckoutView(APIView):
         business = request.user.business
         if business.suspended:
             return Response({"detail": "This business is suspended. Please contact support."}, status=400)
-        serializer = CheckoutSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        payer = SimpleNamespace(name=request.user.name, email=request.user.email, phone=serializer.validated_data["phone"])
+        payer = SimpleNamespace(name=request.user.name, email=request.user.email, phone="")
         payment = services.create_pending_payment(business, payer)
         url, error = sslcommerz.init_payment(payment)
         if error:
