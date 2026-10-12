@@ -8,7 +8,7 @@ Items 1–5 are in the order we plan to build them.
 A page where each staff member sees their own selling.
 
 - Today and this month: number of sales, units sold, money taken.
-- Their own list of sales, with prices only. Never cost or profit.
+- Their own list of sales, with prices only and name of the product. Never cost or profit.
 - Built on the existing Sales API (`sales/`, `sales/summary/`), filtered to the logged-in seller.
 
 ## 2. Per-person rights: who can sell, who can add stock
