@@ -24,10 +24,10 @@ export interface RentalQuote {
 }
 
 /**
- * Weekly and monthly plans bill for every started period, so 10 days on a
- * weekly plan is 2 weeks. "fixed" is a flat price for the whole rental.
+ * Per day: the days minus holidays. Weekly and monthly bill every started period (10 days on a weekly plan is
+ * 2 weeks) and ignore holidays. "fixed" is a flat price for the whole rental. Same as Rental.quote in Django.
  */
-export function quoteRental(plan: RentalPlan, rate: number, days: number, quantity: number): RentalQuote {
+export function quoteRental(plan: RentalPlan, rate: number, days: number, quantity: number, holidays = 0): RentalQuote {
   const safeDays = Math.max(1, Math.floor(days || 1))
   const qty = Math.max(1, Math.floor(quantity || 1))
   const safeRate = Math.max(0, rate || 0)
@@ -43,7 +43,8 @@ export function quoteRental(plan: RentalPlan, rate: number, days: number, quanti
     }
   }
 
-  const periods = Math.ceil(safeDays / PLAN_DAYS[plan])
+  const off = plan === "daily" ? Math.min(Math.max(0, Math.floor(holidays || 0)), safeDays) : 0
+  const periods = plan === "daily" ? safeDays - off : Math.ceil(safeDays / PLAN_DAYS[plan])
   const [one, many] = PLAN_UNIT[plan]
   const periodLabel = `${periods} ${periods === 1 ? one : many}`
   const subtotal = periods * safeRate
@@ -56,15 +57,22 @@ export function quoteRental(plan: RentalPlan, rate: number, days: number, quanti
   }
 }
 
-export function rentalDueDate(rental: Pick<Rental, "startDate" | "days">) {
-  return addDays(new Date(rental.startDate), rental.days)
+/** Days out, counting any started day (out at 10:00, back 10:00 next day = 1). At least 1. Same as Django. */
+export function countDays(start: string | Date, end: Date = new Date()) {
+  return Math.max(1, Math.ceil((end.getTime() - new Date(start).getTime()) / 86_400_000))
 }
 
-/** Positive number = days overdue, negative = days remaining. */
+/** When it's expected back, or null for an open-ended rental. */
+export function rentalDueDate(rental: Pick<Rental, "startDate" | "days">) {
+  return rental.days ? addDays(new Date(rental.startDate), rental.days) : null
+}
+
+/** Positive = days overdue, negative = days remaining, null = no expected date. */
 export function rentalOverdueDays(rental: Pick<Rental, "startDate" | "days">, now = new Date()) {
-  return differenceInCalendarDays(now, rentalDueDate(rental))
+  const due = rentalDueDate(rental)
+  return due ? differenceInCalendarDays(now, due) : null
 }
 
 export function isOverdue(rental: Rental, now = new Date()) {
-  return rental.status === "active" && rentalOverdueDays(rental, now) > 0
+  return rental.status === "active" && (rentalOverdueDays(rental, now) ?? 0) > 0
 }

@@ -230,7 +230,7 @@ export function ProductDetailView({ id }: { id: string }) {
                 <div className="min-w-0">
                   <div className="font-medium">{lookups.client.get(r.clientId)?.name ?? "Unknown client"}</div>
                   <div className="text-xs text-muted-foreground">
-                    {r.code} · {r.days} days · {formatMoney(r.total)}
+                    {r.code} · {r.daysOut ?? r.days ?? "open"} days · {formatMoney(r.total)}
                   </div>
                 </div>
                 <RentalStatusPill status={r.status} overdue={isOverdue(r)} />

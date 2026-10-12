@@ -195,7 +195,8 @@ export interface Rental {
   clientId: string
   locationId: string
   startDate: string
-  days: number
+  /** Expected days, optional: only for the due date. The price uses the actual days out. */
+  days: number | null
   plan: RentalPlan
   /** Price per day/week/month, or the flat amount when plan is "fixed". */
   rate: number
@@ -203,6 +204,9 @@ export interface Rental {
   total: number
   status: RentalStatus
   returnedAt?: string
+  /** Set when it comes back: days it was out, and holidays taken off (per-day plan only). */
+  daysOut: number | null
+  holidays: number
   notes?: string
   createdAt: string
 }

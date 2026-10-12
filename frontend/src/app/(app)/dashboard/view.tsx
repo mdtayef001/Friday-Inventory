@@ -51,7 +51,7 @@ export function DashboardView() {
 
     const myRentals = rentals.filter((r) => scope.has(r.locationId))
     const active = myRentals.filter((r) => r.status === "active")
-    const overdue = active.filter((r) => isOverdue(r)).sort((a, b) => rentalOverdueDays(b) - rentalOverdueDays(a))
+    const overdue = active.filter((r) => isOverdue(r)).sort((a, b) => (rentalOverdueDays(b) ?? 0) - (rentalOverdueDays(a) ?? 0))
 
     const myShipments = shipments.filter((s) => scope.has(s.fromLocationId))
     const byStatus = OPEN.map((status) => ({ status, count: myShipments.filter((s) => s.status === status).length }))
@@ -189,7 +189,7 @@ export function DashboardView() {
             <CardContent className="space-y-3">
               {data.overdue.slice(0, 6).map((r) => {
                 const client = lookups.client.get(r.clientId)
-                const days = rentalOverdueDays(r)
+                const days = rentalOverdueDays(r) ?? 0
                 return (
                   <Link key={r.id} href="/rentals" className="flex items-center justify-between gap-3 text-sm hover:underline">
                     <span className="min-w-0">

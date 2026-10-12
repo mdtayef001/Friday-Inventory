@@ -138,7 +138,8 @@ def set_shipment_status(user, shipment, status, note=""):
 
 
 @transaction.atomic
-def create_rental(user, *, product, quantity, client, location, start_date, days, plan, rate, deposit=0, notes=""):
+def create_rental(user, *, product, quantity, client, location, start_date, plan, rate, days=None, deposit=0, notes=""):
+    """Scan out: the item leaves stock now. The price is settled when it comes back."""
     if not product.rentable:
         raise ValidationError("This product isn't marked as rentable.")
     change_stock(product, location, -quantity)
@@ -154,24 +155,35 @@ def create_rental(user, *, product, quantity, client, location, start_date, days
         plan=plan,
         rate=rate,
         deposit=deposit,
-        total=Rental.quote(plan, rate, days, quantity),
+        # An estimate until it's returned: the expected days, or one day/period.
+        total=Rental.quote(plan, rate, days or 1, quantity),
         notes=notes,
     )
-    log(user, "Rental created", f"{rental.code} · {quantity} × {product.name} to {client.name}")
+    log(user, "Rental out", f"{rental.code} · {quantity} × {product.name} to {client.name}")
     return rental
 
 
 @transaction.atomic
-def return_rental(user, rental):
+def return_rental(user, rental, holidays=0):
+    """Scan in: count the days it was out, take off holidays (per-day plan only), price it, restock."""
     rental = Rental.objects.select_for_update().get(pk=rental.pk)
     if rental.status != Rental.Status.ACTIVE:
         raise ValidationError("This rental was already returned.")
+    now = timezone.now()
+    days_out = Rental.count_days(rental.start_date, now)
+    if rental.plan != Rental.Plan.DAILY:
+        holidays = 0
+    if holidays < 0 or holidays >= days_out:
+        raise ValidationError(f"Holidays must be fewer than the {days_out} days it was out.")
     change_stock(rental.product, rental.location, rental.quantity)
     rental.status = Rental.Status.RETURNED
-    rental.returned_at = timezone.now()
-    rental.save(update_fields=["status", "returned_at"])
+    rental.returned_at = now
+    rental.days_out = days_out
+    rental.holidays = holidays
+    rental.total = Rental.quote(rental.plan, rental.rate, days_out, rental.quantity, holidays)
+    rental.save(update_fields=["status", "returned_at", "days_out", "holidays", "total"])
+    log(user, "Rental returned", f"{rental.code} · {days_out} days" + (f" − {holidays} holidays" if holidays else ""))
     record_rental_income(user, rental)
-    log(user, "Rental returned", rental.code)
     return rental
 
 
@@ -290,7 +302,7 @@ def record_rental_income(user, rental):
         business_id=rental.business_id,
         channel=Sale.Channel.RENTAL,
         product=product,
-        product_name=f"{name} × {rental.quantity} ({rental.days} day rental)",
+        product_name=f"{name} × {rental.quantity} ({rental.days_out or rental.days} day rental)",
         quantity=1,
         unit_price=rental.total,
         unit_cost=0,

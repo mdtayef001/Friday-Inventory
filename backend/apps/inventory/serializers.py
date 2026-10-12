@@ -140,9 +140,10 @@ class RentalSerializer(serializers.ModelSerializer):
         model = Rental
         fields = [
             "id", "code", "product_id", "quantity", "client_id", "location_id", "start_date", "days", "plan",
-            "rate", "deposit", "total", "status", "returned_at", "notes", "created_at",
+            "rate", "deposit", "total", "status", "returned_at", "days_out", "holidays", "notes", "created_at",
         ]
-        read_only_fields = ["code", "total", "status", "returned_at", "created_at"]
+        read_only_fields = ["code", "total", "status", "returned_at", "days_out", "holidays", "created_at"]
+        extra_kwargs = {"days": {"required": False, "allow_null": True}}
 
 
 class TransferSerializer(serializers.ModelSerializer):
@@ -237,3 +238,7 @@ class SellSerializer(serializers.Serializer):
     unit_price = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0)
     discount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0, required=False, default=0)
     client_id = tenant_field(Client, source="client", required=False, allow_null=True)
+
+
+class RentalReturnSerializer(serializers.Serializer):
+    holidays = serializers.IntegerField(min_value=0, required=False, default=0)

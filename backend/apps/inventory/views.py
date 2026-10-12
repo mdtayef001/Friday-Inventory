@@ -27,6 +27,7 @@ from .serializers import (
     ProductCreateSerializer,
     ProductSerializer,
     PublicTrackingSerializer,
+    RentalReturnSerializer,
     RentalSerializer,
     SaleSerializer,
     SellSerializer,
@@ -165,8 +166,17 @@ class StockViewSet(TenantViewSet, mixins.ListModelMixin):
 
 
 class ClientViewSet(TenantViewSet, viewsets.ModelViewSet):
+    """Staff can see and add clients (to rent to them at the counter); only owners
+    and managers edit or delete."""
+
     model = Client
     serializer_class = ClientSerializer
+    allowed_roles = TEAM
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        if request.user.role == User.Role.STAFF and self.action not in ("list", "retrieve", "create"):
+            raise PermissionDenied()
 
     def perform_create(self, serializer):
         client = serializer.save(business=self.request.user.business)
@@ -205,12 +215,20 @@ class ShipmentViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModel
 
 
 class RentalViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin):
+    """Staff can scan rentals out and in at their own shops, if they may sell."""
+
     model = Rental
     serializer_class = RentalSerializer
     module = "rentals"
+    allowed_roles = TEAM
 
     def get_queryset(self):
         return self.scope_to_locations(super().get_queryset(), "location_id")
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        if request.method not in ("GET", "HEAD", "OPTIONS") and not request.user.may_sell:
+            raise PermissionDenied("You aren't allowed to rent items out. Ask your manager.")
 
     def perform_create(self, serializer):
         data = serializer.validated_data
@@ -219,7 +237,11 @@ class RentalViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMi
 
     @action(detail=True, methods=["post"], url_path="return")
     def return_(self, request, pk=None):
-        rental = services.return_rental(request.user, self.get_object())
+        body = RentalReturnSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        rental = self.get_object()
+        self.check_location(rental.location)
+        rental = services.return_rental(request.user, rental, **body.validated_data)
         return Response(RentalSerializer(rental, context={"request": request}).data)
 
 

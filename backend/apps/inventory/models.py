@@ -166,7 +166,12 @@ class Rental(TenantModel):
     client = models.ForeignKey(Client, null=True, on_delete=models.SET_NULL, related_name="rentals")
     location = models.ForeignKey(Location, null=True, on_delete=models.SET_NULL, related_name="+")
     start_date = models.DateTimeField()
-    days = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    # Expected length, optional: only for the due date and overdue reminders.
+    # The price is worked out from the actual days out when the rental comes back.
+    days = models.PositiveIntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
+    # Set at return. Holidays only reduce the per-day plan.
+    days_out = models.PositiveIntegerField(null=True, blank=True)
+    holidays = models.PositiveIntegerField(default=0)
     plan = models.CharField(max_length=10, choices=Plan.choices)
     # Price per day/week/month, or the flat amount when plan is "fixed".
     rate = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
@@ -181,16 +186,24 @@ class Rental(TenantModel):
         ordering = ["-created_at"]
 
     @classmethod
-    def quote(cls, plan, rate, days, quantity):
-        """Same as quoteRental() in the frontend: weekly/monthly bill every started period."""
+    def quote(cls, plan, rate, days, quantity, holidays=0):
+        """Same as quoteRental() in the frontend. Per day: the days minus holidays.
+        Weekly/monthly: every started week or month (holidays don't apply). Fixed: one price."""
         if plan == cls.Plan.FIXED:
             return rate * quantity
+        if plan == cls.Plan.DAILY:
+            return max(days - holidays, 0) * rate * quantity
         periods = math.ceil(days / cls.PLAN_DAYS[plan])
         return periods * rate * quantity
 
+    @staticmethod
+    def count_days(start, end):
+        """Days out, counting any started day: out at 10:00, back at 10:00 next day = 1 day. At least 1."""
+        return max(1, math.ceil((end - start).total_seconds() / 86400))
+
     @property
     def due_date(self):
-        return self.start_date + timedelta(days=self.days)
+        return self.start_date + timedelta(days=self.days) if self.days else None
 
 
 class Transfer(TenantModel):

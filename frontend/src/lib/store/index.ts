@@ -62,7 +62,7 @@ interface Actions {
   createRental(
     input: Pick<Rental, "productId" | "quantity" | "clientId" | "locationId" | "startDate" | "days" | "plan" | "rate" | "deposit" | "notes">,
   ): Promise<Rental>
-  returnRental(id: string): Promise<void>
+  returnRental(id: string, holidays?: number): Promise<void>
 
   createTransfer(input: Pick<Transfer, "productId" | "quantity" | "fromLocationId" | "toLocationId">): Promise<Transfer>
   receiveTransfer(id: string): Promise<void>
@@ -194,11 +194,11 @@ export const useStore = create<Store>()((set) => {
 
     async createRental(input) {
       positiveInt(input.quantity)
-      positiveInt(input.days, "Rental days")
+      if (input.days != null) positiveInt(input.days, "Expected days")
       return call<Rental>("rentals/", "POST", input, "rentals", "stock")
     },
-    async returnRental(id) {
-      await call(`rentals/${id}/return/`, "POST", {}, "rentals", "stock")
+    async returnRental(id, holidays = 0) {
+      await call(`rentals/${id}/return/`, "POST", { holidays }, "rentals", "stock")
     },
 
     async createTransfer(input) {
@@ -218,8 +218,12 @@ export const useStore = create<Store>()((set) => {
 /** What this user's role and the owner's switches let them read. Mirrors the Django permissions. */
 function readableFor(user: SessionUser, business: Business): Collection[] {
   const names: Collection[] = ["locations", "products", "stock"]
-  if (user.role === "staff") return names
   const { modules, permissions } = business.settings
+  if (user.role === "staff") {
+    // Staff rent items out at the counter, so they see clients and rentals too.
+    if (modules.rentals) names.push("clients", "rentals")
+    return names
+  }
   names.push("clients")
   if (modules.tracking) names.push("shipments")
   if (modules.rentals) names.push("rentals")

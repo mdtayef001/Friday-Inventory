@@ -6,7 +6,7 @@ from rest_framework.test import APITestCase
 
 from apps.accounts.models import Business, User
 
-from .models import Location, Product, Shipment, StockLevel
+from .models import Location, Product, Rental, Shipment, StockLevel
 
 PASSWORD = "a-long-test-password-1"
 
@@ -88,9 +88,13 @@ class RoleTests(ApiTestCase):
         )
         self.assertEqual(denied.status_code, 403)
 
-    def test_staff_cannot_see_clients_or_users(self):
+    def test_staff_can_pick_clients_but_not_manage_them_or_users(self):
         self.login("staff@a.com")
-        self.assertEqual(self.client.get("/api/clients/").status_code, 403)
+        self.assertEqual(self.client.get("/api/clients/").status_code, 200)  # to rent to them
+        created = self.client.post("/api/clients/", {"name": "Walk-in Ali"}, format="json")
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(self.client.patch(f"/api/clients/{created.json()['id']}/", {"name": "X"}, format="json").status_code, 403)
+        self.assertEqual(self.client.delete(f"/api/clients/{created.json()['id']}/").status_code, 403)
         self.assertEqual(self.client.get("/api/users/").status_code, 403)
 
     def test_owner_creates_staff_who_can_log_in(self):
@@ -292,6 +296,7 @@ class SalesTests(SalesBase):
             format="json",
         ).json()
         self.assertEqual(self.client.get("/api/sales/").json(), [])  # counts when it comes back
+        Rental.objects.filter(pk=rental["id"]).update(start_date=timezone.now() - timedelta(days=3, minutes=-1))
         self.client.post(f"/api/rentals/{rental['id']}/return/")
         sale = self.client.get("/api/sales/").json()[0]
         self.assertEqual((sale["channel"], sale["revenue"], sale["profit"], sale["rentalId"]), ("rental", 600, 600, rental["id"]))
@@ -491,3 +496,60 @@ class StaffRightsTests(SalesBase):
         self.assertEqual(res.status_code, 200, res.content)
         self.staff.refresh_from_db()
         self.assertFalse(self.staff.can_sell)
+
+
+class RentalScanTests(SalesBase):
+    def scan_out(self, plan="daily", rate="100", quantity=1, **extra):
+        res = self.client.post(
+            "/api/rentals/",
+            {"productId": self.product.id, "quantity": quantity, "clientId": self.client_id, "locationId": self.warehouse.id,
+             "startDate": timezone.now().isoformat(), "plan": plan, "rate": rate, **extra},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        return res.json()
+
+    def scan_in(self, rental, days_out, holidays=None):
+        Rental.objects.filter(pk=rental["id"]).update(start_date=timezone.now() - timedelta(days=days_out, minutes=-1))
+        body = {} if holidays is None else {"holidays": holidays}
+        return self.client.post(f"/api/rentals/{rental['id']}/return/", body, format="json")
+
+    def test_no_days_needed_to_scan_out(self):
+        rental = self.scan_out()
+        self.assertIsNone(rental["days"])
+        self.assertEqual(self.qty(self.warehouse), 9)
+
+    def test_per_day_price_is_actual_days_minus_holidays(self):
+        res = self.scan_in(self.scan_out(quantity=2), days_out=7, holidays=1)
+        self.assertEqual(res.status_code, 200, res.content)
+        r = res.json()
+        self.assertEqual((r["daysOut"], r["holidays"], r["total"]), (7, 1, 1200))  # 6 days × 100 × 2
+        self.assertEqual(self.qty(self.warehouse), 10)
+
+    def test_holidays_ignored_for_weekly_and_monthly(self):
+        r = self.scan_in(self.scan_out(plan="weekly", rate="500"), days_out=10, holidays=3).json()
+        self.assertEqual((r["daysOut"], r["holidays"], r["total"]), (10, 0, 1000))  # 2 started weeks
+
+    def test_too_many_holidays_refused(self):
+        rental = self.scan_out()
+        self.assertEqual(self.scan_in(rental, days_out=3, holidays=3).status_code, 400)
+        self.assertEqual(self.qty(self.warehouse), 9)  # still out
+
+    def test_same_day_return_is_one_day(self):
+        rental = self.scan_out(rate="80")
+        r = self.client.post(f"/api/rentals/{rental['id']}/return/", {}, format="json").json()
+        self.assertEqual((r["daysOut"], r["total"]), (1, 80))
+
+    def test_staff_scan_out_and_in_at_their_shop_if_they_may_sell(self):
+        StockLevel.objects.create(business=self.biz, product=self.product, location=self.outlet, quantity=3)
+        staff = User.objects.get(email="staff@a.com")
+        self.client.credentials()
+        self.login("staff@a.com")
+        body = {"productId": self.product.id, "quantity": 1, "clientId": self.client_id, "locationId": self.outlet.id,
+                "startDate": timezone.now().isoformat(), "plan": "daily", "rate": "50"}
+        res = self.client.post("/api/rentals/", body, format="json")
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(self.client.post("/api/rentals/", {**body, "locationId": self.warehouse.id}, format="json").status_code, 403)
+        staff.can_sell = False
+        staff.save()
+        self.assertEqual(self.client.post(f"/api/rentals/{res.json()['id']}/return/", {}, format="json").status_code, 403)

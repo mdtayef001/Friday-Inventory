@@ -42,7 +42,7 @@ const ROUTE_RULES: Rule[] = [
   { test: prefix("/activity"), roles: LEADS, permission: "managerActivity" },
   { test: prefix("/users"), roles: LEADS, permission: "managerUsers" },
   { test: (p) => p === "/products/new" || /^\/products\/[^/]+\/edit$/.test(p), roles: LEADS, permission: "managerProducts" },
-  { test: prefix("/rentals"), roles: LEADS, module: "rentals" },
+  { test: prefix("/rentals"), roles: TEAM, module: "rentals" },
   { test: prefix("/tracking"), roles: LEADS, module: "tracking" },
   { test: prefix("/transfers"), roles: LEADS, module: "transfers" },
 ]
