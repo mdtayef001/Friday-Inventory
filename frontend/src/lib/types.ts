@@ -170,6 +170,8 @@ export interface Shipment {
   trackingToken: string
   productId: string
   quantity: number
+  /** Price per unit agreed when the order was placed. Null on orders from before sales tracking. */
+  unitPrice: number | null
   clientId: string
   fromLocationId: string
   status: ShipmentStatus
@@ -234,4 +236,30 @@ export interface PublicTracking {
   createdAt: string
   contactPhone: string
   history: { status: ShipmentStatus; at: string }[]
+}
+
+export type SaleChannel = "store" | "order" | "rental"
+
+/** Money in, with the price (and for the owner, the cost) frozen at the moment of sale. */
+export interface Sale {
+  id: string
+  channel: SaleChannel
+  productId: string | null
+  productName: string
+  quantity: number
+  unitPrice: number
+  discount: number
+  revenue: number
+  /** Owner only. */
+  unitCost?: number
+  cost?: number
+  profit?: number
+  locationId: string | null
+  clientId: string | null
+  orderId: string | null
+  rentalId: string | null
+  soldBy: string
+  soldAt: string
+  /** Set when the goods came back; refunded sales don't count. */
+  refundedAt: string | null
 }

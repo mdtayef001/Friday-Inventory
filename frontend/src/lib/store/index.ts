@@ -10,6 +10,7 @@ import type {
   Location,
   Product,
   Rental,
+  Sale,
   SessionUser,
   Shipment,
   ShipmentStatus,
@@ -51,7 +52,11 @@ interface Actions {
   updateClient(id: string, patch: Partial<Omit<Client, "id" | "createdAt">>): Promise<void>
   deleteClient(id: string): Promise<void>
 
-  createShipment(input: Pick<Shipment, "productId" | "quantity" | "clientId" | "fromLocationId" | "notes">): Promise<Shipment>
+  sell(input: { productId: string; locationId: string; quantity: number; unitPrice: number; discount: number; clientId?: string }): Promise<Sale>
+
+  createShipment(
+    input: Pick<Shipment, "productId" | "quantity" | "clientId" | "fromLocationId" | "notes"> & { unitPrice?: number },
+  ): Promise<Shipment>
   setShipmentStatus(id: string, status: ShipmentStatus, note?: string): Promise<void>
 
   createRental(
@@ -172,6 +177,11 @@ export const useStore = create<Store>()((set) => {
     },
     async deleteClient(id) {
       await call(`clients/${id}/`, "DELETE", undefined, "clients")
+    },
+
+    async sell(input) {
+      positiveInt(input.quantity)
+      return call<Sale>("sales/", "POST", input, "stock")
     },
 
     async createShipment(input) {

@@ -214,3 +214,94 @@ class PublicTrackingTests(ApiTestCase):
         self.biz.trial_ends_at = timezone.now() - timedelta(days=1)
         self.biz.save()
         self.assertEqual(self.track().status_code, 404)
+
+
+class SalesTests(ApiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.product.price, self.product.cost = 500, 300
+        self.product.save()
+        self.login("owner@a.com")
+        self.client_id = self.client.post("/api/clients/", {"name": "Rahim"}, format="json").json()["id"]
+
+    def sell(self, **body):
+        data = {"productId": self.product.id, "locationId": self.warehouse.id, "quantity": 2, "unitPrice": "480", **body}
+        return self.client.post("/api/sales/", data, format="json")
+
+    def test_walk_in_sale_takes_stock_and_freezes_price(self):
+        res = self.sell(discount="60")
+        self.assertEqual(res.status_code, 201, res.content)
+        sale = res.json()
+        self.assertEqual((sale["revenue"], sale["cost"], sale["profit"]), (900, 600, 300))
+        self.assertEqual(self.qty(self.warehouse), 8)
+        # A later price change doesn't rewrite the past.
+        self.product.price, self.product.cost = 999, 999
+        self.product.save()
+        again = self.client.get("/api/sales/").json()[0]
+        self.assertEqual((again["unitPrice"], again["unitCost"], again["profit"]), (480, 300, 300))
+
+    def test_bad_sales_are_refused_and_leave_stock_alone(self):
+        self.assertEqual(self.sell(quantity=99).status_code, 400)
+        self.assertEqual(self.sell(discount="5000").status_code, 400)
+        self.assertEqual(self.qty(self.warehouse), 10)
+        self.assertEqual(self.client.get("/api/sales/").json(), [])
+
+    def test_staff_sell_at_their_shop_without_seeing_cost(self):
+        StockLevel.objects.create(business=self.biz, product=self.product, location=self.outlet, quantity=5)
+        self.client.credentials()
+        self.login("staff@a.com")
+        res = self.sell(locationId=self.outlet.id, quantity=1, clientId=self.client_id)
+        self.assertEqual(res.status_code, 201, res.content)
+        for private in ("unitCost", "cost", "profit"):
+            self.assertNotIn(private, res.json())
+        self.assertIsNone(res.json()["clientId"])
+        self.assertEqual(self.sell().status_code, 403)  # not their shop
+        self.assertEqual(self.client.get("/api/sales/").status_code, 403)
+
+    def test_delivered_order_becomes_a_sale_and_return_refunds_it(self):
+        order = self.client.post(
+            "/api/shipments/",
+            {"productId": self.product.id, "quantity": 3, "clientId": self.client_id, "fromLocationId": self.warehouse.id, "unitPrice": "450"},
+            format="json",
+        ).json()
+        self.assertEqual(order["unitPrice"], 450)
+        self.product.price = 999  # changed after the order was agreed
+        self.product.save()
+        self.client.post(f"/api/shipments/{order['id']}/status/", {"status": "delivered"}, format="json")
+        sale = self.client.get("/api/sales/").json()[0]
+        self.assertEqual((sale["channel"], sale["orderId"], sale["revenue"], sale["profit"]), ("order", order["id"], 1350, 450))
+        self.client.post(f"/api/shipments/{order['id']}/status/", {"status": "returned"}, format="json")
+        self.assertIsNotNone(self.client.get("/api/sales/").json()[0]["refundedAt"])
+
+    def test_order_price_defaults_to_product_price(self):
+        order = self.client.post(
+            "/api/shipments/",
+            {"productId": self.product.id, "quantity": 1, "clientId": self.client_id, "fromLocationId": self.warehouse.id},
+            format="json",
+        ).json()
+        self.assertEqual(order["unitPrice"], 500)
+
+    def test_returned_rental_records_its_income(self):
+        rental = self.client.post(
+            "/api/rentals/",
+            {"productId": self.product.id, "quantity": 2, "clientId": self.client_id, "locationId": self.warehouse.id,
+             "startDate": "2026-10-01T09:00:00Z", "days": 3, "plan": "daily", "rate": "100"},
+            format="json",
+        ).json()
+        self.assertEqual(self.client.get("/api/sales/").json(), [])  # counts when it comes back
+        self.client.post(f"/api/rentals/{rental['id']}/return/")
+        sale = self.client.get("/api/sales/").json()[0]
+        self.assertEqual((sale["channel"], sale["revenue"], sale["profit"], sale["rentalId"]), ("rental", 600, 600, rental["id"]))
+
+    def test_manager_sees_own_shops_sales_without_profit(self):
+        manager = User.objects.create_user(email="m@a.com", password=PASSWORD, name="M", role="manager", business=self.biz)
+        manager.locations.set([self.outlet])
+        self.sell()  # at the warehouse
+        self.client.credentials()
+        self.login("m@a.com")
+        self.assertEqual(self.client.get("/api/sales/").json(), [])
+        StockLevel.objects.create(business=self.biz, product=self.product, location=self.outlet, quantity=5)
+        self.sell(locationId=self.outlet.id, quantity=1)
+        sales = self.client.get("/api/sales/").json()
+        self.assertEqual(len(sales), 1)
+        self.assertNotIn("profit", sales[0])

@@ -12,7 +12,8 @@ import { useScope } from "./session-provider"
 
 const REASONS = {
   add: ["New delivery from supplier", "Customer return", "Stock count correction", "Other"],
-  remove: ["Sold in store", "Damaged / broken", "Lost or stolen", "Stock count correction", "Other"],
+  // Selling goes through Sell, so the money is recorded too.
+  remove: ["Damaged / broken", "Lost or stolen", "Stock count correction", "Other"],
 }
 
 export function StockAdjustDialog({
@@ -90,6 +91,7 @@ export function StockAdjustDialog({
             <SimpleSelect value={reason} onChange={setReason} options={REASONS[mode].map((r) => ({ value: r, label: r }))} />
           </Field>
           {mode === "remove" && qty > current && <p className="text-sm text-destructive">Only {current} available at this location.</p>}
+          {mode === "remove" && <p className="text-xs text-muted-foreground">Selling it? Use Sell instead, so the sale and its price are recorded.</p>}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel

@@ -11,7 +11,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from .models import Activity, Rental, Shipment, ShipmentEvent, StockLevel, Transfer
+from .models import Activity, Rental, Sale, Shipment, ShipmentEvent, StockLevel, Transfer
 
 
 def ref_code(prefix):
@@ -94,7 +94,7 @@ def check_client_deletable(client):
 
 
 @transaction.atomic
-def create_shipment(user, *, product, quantity, client, from_location, notes=""):
+def create_shipment(user, *, product, quantity, client, from_location, notes="", unit_price=None):
     change_stock(product, from_location, -quantity)
     shipment = Shipment.objects.create(
         business=user.business,
@@ -104,6 +104,9 @@ def create_shipment(user, *, product, quantity, client, from_location, notes="")
         client=client,
         from_location=from_location,
         notes=notes,
+        # The price agreed now is what the sale records on delivery.
+        unit_price=product.price if unit_price is None else unit_price,
+        unit_cost=product.cost,
     )
     ShipmentEvent.objects.create(shipment=shipment, status=shipment.status, by=user)
     log(user, "Shipment created", f"{shipment.code} · {quantity} × {product.name} to {client.name}")
@@ -119,8 +122,13 @@ def set_shipment_status(user, shipment, status, note=""):
         return shipment
     if status in Shipment.RESTOCKED:
         change_stock(shipment.product, shipment.from_location, shipment.quantity)
+    was_delivered = shipment.status == Shipment.Status.DELIVERED
     shipment.status = status
     shipment.save(update_fields=["status"])
+    if status == Shipment.Status.DELIVERED:
+        record_order_sale(user, shipment)
+    elif was_delivered:
+        refund_order_sale(shipment)
     ShipmentEvent.objects.create(shipment=shipment, status=status, by=user, note=note)
     log(user, "Shipment updated", f"{shipment.code} → {shipment.get_status_display()}")
     return shipment
@@ -162,6 +170,7 @@ def return_rental(user, rental):
     rental.status = Rental.Status.RETURNED
     rental.returned_at = timezone.now()
     rental.save(update_fields=["status", "returned_at"])
+    record_rental_income(user, rental)
     log(user, "Rental returned", rental.code)
     return rental
 
@@ -212,3 +221,81 @@ def cancel_transfer(user, transfer):
     transfer = _close_transfer(user, transfer, Transfer.Status.CANCELLED)
     log(user, "Transfer cancelled", transfer.code)
     return transfer
+
+
+# ---------- Sales ----------
+# Every sale freezes the price and cost at that moment. Created in the same
+# transaction as the stock change it belongs to.
+
+
+@transaction.atomic
+def sell(user, *, product, location, quantity, unit_price, discount=0, client=None):
+    """A walk-in sale at a shop: takes the stock and records the money."""
+    if discount > unit_price * quantity:
+        raise ValidationError("The discount can't be more than the total.")
+    change_stock(product, location, -quantity)
+    sale = Sale.objects.create(
+        business=user.business,
+        channel=Sale.Channel.STORE,
+        product=product,
+        product_name=product.name,
+        quantity=quantity,
+        unit_price=unit_price,
+        unit_cost=product.cost,
+        discount=discount,
+        location=location,
+        client=client,
+        sold_by=user,
+    )
+    log(user, "Sold", f"{quantity} × {product.name} at {location.name} for {sale.revenue:.2f}")
+    return sale
+
+
+def record_order_sale(user, shipment):
+    """A delivered order becomes a sale at the price agreed when it was placed."""
+    existing = Sale.objects.filter(shipment=shipment).first()
+    if existing:
+        if existing.refunded_at:
+            existing.refunded_at = None
+            existing.save(update_fields=["refunded_at"])
+        return existing
+    product = shipment.product
+    return Sale.objects.create(
+        business_id=shipment.business_id,
+        channel=Sale.Channel.ORDER,
+        product=product,
+        product_name=product.name if product else "Deleted product",
+        quantity=shipment.quantity,
+        # Orders placed before sales tracking have no agreed price: use today's.
+        unit_price=shipment.unit_price if shipment.unit_price is not None else (product.price if product else 0),
+        unit_cost=shipment.unit_cost if shipment.unit_cost is not None else (product.cost if product else 0),
+        location=shipment.from_location,
+        client=shipment.client,
+        shipment=shipment,
+        sold_by=user,
+    )
+
+
+def refund_order_sale(shipment):
+    """The goods came back: the sale no longer counts."""
+    Sale.objects.filter(shipment=shipment, refunded_at__isnull=True).update(refunded_at=timezone.now())
+
+
+def record_rental_income(user, rental):
+    """Rental money counts when the item comes back. Recorded as one line for the
+    whole rental; there's no purchase cost, so it's all profit."""
+    product = rental.product
+    name = product.name if product else "Deleted product"
+    return Sale.objects.create(
+        business_id=rental.business_id,
+        channel=Sale.Channel.RENTAL,
+        product=product,
+        product_name=f"{name} × {rental.quantity} ({rental.days} day rental)",
+        quantity=1,
+        unit_price=rental.total,
+        unit_cost=0,
+        location=rental.location,
+        client=rental.client,
+        rental=rental,
+        sold_by=user,
+    )

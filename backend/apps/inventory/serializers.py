@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from apps.api import IdField, tenant_field
 
-from .models import Activity, Client, Location, Product, Rental, Shipment, ShipmentEvent, StockLevel, Transfer
+from .models import Activity, Client, Location, Product, Rental, Sale, Shipment, ShipmentEvent, StockLevel, Transfer
 
 # Field names follow frontend/src/lib/types.ts (camelCased on the wire).
 
@@ -118,9 +118,10 @@ class ShipmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Shipment
         fields = [
-            "id", "code", "tracking_token", "product_id", "quantity", "client_id", "from_location_id", "status",
-            "notes", "created_at", "history",
+            "id", "code", "tracking_token", "product_id", "quantity", "unit_price", "client_id", "from_location_id",
+            "status", "notes", "created_at", "history",
         ]
+        extra_kwargs = {"unit_price": {"required": False, "min_value": 0}}
         read_only_fields = ["code", "tracking_token", "status", "created_at"]
 
 
@@ -193,3 +194,45 @@ class PublicTrackingSerializer(serializers.ModelSerializer):
             {"status": e.status, "at": serializers.DateTimeField().to_representation(e.at)}
             for e in shipment.history.all()
         ]
+
+
+class SaleSerializer(serializers.ModelSerializer):
+    """A sale as the team sees it. Cost and profit are only included for the
+    owner (`show_profit` in the context); everyone else gets prices only."""
+
+    id = IdField()
+    product_id = IdField()
+    location_id = IdField()
+    client_id = IdField()
+    order_id = IdField(source="shipment_id")
+    rental_id = IdField()
+    sold_by = serializers.CharField(source="sold_by.name", read_only=True, default="")
+    revenue = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    cost = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    profit = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+
+    PRIVATE = ("unit_cost", "cost", "profit")
+
+    class Meta:
+        model = Sale
+        fields = [
+            "id", "channel", "product_id", "product_name", "quantity", "unit_price", "unit_cost", "discount",
+            "revenue", "cost", "profit", "location_id", "client_id", "order_id", "rental_id", "sold_by",
+            "sold_at", "refunded_at",
+        ]
+
+    def to_representation(self, sale):
+        data = super().to_representation(sale)
+        if not self.context.get("show_profit"):
+            for key in self.PRIVATE:
+                data.pop(key, None)
+        return data
+
+
+class SellSerializer(serializers.Serializer):
+    product_id = tenant_field(Product, source="product")
+    location_id = tenant_field(Location, source="location")
+    quantity = serializers.IntegerField(min_value=1)
+    unit_price = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0)
+    discount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0, required=False, default=0)
+    client_id = tenant_field(Client, source="client", required=False, allow_null=True)

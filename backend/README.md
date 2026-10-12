@@ -59,6 +59,7 @@ out, or that is suspended, gets 403 on every tenant endpoint.
 | `transfers/` + `POST {id}/receive/` · `{id}/cancel/` | owner, manager (transfers module) |
 | `GET billing/payments/` · `POST billing/checkout/` | owner (even while locked) |
 | `GET billing/payments/{id}/` | that business's owner, super admin (invoices) |
+| `sales/` (`POST` to sell) | everyone sells at their own shops; owners and managers list; cost and profit for owners only |
 | `GET track/{token}/` | public; a client's order status, nothing internal |
 | `POST billing/sslcommerz/{result}/` | public; the frontend forwards SSLCommerz's callbacks, Django validates them |
 | `platform/businesses/` + `POST {id}/suspend/`, `DELETE`, `platform/payments/`, `POST platform/users/{id}/password/` | super admin |

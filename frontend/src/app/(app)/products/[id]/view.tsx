@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { ArrowLeft, Boxes, CalendarClock, DollarSign, PackageX, Pencil, Printer, Truck, Warehouse } from "lucide-react"
+import { ArrowLeft, Boxes, CalendarClock, DollarSign, PackageX, Pencil, Printer, ShoppingCart, Truck, Warehouse } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { EmptyState, PageBody, PageHeader, Pill, StatCard } from "@/components/common"
 import { usePermissions, useScope } from "@/components/session-provider"
 import { RentalStatusPill, ShipmentStatusPill, StockPill } from "@/components/status"
+import { SellDialog } from "@/components/sell-dialog"
 import { StockAdjustDialog } from "@/components/stock-adjust-dialog"
 import { formatDate, formatMoney, formatNumber } from "@/lib/format"
 import { isOverdue } from "@/lib/rental"
@@ -25,6 +26,7 @@ export function ProductDetailView({ id }: { id: string }) {
   const shipments = useStore((s) => s.shipments)
   const lookups = useLookups()
   const [adjust, setAdjust] = useState<{ locationId?: string; key: number } | null>(null)
+  const [selling, setSelling] = useState(false)
   const qrRef = useRef<HTMLDivElement>(null)
 
   const perLocation = useMemo(
@@ -85,9 +87,13 @@ export function ProductDetailView({ id }: { id: string }) {
                 Edit
               </Button>
             )}
-            <Button onClick={() => setAdjust({ key: Date.now() })}>
+            <Button variant="outline" onClick={() => setAdjust({ key: Date.now() })}>
               <Boxes />
               Update stock
+            </Button>
+            <Button onClick={() => setSelling(true)} disabled={total === 0}>
+              <ShoppingCart />
+              Sell
             </Button>
           </>
         }
@@ -234,6 +240,7 @@ export function ProductDetailView({ id }: { id: string }) {
         </Card>
       </div>
 
+      {selling && <SellDialog productId={id} onClose={() => setSelling(false)} />}
       {adjust && (
         <StockAdjustDialog
           key={adjust.key}

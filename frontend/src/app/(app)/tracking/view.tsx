@@ -14,7 +14,7 @@ import { ClientPicker } from "@/components/client-dialog"
 import { usePermissions, useScope } from "@/components/session-provider"
 import { SHIPMENT_FLOW, SHIPMENT_STATUS, ShipmentStatusPill } from "@/components/status"
 import { TrackingLinkShare, copyTrackingLink } from "@/components/tracking-link"
-import { formatDateTime, timeAgo } from "@/lib/format"
+import { formatDateTime, formatMoney, timeAgo } from "@/lib/format"
 import { qtyAt, useStore } from "@/lib/store"
 import { useLookups } from "@/lib/store/hooks"
 import type { Shipment, ShipmentStatus } from "@/lib/types"
@@ -187,6 +187,7 @@ function ShipmentDetail({ shipment: s }: { shipment: Shipment }) {
       <div className="space-y-6 px-4 pb-6">
         <div className="grid gap-3 rounded-xl border p-4 text-sm">
           <Row label="Product" value={`${s.quantity} × ${product?.name ?? "Deleted product"}`} />
+          {s.unitPrice !== null && <Row label="Price" value={`${formatMoney(s.unitPrice)} each · ${formatMoney(s.unitPrice * s.quantity)}`} />}
           <Row label="Client" value={client ? `${client.name}${client.company ? ` (${client.company})` : ""}` : "Unknown"} />
           {client?.phone && <Row label="Phone" value={client.phone} />}
           {client?.address && <Row label="Deliver to" value={client.address} />}
@@ -279,18 +280,25 @@ function NewOrderDialog({ onClose }: { onClose: () => void }) {
   const [clientId, setClientId] = useState("")
   const [productId, setProductId] = useState("")
   const [quantity, setQuantity] = useState("1")
+  const [price, setPrice] = useState("")
   const [notes, setNotes] = useState("")
 
   const available = productId ? qtyAt(stock, productId, from) : 0
   const qty = Number(quantity)
-  const valid = from && clientId && productId && Number.isInteger(qty) && qty > 0 && qty <= available
+  const unitPrice = Number(price)
+  const valid = from && clientId && productId && Number.isInteger(qty) && qty > 0 && qty <= available && price !== "" && unitPrice >= 0
+
+  const chooseProduct = (id: string) => {
+    setProductId(id)
+    setPrice(String(products.find((p) => p.id === id)?.price ?? ""))
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (!valid) return
     let created: Shipment | undefined
     const ok = await run(async () => {
-      created = await createShipment({ productId, quantity: qty, clientId, fromLocationId: from, notes: notes.trim() || undefined })
+      created = await createShipment({ productId, quantity: qty, unitPrice, clientId, fromLocationId: from, notes: notes.trim() || undefined })
     })
     if (!ok || !created) return
     const order = created
@@ -325,7 +333,7 @@ function NewOrderDialog({ onClose }: { onClose: () => void }) {
             <Field label="Product">
               <SimpleSelect
                 value={productId}
-                onChange={setProductId}
+                onChange={chooseProduct}
                 options={products.filter((p) => qtyAt(stock, p.id, from) > 0).map((p) => ({ value: p.id, label: `${p.name} (${qtyAt(stock, p.id, from)})` }))}
                 placeholder="Choose product"
               />
@@ -334,6 +342,9 @@ function NewOrderDialog({ onClose }: { onClose: () => void }) {
               <Input id="ord-qty" type="number" min="1" step="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
             </Field>
           </div>
+          <Field label="Price per unit" htmlFor="ord-price" hint={productId && price !== "" && qty > 0 ? `Order total ${formatMoney(qty * unitPrice)}. Recorded as a sale when delivered.` : "Recorded as a sale when the order is delivered."}>
+            <Input id="ord-price" type="number" inputMode="decimal" min="0" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} disabled={!productId} />
+          </Field>
           <Field label="Notes" htmlFor="ord-notes">
             <Textarea id="ord-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Delivery instructions, invoice number…" rows={2} />
           </Field>

@@ -13,7 +13,7 @@ from apps.accounts.models import User
 from apps.accounts.permissions import TEAM, IsTenantMember, ManagerNeedsPermission, allowed_location_ids
 
 from . import services
-from .models import Activity, Client, Location, Product, Rental, Shipment, StockLevel, Transfer
+from .models import Activity, Client, Location, Product, Rental, Sale, Shipment, StockLevel, Transfer
 from .serializers import (
     ActivitySerializer,
     ClientSerializer,
@@ -22,6 +22,8 @@ from .serializers import (
     ProductSerializer,
     PublicTrackingSerializer,
     RentalSerializer,
+    SaleSerializer,
+    SellSerializer,
     ShipmentSerializer,
     ShipmentStatusSerializer,
     StockAdjustSerializer,
@@ -292,3 +294,36 @@ class PublicTrackingView(APIView):
             if timezone.now() - closed_at > timedelta(days=Shipment.TRACKING_LINK_DAYS):
                 return False
         return True
+
+
+class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin):
+    """Sales. Anyone on the team can record a walk-in sale at their own shops;
+    owners and managers can list them (managers only for their shops). Cost and
+    profit are shown to owners only."""
+
+    model = Sale
+    serializer_class = SaleSerializer
+    allowed_roles = TEAM
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), "show_profit": self.request.user.role == User.Role.OWNER}
+
+    def get_queryset(self):
+        qs = super().get_queryset().select_related("sold_by")
+        return self.scope_to_locations(qs, "location_id")
+
+    def list(self, request):
+        if request.user.role == User.Role.STAFF:
+            raise PermissionDenied()
+        return super().list(request)
+
+    def create(self, request):
+        serializer = SellSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        if data.get("client") and request.user.role == User.Role.STAFF:
+            # Staff can't see the client list, so they can't pick one either.
+            data["client"] = None
+        self.check_location(data["location"])
+        sale = services.sell(request.user, **data)
+        return Response(self.get_serializer(sale).data, status=status.HTTP_201_CREATED)

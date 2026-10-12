@@ -41,6 +41,10 @@ Demo accounts (created by `seed_demo`, also listed on the login page in developm
 - **Owner** (`/settings`): business name and currency, turns features on or off (rentals, order tracking,
   transfers) and decides what managers and staff may do. Creates owners, managers and staff.
 - **Manager / staff**: work only at the locations they're assigned to, with what the owner allows.
+- **Sales**: every sale freezes its selling price and cost at that moment, so price changes never rewrite
+  past profit. Walk-in sales use **Sell** (product page, Quick Entry); a delivered order becomes a sale at the
+  price agreed when it was placed (a return refunds it); a returned rental records its income. Only the owner
+  sees cost and profit.
 - **Client tracking links**: every order has a public page, `/track/<token>`, that shows the client its status
   timeline and nothing internal (no prices, stock, notes or staff names). Staff share it from the order panel
   (Copy link, WhatsApp, Email). The owner can switch it off in Business Settings; links stop working 30 days after

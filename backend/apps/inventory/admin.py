@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Activity, Client, Location, Product, Rental, Shipment, StockLevel, Transfer
+from .models import Activity, Client, Location, Product, Rental, Sale, Shipment, StockLevel, Transfer
 
 admin.site.register([Location, Client, StockLevel, Shipment, Rental, Transfer])
 
@@ -14,3 +14,9 @@ class ProductAdmin(admin.ModelAdmin):
 @admin.register(Activity)
 class ActivityAdmin(admin.ModelAdmin):
     list_display = ["at", "business", "user", "action", "detail"]
+
+
+@admin.register(Sale)
+class SaleAdmin(admin.ModelAdmin):
+    list_display = ["sold_at", "business", "channel", "product_name", "quantity", "unit_price", "discount", "refunded_at"]
+    list_filter = ["channel"]

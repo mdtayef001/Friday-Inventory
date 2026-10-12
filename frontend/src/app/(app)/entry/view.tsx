@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Camera, CheckCircle2, History, Keyboard, MapPin, Minus, Package, PackagePlus, Plus, SearchX, X } from "lucide-react"
+import { Camera, CheckCircle2, History, Keyboard, MapPin, Minus, Package, PackagePlus, Plus, SearchX, ShoppingCart, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -12,6 +12,7 @@ import { CameraScanner, CodeInput } from "@/components/scanner"
 import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { timeAgo } from "@/lib/format"
 import { qtyAt, useStore } from "@/lib/store"
+import { SellDialog } from "@/components/sell-dialog"
 import type { Product } from "@/lib/types"
 
 type Result = { kind: "found"; product: Product; code: string } | { kind: "new"; code: string } | { kind: "manual" } | null
@@ -200,6 +201,7 @@ function FoundProduct({ product, locationId, onDone }: { product: Product; locat
   const locationName = useStore((s) => s.locations.find((l) => l.id === locationId)?.name)
   const adjustStock = useStore((s) => s.adjustStock)
   const [quantity, setQuantity] = useState(1)
+  const [selling, setSelling] = useState(false)
   const current = qtyAt(stock, product.id, locationId)
 
   const [run, pending] = useAttempt()
@@ -253,11 +255,20 @@ function FoundProduct({ product, locationId, onDone }: { product: Product; locat
             <Plus />
           </Button>
         </div>
-        <Button size="lg" className="h-12 w-full px-6 text-base sm:w-auto" onClick={add} disabled={pending}>
-          <PackagePlus />
-          Add {quantity} {product.unit}
-        </Button>
+        <div className="flex w-full gap-2 sm:w-auto">
+          <Button size="lg" variant="outline" className="h-12 flex-1 px-6 text-base" onClick={() => setSelling(true)} disabled={current === 0}>
+            <ShoppingCart />
+            Sell
+          </Button>
+          <Button size="lg" className="h-12 flex-1 px-6 text-base" onClick={add} disabled={pending}>
+            <PackagePlus />
+            Add {quantity} {product.unit}
+          </Button>
+        </div>
       </CardContent>
+      {selling && (
+        <SellDialog productId={product.id} locationId={locationId} quantity={Math.min(quantity, current)} onClose={() => setSelling(false)} onSold={onDone} />
+      )}
     </Card>
   )
 }

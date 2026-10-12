@@ -5,6 +5,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.utils import timezone
 
 from apps.accounts.models import Business
 
@@ -123,6 +124,10 @@ class Shipment(TenantModel):
     from_location = models.ForeignKey(Location, null=True, on_delete=models.SET_NULL, related_name="+")
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     notes = models.TextField(blank=True)
+    # Agreed when the order is placed, so the sale uses this even if the product's price changes later.
+    # Null on orders from before sales tracking; those use the price at delivery.
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)])
+    unit_cost = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -217,3 +222,46 @@ class Activity(TenantModel):
     class Meta:
         ordering = ["-at"]
         verbose_name_plural = "activity"
+
+
+class Sale(TenantModel):
+    """Money in. Freezes the price and cost at the moment of sale, so changing a
+    product's price later never rewrites past profit."""
+
+    class Channel(models.TextChoices):
+        STORE = "store", "In store"
+        ORDER = "order", "Order"
+        RENTAL = "rental", "Rental"
+
+    channel = models.CharField(max_length=10, choices=Channel.choices)
+    product = models.ForeignKey(Product, null=True, on_delete=models.SET_NULL, related_name="+")
+    # Kept so the sale still reads right after the product is renamed or deleted.
+    product_name = models.CharField(max_length=200)
+    quantity = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
+    unit_cost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    discount = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
+    location = models.ForeignKey(Location, null=True, on_delete=models.SET_NULL, related_name="+")
+    client = models.ForeignKey(Client, null=True, blank=True, on_delete=models.SET_NULL, related_name="sales")
+    shipment = models.OneToOneField(Shipment, null=True, blank=True, on_delete=models.SET_NULL, related_name="sale")
+    rental = models.OneToOneField(Rental, null=True, blank=True, on_delete=models.SET_NULL, related_name="sale")
+    sold_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+")
+    sold_at = models.DateTimeField(default=timezone.now)
+    # Set when the goods come back (a delivered order returned). Refunded sales don't count.
+    refunded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-sold_at"]
+        indexes = [models.Index(fields=["business", "sold_at"])]
+
+    @property
+    def revenue(self):
+        return self.unit_price * self.quantity - self.discount
+
+    @property
+    def cost(self):
+        return self.unit_cost * self.quantity
+
+    @property
+    def profit(self):
+        return self.revenue - self.cost
