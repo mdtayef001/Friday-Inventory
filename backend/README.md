@@ -17,6 +17,10 @@ python manage.py seed_demo        # demo businesses and logins (or: createsuperu
 python manage.py runserver        # http://localhost:8000
 ```
 
+With `DATABASE_URL` empty the backend uses SQLite (`db.sqlite3`). To use Supabase, copy the
+"Session pooler" connection string from the Supabase dashboard (Connect button) into
+`DATABASE_URL`, add `?sslmode=require`, then run `migrate` and `seed_demo` against it.
+
 `JWT_SIGNING_KEY` must be the same in `backend/.env` and `frontend/.env.local`: the Next.js
 proxy uses it to check login tokens. `python manage.py seed_demo --reset` puts the demo data
 back to how it started.

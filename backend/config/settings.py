@@ -8,6 +8,7 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+import dj_database_url
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -76,13 +77,13 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-# SQLite for local development. Set DATABASE_URL-style settings here when
-# moving to PostgreSQL in production.
+# PostgreSQL (Supabase) when DATABASE_URL is set, otherwise SQLite for local development.
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
+    "default": dj_database_url.parse(
+        os.environ.get("DATABASE_URL") or f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        conn_max_age=60,
+        conn_health_checks=True,
+    )
 }
 
 AUTH_USER_MODEL = "accounts.User"
