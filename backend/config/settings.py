@@ -81,7 +81,9 @@ WSGI_APPLICATION = "config.wsgi.application"
 DATABASES = {
     "default": dj_database_url.parse(
         os.environ.get("DATABASE_URL") or f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
-        conn_max_age=60,
+        # Keep connections open only under a production server: runserver starts a thread per
+        # request, and each would hold its own connection until Supabase's pool runs out.
+        conn_max_age=int(os.environ.get("DATABASE_CONN_MAX_AGE", "0")),
         conn_health_checks=True,
     )
 }
