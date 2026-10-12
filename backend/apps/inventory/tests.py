@@ -216,7 +216,7 @@ class PublicTrackingTests(ApiTestCase):
         self.assertEqual(self.track().status_code, 404)
 
 
-class SalesTests(ApiTestCase):
+class SalesBase(ApiTestCase):
     def setUp(self):
         super().setUp()
         self.product.price, self.product.cost = 500, 300
@@ -228,6 +228,8 @@ class SalesTests(ApiTestCase):
         data = {"productId": self.product.id, "locationId": self.warehouse.id, "quantity": 2, "unitPrice": "480", **body}
         return self.client.post("/api/sales/", data, format="json")
 
+
+class SalesTests(SalesBase):
     def test_walk_in_sale_takes_stock_and_freezes_price(self):
         res = self.sell(discount="60")
         self.assertEqual(res.status_code, 201, res.content)
@@ -305,3 +307,52 @@ class SalesTests(ApiTestCase):
         sales = self.client.get("/api/sales/").json()
         self.assertEqual(len(sales), 1)
         self.assertNotIn("profit", sales[0])
+
+
+class SalesSummaryTests(SalesBase):
+    def test_summary_totals_and_margin(self):
+        self.sell(quantity=2, unitPrice="500")  # revenue 1000, cost 600
+        self.sell(quantity=1, unitPrice="400", discount="100")  # revenue 300, cost 300
+        s = self.client.get("/api/sales/summary/").json()
+        self.assertEqual((s["count"], s["revenue"], s["cost"], s["profit"], s["unitsSold"]), (2, 1300, 900, 400, 3))
+        self.assertEqual(s["margin"], 30.8)
+        self.assertEqual(s["channels"]["store"]["revenue"], 1300)
+        self.assertEqual(s["sellers"], [{"id": str(self.owner.id), "name": self.owner.name}])
+
+    def test_refunded_sales_are_left_out(self):
+        order = self.client.post(
+            "/api/shipments/",
+            {"productId": self.product.id, "quantity": 2, "clientId": self.client_id, "fromLocationId": self.warehouse.id},
+            format="json",
+        ).json()
+        self.client.post(f"/api/shipments/{order['id']}/status/", {"status": "delivered"}, format="json")
+        self.assertEqual(self.client.get("/api/sales/summary/").json()["revenue"], 1000)
+        self.client.post(f"/api/shipments/{order['id']}/status/", {"status": "returned"}, format="json")
+        s = self.client.get("/api/sales/summary/").json()
+        self.assertEqual((s["revenue"], s["count"], s["refundedCount"]), (0, 0, 1))
+
+    def test_filters_by_date_shop_product_and_type(self):
+        self.sell(quantity=1)
+        from .models import Sale
+
+        Sale.objects.update(sold_at=timezone.now() - timedelta(days=10))
+        self.sell(quantity=2)
+        since = (timezone.now() - timedelta(days=1)).isoformat()
+        self.assertEqual(len(self.client.get("/api/sales/", {"from": since}).json()), 1)
+        self.assertEqual(self.client.get("/api/sales/summary/", {"to": since}).json()["unitsSold"], 1)
+        self.assertEqual(self.client.get("/api/sales/summary/", {"location": self.outlet.id}).json()["count"], 0)
+        self.assertEqual(self.client.get("/api/sales/summary/", {"product": self.product.id}).json()["count"], 2)
+        self.assertEqual(self.client.get("/api/sales/summary/", {"channel": "rental"}).json()["count"], 0)
+        self.assertEqual(self.client.get("/api/sales/", {"from": "yesterday"}).status_code, 400)
+
+    def test_manager_summary_has_no_profit(self):
+        manager = User.objects.create_user(email="m2@a.com", password=PASSWORD, name="M", role="manager", business=self.biz)
+        manager.locations.set([self.warehouse])
+        self.sell()
+        self.client.credentials()
+        self.login("m2@a.com")
+        s = self.client.get("/api/sales/summary/").json()
+        self.assertEqual(s["revenue"], 960)
+        for private in ("cost", "profit", "margin"):
+            self.assertNotIn(private, s)
+            self.assertNotIn(private, s["channels"]["store"])

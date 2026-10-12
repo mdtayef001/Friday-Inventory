@@ -56,6 +56,7 @@ export const APP_ROUTES = [
   "/tracking",
   "/rentals",
   "/clients",
+  "/sales",
   "/users",
   "/activity",
   "/settings",

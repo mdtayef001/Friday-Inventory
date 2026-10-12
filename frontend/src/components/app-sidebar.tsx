@@ -4,12 +4,13 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   ArrowLeftRight,
-  CreditCard,
   Boxes,
   CalendarClock,
+  CreditCard,
   History,
   LayoutDashboard,
   Package,
+  Receipt,
   ScanBarcode,
   Settings,
   Store,
@@ -58,6 +59,7 @@ const NAV = [
   {
     label: "Sales & Rentals",
     items: [
+      { href: "/sales", label: "Sales", icon: Receipt },
       { href: "/tracking", label: "Order Tracking", icon: Truck },
       { href: "/rentals", label: "Rentals", icon: CalendarClock },
       { href: "/clients", label: "Clients", icon: Users },

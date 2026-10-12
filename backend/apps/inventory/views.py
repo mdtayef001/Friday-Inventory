@@ -1,10 +1,13 @@
 from datetime import timedelta
 
-from django.db.models import Q
+from decimal import Decimal
+
+from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum
+from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -308,14 +311,85 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin)
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "show_profit": self.request.user.role == User.Role.OWNER}
 
+    LIST_LIMIT = 500
+
     def get_queryset(self):
         qs = super().get_queryset().select_related("sold_by")
         return self.scope_to_locations(qs, "location_id")
 
-    def list(self, request):
-        if request.user.role == User.Role.STAFF:
+    def filtered(self):
+        """Sales matching ?from=&to= (ISO times), ?location=, ?product=, ?seller= and ?channel=."""
+        qs = self.get_queryset()
+        params = self.request.query_params
+        for name, lookup in (("from", "sold_at__gte"), ("to", "sold_at__lt")):
+            if params.get(name):
+                when = parse_datetime(params[name])
+                if when is None:
+                    raise ValidationError({name: "Use an ISO date and time."})
+                qs = qs.filter(**{lookup: when})
+        for name, field in (("location", "location_id"), ("product", "product_id"), ("seller", "sold_by_id")):
+            if params.get(name):
+                if not params[name].isdigit():
+                    raise ValidationError({name: "Unknown id."})
+                qs = qs.filter(**{field: int(params[name])})
+        if params.get("channel"):
+            if params["channel"] not in Sale.Channel.values:
+                raise ValidationError({"channel": "Unknown sale type."})
+            qs = qs.filter(channel=params["channel"])
+        return qs
+
+    def check_can_read(self):
+        if self.request.user.role == User.Role.STAFF:
             raise PermissionDenied()
-        return super().list(request)
+
+    def list(self, request):
+        """The newest sales matching the filters (up to 500; the summary has the full totals)."""
+        self.check_can_read()
+        sales = self.filtered()[: self.LIST_LIMIT]
+        return Response(self.get_serializer(sales, many=True).data)
+
+    @action(detail=False)
+    def summary(self, request):
+        """Totals for the filtered sales. Refunded sales are counted separately and left out."""
+        self.check_can_read()
+        qs = self.filtered()
+        money = DecimalField(max_digits=16, decimal_places=2)
+        revenue = ExpressionWrapper(F("unit_price") * F("quantity") - F("discount"), output_field=money)
+        cost = ExpressionWrapper(F("unit_cost") * F("quantity"), output_field=money)
+        zero = Decimal("0")
+
+        def totals(rows):
+            agg = rows.aggregate(count=Count("id"), revenue=Sum(revenue), cost=Sum(cost), units=Sum("quantity"))
+            r, c = agg["revenue"] or zero, agg["cost"] or zero
+            return {"count": agg["count"], "revenue": r, "cost": c, "profit": r - c, "units": agg["units"] or 0}
+
+        counted = qs.filter(refunded_at__isnull=True)
+        overall = totals(counted)
+        channels = {ch: totals(counted.filter(channel=ch)) for ch in Sale.Channel.values}
+        show_profit = request.user.role == User.Role.OWNER
+
+        def public(t):
+            out = {"count": t["count"], "revenue": float(t["revenue"])}
+            if show_profit:
+                out.update(cost=float(t["cost"]), profit=float(t["profit"]))
+            return out
+
+        data = {
+            **public(overall),
+            # Units of products sold; a rental is income, not units sold.
+            "units_sold": channels["store"]["units"] + channels["order"]["units"],
+            "refunded_count": qs.filter(refunded_at__isnull=False).count(),
+            "channels": {ch: public(t) for ch, t in channels.items()},
+            # Everyone who has sold within this user's view, for the seller filter.
+            "sellers": [
+                {"id": str(uid), "name": name}
+                for uid, name in self.get_queryset().filter(sold_by__isnull=False)
+                .values_list("sold_by_id", "sold_by__name").distinct().order_by("sold_by__name")
+            ],
+        }
+        if show_profit:
+            data["margin"] = round(float(overall["profit"] / overall["revenue"] * 100), 1) if overall["revenue"] else None
+        return Response(data)
 
     def create(self, request):
         serializer = SellSerializer(data=request.data, context={"request": request})

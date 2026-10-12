@@ -207,6 +207,7 @@ class SaleSerializer(serializers.ModelSerializer):
     order_id = IdField(source="shipment_id")
     rental_id = IdField()
     sold_by = serializers.CharField(source="sold_by.name", read_only=True, default="")
+    sold_by_id = IdField()
     revenue = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
     cost = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
     profit = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
@@ -218,7 +219,7 @@ class SaleSerializer(serializers.ModelSerializer):
         fields = [
             "id", "channel", "product_id", "product_name", "quantity", "unit_price", "unit_cost", "discount",
             "revenue", "cost", "profit", "location_id", "client_id", "order_id", "rental_id", "sold_by",
-            "sold_at", "refunded_at",
+            "sold_by_id", "sold_at", "refunded_at",
         ]
 
     def to_representation(self, sale):
