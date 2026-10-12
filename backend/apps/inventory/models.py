@@ -69,7 +69,7 @@ class Product(TenantModel):
 
 class StockLevel(TenantModel):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="stock")
-    location = models.ForeignKey(Location, on_delete=models.PROTECT, related_name="stock")
+    location = models.ForeignKey(Location, on_delete=models.CASCADE, related_name="stock")
     quantity = models.PositiveIntegerField(default=0)
 
     class Meta:
@@ -104,10 +104,10 @@ class Shipment(TenantModel):
     RESTOCKED = (Status.RETURNED, Status.CANCELLED)
 
     code = models.CharField(max_length=32)
-    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="+")
+    product = models.ForeignKey(Product, null=True, on_delete=models.SET_NULL, related_name="+")
     quantity = models.PositiveIntegerField(validators=[MinValueValidator(1)])
-    client = models.ForeignKey(Client, on_delete=models.PROTECT, related_name="shipments")
-    from_location = models.ForeignKey(Location, on_delete=models.PROTECT, related_name="+")
+    client = models.ForeignKey(Client, null=True, on_delete=models.SET_NULL, related_name="shipments")
+    from_location = models.ForeignKey(Location, null=True, on_delete=models.SET_NULL, related_name="+")
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -143,11 +143,11 @@ class Rental(TenantModel):
     PLAN_DAYS = {Plan.DAILY: 1, Plan.WEEKLY: 7, Plan.MONTHLY: 30}
 
     code = models.CharField(max_length=32)
-    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="+")
+    product = models.ForeignKey(Product, null=True, on_delete=models.SET_NULL, related_name="+")
     quantity = models.PositiveIntegerField(validators=[MinValueValidator(1)])
-    client = models.ForeignKey(Client, on_delete=models.PROTECT, related_name="rentals")
-    location = models.ForeignKey(Location, on_delete=models.PROTECT, related_name="+")
-    start_date = models.DateField()
+    client = models.ForeignKey(Client, null=True, on_delete=models.SET_NULL, related_name="rentals")
+    location = models.ForeignKey(Location, null=True, on_delete=models.SET_NULL, related_name="+")
+    start_date = models.DateTimeField()
     days = models.PositiveIntegerField(validators=[MinValueValidator(1)])
     plan = models.CharField(max_length=10, choices=Plan.choices)
     # Price per day/week/month, or the flat amount when plan is "fixed".
@@ -182,10 +182,10 @@ class Transfer(TenantModel):
         CANCELLED = "cancelled", "Cancelled"
 
     code = models.CharField(max_length=32)
-    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="+")
+    product = models.ForeignKey(Product, null=True, on_delete=models.SET_NULL, related_name="+")
     quantity = models.PositiveIntegerField(validators=[MinValueValidator(1)])
-    from_location = models.ForeignKey(Location, on_delete=models.PROTECT, related_name="+")
-    to_location = models.ForeignKey(Location, on_delete=models.PROTECT, related_name="+")
+    from_location = models.ForeignKey(Location, null=True, on_delete=models.SET_NULL, related_name="+")
+    to_location = models.ForeignKey(Location, null=True, on_delete=models.SET_NULL, related_name="+")
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.IN_TRANSIT)
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+")

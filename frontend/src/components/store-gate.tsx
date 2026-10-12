@@ -1,29 +1,48 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { AlertTriangle, RotateCcw } from "lucide-react"
 import { setCurrency } from "@/lib/format"
 import { loadTenant } from "@/lib/store"
-import type { Business } from "@/lib/types"
-import { DEMO_TENANT } from "@/lib/demo"
+import type { Business, SessionUser } from "@/lib/types"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 
-/** Loads the business's saved data from localStorage before rendering data-driven pages. */
-export function StoreGate({ business, children }: { business: Business; children: React.ReactNode }) {
-  const [readyFor, setReadyFor] = useState<string | null>(null)
-  const { id, settings } = business
+/** Loads the business's data from the API before rendering data-driven pages. */
+export function StoreGate({ user, business, children }: { user: SessionUser; business: Business; children: React.ReactNode }) {
+  const [state, setState] = useState<{ key: string; error?: string } | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  // Reload when the user, business or its switches change (e.g. after saving settings).
+  const key = `${user.id}:${business.id}:${JSON.stringify(business.settings)}:${attempt}`
 
   useEffect(() => {
     let cancelled = false
-    setCurrency(settings.currency)
-    void loadTenant({ id, demo: id === DEMO_TENANT }).then(() => {
-      if (!cancelled) setReadyFor(`${id}:${settings.currency}`)
-    })
+    setCurrency(business.settings.currency)
+    loadTenant(user, business).then(
+      () => !cancelled && setState({ key }),
+      (err: unknown) => !cancelled && setState({ key, error: err instanceof Error ? err.message : "Couldn't load your data." }),
+    )
     return () => {
       cancelled = true
     }
-  }, [id, settings.currency])
+    // `key` covers every input that matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
 
-  if (readyFor !== `${id}:${settings.currency}`) return <PageSkeleton />
+  if (state?.key !== key) return <PageSkeleton />
+  if (state.error) {
+    return (
+      <div className="flex min-h-[60svh] flex-col items-center justify-center gap-3 p-6 text-center">
+        <AlertTriangle className="size-8 text-amber-500" />
+        <p className="font-medium">Couldn&apos;t load your data</p>
+        <p className="max-w-sm text-sm text-muted-foreground">{state.error}</p>
+        <Button variant="outline" onClick={() => setAttempt((n) => n + 1)}>
+          <RotateCcw />
+          Try again
+        </Button>
+      </div>
+    )
+  }
   return children
 }
 

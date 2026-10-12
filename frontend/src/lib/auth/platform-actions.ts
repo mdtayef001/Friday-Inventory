@@ -1,47 +1,30 @@
 "use server"
 
-import { refresh } from "next/cache"
 import { z } from "zod"
-import { listPayments, removeBusinessPayments } from "@/lib/billing/payments"
+import { api, apiOrNull, toResult, type ActionResult } from "@/lib/api/server"
+import { ApiError } from "@/lib/api/errors"
 import type { BusinessSummary, ManagedUser, Payment } from "@/lib/types"
 import { requireRole } from "./dal"
-import { findBusiness, insertBusiness, listBusinesses, patchBusiness, removeBusiness } from "./tenants"
-import type { ActionResult } from "./user-actions"
-import { emailTaken, findUserById, insertUser, listUsers, patchUser, removeTenantUsers } from "./users"
 
-// Super admin only. Every action re-checks the role on the server.
+// Super admin only. Every action re-checks the role here, and Django again.
 const requireSuper = () => requireRole(["superadmin"])
-
-function summarize(business: ReturnType<typeof listBusinesses>[number], users: ManagedUser[]): BusinessSummary {
-  const team = users.filter((u) => u.tenantId === business.id)
-  const owner = team.find((u) => u.role === "owner")
-  const lastActiveAt = team.map((u) => u.lastLoginAt).filter(Boolean).sort().at(-1)
-  return {
-    ...business,
-    owner: owner ? { id: owner.id, name: owner.name, email: owner.email } : null,
-    userCount: team.length,
-    lastActiveAt,
-  }
-}
+const businessPath = (id: string) => `platform/businesses/${encodeURIComponent(id)}/`
 
 export async function getBusinesses(): Promise<BusinessSummary[]> {
   await requireSuper()
-  const users = listUsers()
-  return listBusinesses().map((b) => summarize(b, users))
+  return api("platform/businesses/")
 }
 
 export async function getBusiness(id: string): Promise<{ business: BusinessSummary; users: ManagedUser[]; payments: Payment[] } | null> {
   await requireSuper()
-  const business = findBusiness(id)
-  if (!business) return null
-  const users = listUsers(id)
-  return { business: summarize(business, users), users, payments: listPayments(id) }
+  if (!/^\d+$/.test(id)) return null
+  return apiOrNull(businessPath(id))
 }
 
 /** Every payment attempt on the platform, newest first. */
 export async function getPayments(): Promise<Payment[]> {
   await requireSuper()
-  return listPayments()
+  return api("platform/payments/")
 }
 
 const CreateSchema = z.object({
@@ -53,24 +36,23 @@ const CreateSchema = z.object({
 })
 
 export async function createBusiness(input: z.input<typeof CreateSchema>): Promise<ActionResult & { id?: string }> {
-  const { user } = await requireSuper()
+  await requireSuper()
   const parsed = CreateSchema.safeParse(input)
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0].message }
-  const d = parsed.data
-  if (emailTaken(d.ownerEmail)) return { ok: false, error: "An account with this email already exists." }
-
-  const business = insertBusiness({ name: d.name, industry: d.industry })
-  insertUser({ name: d.ownerName, email: d.ownerEmail, password: d.ownerPassword, role: "owner", tenantId: business.id, locationIds: [], createdBy: user.id })
-  refresh()
-  return { ok: true, id: business.id }
+  try {
+    const business = await api<BusinessSummary>("platform/businesses/", { method: "POST", body: parsed.data })
+    return { ok: true, id: business.id }
+  } catch (err) {
+    if (err instanceof ApiError) return { ok: false, error: err.message }
+    throw err
+  }
 }
 
 /** Switch a business off by hand, or back on. Paying doesn't lift a manual suspension. */
 export async function setBusinessSuspended(id: string, suspended: boolean): Promise<ActionResult> {
   await requireSuper()
-  if (typeof suspended !== "boolean" || !patchBusiness(id, { suspended })) return { ok: false, error: "Business not found." }
-  refresh()
-  return { ok: true }
+  if (typeof suspended !== "boolean") return { ok: false, error: "Invalid request." }
+  return toResult(() => api(`${businessPath(id)}suspend/`, { method: "POST", body: { suspended } }))
 }
 
 export async function resetOwnerPassword(userId: string, password: string): Promise<ActionResult> {
@@ -78,18 +60,10 @@ export async function resetOwnerPassword(userId: string, password: string): Prom
   if (typeof password !== "string" || password.length < 8 || password.length > 128) {
     return { ok: false, error: "Password must be at least 8 characters" }
   }
-  const target = findUserById(userId)
-  if (!target || target.role === "superadmin") return { ok: false, error: "Account not found." }
-  patchUser(userId, { password })
-  refresh()
-  return { ok: true }
+  return toResult(() => api(`platform/users/${encodeURIComponent(userId)}/password/`, { method: "POST", body: { password } }))
 }
 
 export async function deleteBusiness(id: string): Promise<ActionResult> {
   await requireSuper()
-  if (!removeBusiness(id)) return { ok: false, error: "Business not found." }
-  removeTenantUsers(id)
-  removeBusinessPayments(id)
-  refresh()
-  return { ok: true }
+  return toResult(() => api(businessPath(id), { method: "DELETE" }))
 }

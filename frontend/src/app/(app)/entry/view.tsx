@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { attempt, EmptyState, PageBody, PageHeader, SimpleSelect } from "@/components/common"
+import { useAttempt, EmptyState, PageBody, PageHeader, SimpleSelect } from "@/components/common"
 import { ProductForm } from "@/components/product-form"
 import { CameraScanner, CodeInput } from "@/components/scanner"
 import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
@@ -196,16 +196,17 @@ export function EntryView() {
 }
 
 function FoundProduct({ product, locationId, onDone }: { product: Product; locationId: string; onDone: () => void }) {
-  const user = useSessionUser()
   const stock = useStore((s) => s.stock)
   const locationName = useStore((s) => s.locations.find((l) => l.id === locationId)?.name)
   const adjustStock = useStore((s) => s.adjustStock)
   const [quantity, setQuantity] = useState(1)
   const current = qtyAt(stock, product.id, locationId)
 
-  function add() {
-    const ok = attempt(
-      () => adjustStock(product.id, locationId, quantity, "Quick entry", user.name),
+  const [run, pending] = useAttempt()
+
+  async function add() {
+    const ok = await run(
+      () => adjustStock(product.id, locationId, quantity, "Quick entry"),
       `Added ${quantity} ${product.unit} of ${product.name}`,
     )
     if (ok) onDone()
@@ -252,7 +253,7 @@ function FoundProduct({ product, locationId, onDone }: { product: Product; locat
             <Plus />
           </Button>
         </div>
-        <Button size="lg" className="h-12 w-full px-6 text-base sm:w-auto" onClick={add}>
+        <Button size="lg" className="h-12 w-full px-6 text-base sm:w-auto" onClick={add} disabled={pending}>
           <PackagePlus />
           Add {quantity} {product.unit}
         </Button>

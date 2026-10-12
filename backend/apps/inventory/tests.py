@@ -42,7 +42,7 @@ class AuthTests(ApiTestCase):
     def test_login_returns_session_user(self):
         data = self.login("OWNER@a.com")
         self.assertEqual(data["user"]["role"], "owner")
-        self.assertEqual(data["user"]["tenantId"], self.biz.id)
+        self.assertEqual(data["user"]["tenantId"], str(self.biz.id))
 
     def test_endpoints_need_a_token(self):
         self.assertEqual(self.client.get("/api/products/").status_code, 401)
@@ -58,14 +58,14 @@ class TenantTests(ApiTestCase):
     def test_other_business_data_is_invisible(self):
         Product.objects.create(business=self.other_biz, sku="X", name="Hidden")
         self.login("owner@a.com")
-        names = [p["name"] for p in self.client.get("/api/products/").json()["results"]]
+        names = [p["name"] for p in self.client.get("/api/products/").json()]
         self.assertEqual(names, ["TV"])
 
     def test_cannot_reference_other_business_location(self):
         foreign = Location.objects.create(business=self.other_biz, name="Theirs", type="outlet")
         self.login("owner@a.com")
         res = self.client.post(
-            "/api/stock/adjust/", {"product": self.product.id, "location": foreign.id, "delta": 5}, format="json"
+            "/api/stock/adjust/", {"productId": self.product.id, "locationId": foreign.id, "delta": 5}, format="json"
         )
         self.assertEqual(res.status_code, 400)
 
@@ -80,11 +80,11 @@ class RoleTests(ApiTestCase):
     def test_staff_only_adjusts_stock_at_their_locations(self):
         self.login("staff@a.com")
         ok = self.client.post(
-            "/api/stock/adjust/", {"product": self.product.id, "location": self.outlet.id, "delta": 3}, format="json"
+            "/api/stock/adjust/", {"productId": self.product.id, "locationId": self.outlet.id, "delta": 3}, format="json"
         )
         self.assertEqual(ok.status_code, 204)
         denied = self.client.post(
-            "/api/stock/adjust/", {"product": self.product.id, "location": self.warehouse.id, "delta": 3}, format="json"
+            "/api/stock/adjust/", {"productId": self.product.id, "locationId": self.warehouse.id, "delta": 3}, format="json"
         )
         self.assertEqual(denied.status_code, 403)
 
@@ -102,7 +102,7 @@ class RoleTests(ApiTestCase):
         )
         self.assertEqual(res.status_code, 201, res.content)
         self.client.credentials()
-        self.assertEqual(self.login("new@a.com")["user"]["locationIds"], [self.outlet.id])
+        self.assertEqual(self.login("new@a.com")["user"]["locationIds"], [str(self.outlet.id)])
 
 
 class StockFlowTests(ApiTestCase):
@@ -114,7 +114,7 @@ class StockFlowTests(ApiTestCase):
     def test_transfer_moves_stock_on_receive(self):
         res = self.client.post(
             "/api/transfers/",
-            {"product": self.product.id, "quantity": 4, "fromLocation": self.warehouse.id, "toLocation": self.outlet.id},
+            {"productId": self.product.id, "quantity": 4, "fromLocationId": self.warehouse.id, "toLocationId": self.outlet.id},
             format="json",
         )
         self.assertEqual(res.status_code, 201, res.content)
@@ -125,7 +125,7 @@ class StockFlowTests(ApiTestCase):
     def test_cannot_ship_more_than_in_stock(self):
         res = self.client.post(
             "/api/shipments/",
-            {"product": self.product.id, "quantity": 11, "client": self.client_id, "fromLocation": self.warehouse.id},
+            {"productId": self.product.id, "quantity": 11, "clientId": self.client_id, "fromLocationId": self.warehouse.id},
             format="json",
         )
         self.assertEqual(res.status_code, 400)
@@ -134,7 +134,7 @@ class StockFlowTests(ApiTestCase):
     def test_cancelled_shipment_restocks(self):
         sh = self.client.post(
             "/api/shipments/",
-            {"product": self.product.id, "quantity": 2, "client": self.client_id, "fromLocation": self.warehouse.id},
+            {"productId": self.product.id, "quantity": 2, "clientId": self.client_id, "fromLocationId": self.warehouse.id},
             format="json",
         ).json()
         self.assertEqual(self.qty(self.warehouse), 8)
@@ -146,13 +146,13 @@ class StockFlowTests(ApiTestCase):
         res = self.client.post(
             "/api/rentals/",
             {
-                "product": self.product.id, "quantity": 2, "client": self.client_id, "location": self.warehouse.id,
-                "startDate": "2026-10-01", "days": 10, "plan": "weekly", "rate": "500",
+                "productId": self.product.id, "quantity": 2, "clientId": self.client_id, "locationId": self.warehouse.id,
+                "startDate": "2026-10-01T09:00:00Z", "days": 10, "plan": "weekly", "rate": "500",
             },
             format="json",
         )
         self.assertEqual(res.status_code, 201, res.content)
-        self.assertEqual(float(res.json()["total"]), 2000.0)  # 2 weeks × 500 × 2 units
+        self.assertEqual(res.json()["total"], 2000)  # 2 weeks × 500 × 2 units
         self.client.post(f"/api/rentals/{res.json()['id']}/return/")
         self.assertEqual(self.qty(self.warehouse), 10)
 

@@ -1,9 +1,8 @@
 "use client"
 
-import { useState, useTransition } from "react"
-import { ChevronsUpDown, LogOut, MapPin, Moon, RotateCcw, Sun } from "lucide-react"
+import { useTransition } from "react"
+import { ChevronsUpDown, LogOut, MapPin, Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
-import { toast } from "sonner"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
   DropdownMenu,
@@ -17,8 +16,6 @@ import {
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar"
 import { logout } from "@/lib/auth/actions"
 import { ROLE_LABEL } from "@/lib/auth/roles"
-import { useStore } from "@/lib/store"
-import { ConfirmAction } from "./common"
 import { useScope, useSessionUser } from "./session-provider"
 
 export function initials(name: string) {
@@ -30,46 +27,21 @@ export function initials(name: string) {
     .toUpperCase()
 }
 
-/** Account menu for the business app: adds the user's shops and a data reset for owners. */
+/** Account menu for the business app: adds the user's shops. */
 export function UserMenu() {
-  const user = useSessionUser()
   const scope = useScope()
-  const resetDemoData = useStore((s) => s.resetDemoData)
-  const [confirming, setConfirming] = useState(false)
 
   return (
-    <>
-      <AccountMenu>
-        {!scope.isOwner && (
-          <DropdownMenuGroup>
-            <DropdownMenuLabel className="flex items-start gap-2 text-xs font-normal">
-              <MapPin className="mt-0.5 size-3.5 shrink-0" />
-              {scope.locations.map((l) => l.name).join(", ") || "No locations assigned"}
-            </DropdownMenuLabel>
-          </DropdownMenuGroup>
-        )}
-        {user.role === "owner" && (
-          <DropdownMenuItem onClick={() => setConfirming(true)}>
-            <RotateCcw />
-            Reset data
-          </DropdownMenuItem>
-        )}
-      </AccountMenu>
-      {confirming && (
-        <ConfirmAction
-          defaultOpen
-          onOpenChange={(open) => !open && setConfirming(false)}
-          title="Reset this business's data?"
-          description="Products, stock, orders and rentals saved in this browser go back to the starting data. Accounts are not affected."
-          confirmLabel="Reset data"
-          destructive
-          onConfirm={() => {
-            resetDemoData()
-            toast.success("Data reset")
-          }}
-        />
+    <AccountMenu>
+      {!scope.isOwner && (
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="flex items-start gap-2 text-xs font-normal">
+            <MapPin className="mt-0.5 size-3.5 shrink-0" />
+            {scope.locations.map((l) => l.name).join(", ") || "No locations assigned"}
+          </DropdownMenuLabel>
+        </DropdownMenuGroup>
       )}
-    </>
+    </AccountMenu>
   )
 }
 

@@ -16,7 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { attempt, ConfirmAction, EmptyState, PageBody, PageHeader, Pill, SimpleSelect } from "@/components/common"
-import { usePermissions, useSessionUser } from "@/components/session-provider"
+import { usePermissions } from "@/components/session-provider"
 import { StockPill } from "@/components/status"
 import { formatMoney, formatNumber } from "@/lib/format"
 import { useStore } from "@/lib/store"
@@ -31,7 +31,6 @@ const STOCK_FILTERS = [
 
 export function ProductsView() {
   const router = useRouter()
-  const user = useSessionUser()
   const products = useStore((s) => s.products)
   const deleteProduct = useStore((s) => s.deleteProduct)
   const totals = useScopedTotals()
@@ -187,14 +186,14 @@ export function ProductsView() {
         <DeleteProductDialog
           name={toDelete.name}
           onClose={() => setDeleting(null)}
-          onConfirm={() => attempt(() => deleteProduct(toDelete.id, user.name), "Product deleted")}
+          onConfirm={() => attempt(() => deleteProduct(toDelete.id), "Product deleted")}
         />
       )}
     </PageBody>
   )
 }
 
-function DeleteProductDialog({ name, onClose, onConfirm }: { name: string; onClose: () => void; onConfirm: () => boolean }) {
+function DeleteProductDialog({ name, onClose, onConfirm }: { name: string; onClose: () => void; onConfirm: () => Promise<boolean> }) {
   // Opened from a menu item, so render the confirm dialog open and close it on finish.
   return (
     <ConfirmAction

@@ -7,14 +7,13 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { attempt, ConfirmAction, EmptyState, Field, PageBody, PageHeader, Pill, SimpleSelect } from "@/components/common"
-import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
+import { attempt, useAttempt, ConfirmAction, EmptyState, Field, PageBody, PageHeader, Pill, SimpleSelect } from "@/components/common"
+import { usePermissions, useScope } from "@/components/session-provider"
 import { formatMoney, formatNumber } from "@/lib/format"
 import { useStore } from "@/lib/store"
 import type { Location, LocationType } from "@/lib/types"
 
 export function LocationsView() {
-  const user = useSessionUser()
   const scope = useScope()
   const stock = useStore((s) => s.stock)
   const products = useStore((s) => s.products)
@@ -109,7 +108,7 @@ export function LocationsView() {
                 description="You can only delete a location after its stock has been moved or removed."
                 confirmLabel="Delete"
                 destructive
-                onConfirm={() => attempt(() => deleteLocation(l.id, user.name), "Location deleted")}
+                onConfirm={() => attempt(() => deleteLocation(l.id), "Location deleted")}
               />
             </>
           )}
@@ -154,7 +153,6 @@ export function LocationsView() {
 }
 
 function LocationDialog({ location, onClose }: { location?: Location; onClose: () => void }) {
-  const user = useSessionUser()
   const addLocation = useStore((s) => s.addLocation)
   const updateLocation = useStore((s) => s.updateLocation)
   const [name, setName] = useState(location?.name ?? "")
@@ -162,11 +160,13 @@ function LocationDialog({ location, onClose }: { location?: Location; onClose: (
   const [address, setAddress] = useState(location?.address ?? "")
   const [phone, setPhone] = useState(location?.phone ?? "")
 
-  function submit(e: React.FormEvent) {
+  const [run, pending] = useAttempt()
+
+  async function submit(e: React.FormEvent) {
     e.preventDefault()
     const data = { name: name.trim(), type, address: address.trim(), phone: phone.trim() || undefined }
-    const ok = attempt(
-      () => (location ? updateLocation(location.id, data, user.name) : addLocation(data, user.name)),
+    const ok = await run(
+      () => (location ? updateLocation(location.id, data) : addLocation(data)),
       location ? "Location updated" : "Location added",
     )
     if (ok) onClose()
@@ -203,7 +203,7 @@ function LocationDialog({ location, onClose }: { location?: Location; onClose: (
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={name.trim().length < 2 || !address.trim()}>
+            <Button type="submit" disabled={name.trim().length < 2 || !address.trim() || pending}>
               {location ? "Save" : "Add location"}
             </Button>
           </DialogFooter>

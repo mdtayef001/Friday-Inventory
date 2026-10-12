@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { PayForm } from "@/components/billing"
 import { requireOwner } from "@/lib/auth/dal"
 import { PRICE_LABEL, accessEndsAt } from "@/lib/business"
-import { listPayments } from "@/lib/billing/payments"
+import { listPayments } from "@/lib/billing/queries"
 import { formatDate } from "@/lib/format"
 
 export const metadata: Metadata = { title: "Subscribe" }
@@ -30,7 +30,7 @@ async function Subscribe({ searchParams }: Pick<PageProps<"/subscribe">, "search
   // Not locked (e.g. a failed early renewal): the billing page handles it.
   if (!locked) redirect(payment ? `/billing?payment=${payment}` : "/billing")
 
-  const history = listPayments(business.id)
+  const history = await listPayments()
   const everPaid = history.some((p) => p.status === "paid")
   const lastPhone = history[0]?.payer.phone
 

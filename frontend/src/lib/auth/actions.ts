@@ -2,10 +2,11 @@
 
 import { redirect } from "next/navigation"
 import { z } from "zod"
+import { api } from "@/lib/api/server"
+import { ApiError } from "@/lib/api/errors"
+import type { Business, SessionUser } from "@/lib/types"
 import { ROLE_HOME } from "./roles"
 import { createSession, deleteSession } from "./session"
-import { findBusiness } from "./tenants"
-import { authenticate, markLogin } from "./users"
 
 export interface LoginState {
   error?: string
@@ -17,11 +18,6 @@ const LoginSchema = z.object({
   password: z.string().min(1, "Enter your password"),
 })
 
-// Simple brute-force protection: 5 failed tries per email locks it for 5 minutes.
-const MAX_ATTEMPTS = 5
-const LOCK_MS = 5 * 60 * 1000
-const attempts = new Map<string, { count: number; lockedUntil: number }>()
-
 export async function login(_prev: LoginState, formData: FormData): Promise<LoginState> {
   const parsed = LoginSchema.safeParse({
     email: formData.get("email"),
@@ -30,24 +26,22 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   const email = String(formData.get("email") ?? "")
   if (!parsed.success) return { error: parsed.error.issues[0].message, email }
 
-  const key = parsed.data.email.toLowerCase()
-  const record = attempts.get(key)
-  if (record && record.lockedUntil > Date.now()) {
-    const minutes = Math.ceil((record.lockedUntil - Date.now()) / 60000)
-    return { error: `Too many failed attempts. Try again in ${minutes} minute(s).`, email }
+  // Django checks the password and limits failed attempts per email.
+  let tokens: { access: string; refresh: string; user: SessionUser }
+  try {
+    tokens = await api("auth/login/", { method: "POST", body: parsed.data, token: null })
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 429) {
+      return { error: "Too many failed attempts. Try again in a minute.", email }
+    }
+    if (err instanceof ApiError && err.status < 500) return { error: "Incorrect email or password.", email }
+    return { error: "Couldn't reach the server. Please try again.", email }
   }
 
-  const user = authenticate(parsed.data.email, parsed.data.password)
-  if (!user) {
-    const count = (record?.count ?? 0) + 1
-    attempts.set(key, { count, lockedUntil: count >= MAX_ATTEMPTS ? Date.now() + LOCK_MS : 0 })
-    return { error: "Incorrect email or password.", email }
-  }
-
-  attempts.delete(key)
+  const { user } = tokens
   let home = ROLE_HOME[user.role]
   if (user.role !== "superadmin") {
-    const business = user.tenantId ? findBusiness(user.tenantId) : null
+    const { business } = await api<{ business: Business | null }>("auth/me/", { token: tokens.access })
     if (!business) return { error: "Your business account no longer exists.", email }
     if (business.status === "suspended") {
       return { error: `${business.name} is suspended. Please contact support to restore access.`, email }
@@ -60,8 +54,7 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
       home = "/subscribe"
     }
   }
-  markLogin(user.id)
-  await createSession(user.id, user.role)
+  await createSession(tokens)
   redirect(home)
 }
 

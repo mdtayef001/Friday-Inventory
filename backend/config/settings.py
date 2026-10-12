@@ -128,18 +128,29 @@ REST_FRAMEWORK = {
         # Business settings keys are already camelCase; leave them alone.
         "ignore_fields": ("settings",),
     },
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": 50,
+    # The frontend loads a business's whole dataset at once, so lists aren't paginated.
+    "DEFAULT_PAGINATION_CLASS": None,
+    # Money as JSON numbers, like the frontend's types.
+    "COERCE_DECIMAL_TO_STRING": False,
     "DEFAULT_THROTTLE_RATES": {
-        "login": "10/min",
+        "login": "5/min",
     },
 }
 
+# Shared with the Next.js frontend (JWT_SIGNING_KEY in both .env files) so its
+# proxy can verify access tokens without a round trip.
+JWT_SIGNING_KEY = os.environ.get("JWT_SIGNING_KEY", "")
+if len(JWT_SIGNING_KEY) < 32:
+    raise RuntimeError("JWT_SIGNING_KEY must be set to at least 32 characters (see .env.example).")
+
 SIMPLE_JWT = {
+    "SIGNING_KEY": JWT_SIGNING_KEY,
+    "ALGORITHM": "HS256",
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
-    "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": True,
+    # How long a login lasts. Not rotated: parallel requests refreshing at the
+    # same moment would otherwise log each other out. Logout blacklists it.
+    "REFRESH_TOKEN_LIFETIME": timedelta(hours=12),
+    "ROTATE_REFRESH_TOKENS": False,
     "UPDATE_LAST_LOGIN": True,
 }
 
@@ -159,6 +170,11 @@ if not DEBUG:
 SUBSCRIPTION_PRICE = 1000
 SUBSCRIPTION_CURRENCY = "BDT"
 TRIAL_DAYS = 7
+
+# Public address of the Next.js app; SSLCommerz sends owners back there.
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+# Production only: allow the test gateway when no SSLCommerz keys are set. Never on a live site.
+PAYMENTS_TEST_GATEWAY = env_bool("PAYMENTS_TEST_GATEWAY", False)
 
 SSLCOMMERZ_STORE_ID = os.environ.get("SSLCOMMERZ_STORE_ID", "")
 SSLCOMMERZ_STORE_PASSWORD = os.environ.get("SSLCOMMERZ_STORE_PASSWORD", "")

@@ -8,9 +8,9 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { attempt, ConfirmAction, EmptyState, Field, PageBody, PageHeader, SimpleSelect } from "@/components/common"
+import { attempt, useAttempt, ConfirmAction, EmptyState, Field, PageBody, PageHeader, SimpleSelect } from "@/components/common"
 import { ClientPicker } from "@/components/client-dialog"
-import { useScope, useSessionUser } from "@/components/session-provider"
+import { useScope } from "@/components/session-provider"
 import { SHIPMENT_FLOW, SHIPMENT_STATUS, ShipmentStatusPill } from "@/components/status"
 import { formatDateTime, timeAgo } from "@/lib/format"
 import { qtyAt, useStore } from "@/lib/store"
@@ -162,7 +162,6 @@ function Progress({ status }: { status: ShipmentStatus }) {
 }
 
 function ShipmentDetail({ shipment: s }: { shipment: Shipment }) {
-  const user = useSessionUser()
   const lookups = useLookups()
   const setStatus = useStore((st) => st.setShipmentStatus)
   const [note, setNote] = useState("")
@@ -172,7 +171,7 @@ function ShipmentDetail({ shipment: s }: { shipment: Shipment }) {
   const closed = s.status === "returned" || s.status === "cancelled"
 
   const move = (status: ShipmentStatus, msg: string) => {
-    if (attempt(() => setStatus(s.id, status, user.name, note.trim() || undefined), msg)) setNote("")
+    void attempt(() => setStatus(s.id, status, note.trim() || undefined), msg).then((ok) => ok && setNote(""))
   }
 
   return (
@@ -266,11 +265,11 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 function NewOrderDialog({ onClose }: { onClose: () => void }) {
-  const user = useSessionUser()
   const scope = useScope()
   const products = useStore((s) => s.products)
   const stock = useStore((s) => s.stock)
   const createShipment = useStore((s) => s.createShipment)
+  const [run, pending] = useAttempt()
   const [from, setFrom] = useState(scope.locations[0]?.id ?? "")
   const [clientId, setClientId] = useState("")
   const [productId, setProductId] = useState("")
@@ -281,11 +280,11 @@ function NewOrderDialog({ onClose }: { onClose: () => void }) {
   const qty = Number(quantity)
   const valid = from && clientId && productId && Number.isInteger(qty) && qty > 0 && qty <= available
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (!valid) return
-    const ok = attempt(
-      () => createShipment({ productId, quantity: qty, clientId, fromLocationId: from, notes: notes.trim() || undefined }, user.name),
+    const ok = await run(
+      () => createShipment({ productId, quantity: qty, clientId, fromLocationId: from, notes: notes.trim() || undefined }),
       "Order created",
     )
     if (ok) onClose()
@@ -332,7 +331,7 @@ function NewOrderDialog({ onClose }: { onClose: () => void }) {
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!valid}>
+            <Button type="submit" disabled={!valid || pending}>
               Create order
             </Button>
           </DialogFooter>

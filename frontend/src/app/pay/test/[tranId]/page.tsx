@@ -5,8 +5,7 @@ import { CreditCard, FlaskConical, Smartphone, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatTaka } from "@/lib/business"
-import { findByTranId } from "@/lib/billing/payments"
-import { TEST_VAL_PREFIX, isTestGateway } from "@/lib/billing/sslcommerz"
+import { TEST_VAL_PREFIX, findTestPayment } from "@/lib/billing/queries"
 
 export const metadata: Metadata = { title: "Test payment" }
 
@@ -24,10 +23,9 @@ export default function TestGatewayPage({ params }: PageProps<"/pay/test/[tranId
 
 async function TestGateway({ params }: Pick<PageProps<"/pay/test/[tranId]">, "params">) {
   const { tranId } = await params
-  // After reading params, so this runs per request and not at build time.
-  if (!isTestGateway()) notFound()
-  const payment = findByTranId(decodeURIComponent(tranId))
-  if (!payment || payment.status !== "pending") notFound()
+  // Django only returns a pending payment while the test gateway is on.
+  const payment = await findTestPayment(decodeURIComponent(tranId))
+  if (!payment) notFound()
 
   const fields = (result: string, method?: string) => (
     <>

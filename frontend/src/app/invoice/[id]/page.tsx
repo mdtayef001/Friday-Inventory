@@ -3,9 +3,8 @@ import type { Metadata } from "next"
 import { notFound, redirect } from "next/navigation"
 import { CheckCircle2, Store } from "lucide-react"
 import { getContext } from "@/lib/auth/dal"
-import { findBusiness } from "@/lib/auth/tenants"
 import { PLATFORM, formatTaka } from "@/lib/business"
-import { findPayment } from "@/lib/billing/payments"
+import { findPayment } from "@/lib/billing/queries"
 import { formatDate, formatDateTime } from "@/lib/format"
 import { PrintButton } from "./print-button"
 
@@ -25,11 +24,9 @@ async function Invoice({ params }: Pick<PageProps<"/invoice/[id]">, "params">) {
   const ctx = await getContext()
   if (!ctx) redirect("/logout")
   const { id } = await params
-  const payment = findPayment(id)
-  // Only the business's owner and the super admin may see an invoice.
-  const allowed = payment && (ctx.user.role === "superadmin" || (ctx.user.role === "owner" && ctx.user.tenantId === payment.businessId))
-  if (!payment || !allowed || payment.status !== "paid") notFound()
-  const business = findBusiness(payment.businessId)
+  // Django only returns it to the business's owner and the super admin.
+  const payment = await findPayment(id)
+  if (!payment || payment.status !== "paid") notFound()
 
   const rows: [string, string][] = [
     ["Invoice no.", payment.invoiceNo!],
@@ -69,7 +66,7 @@ async function Invoice({ params }: Pick<PageProps<"/invoice/[id]">, "params">) {
         <section className="grid gap-6 border-b py-6 sm:grid-cols-2">
           <div>
             <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Billed to</p>
-            <p className="mt-1 font-medium">{business?.name ?? payment.businessName}</p>
+            <p className="mt-1 font-medium">{payment.businessName}</p>
             <p className="text-sm">{payment.payer.name}</p>
             <p className="text-sm text-muted-foreground">{payment.payer.email}</p>
             <p className="text-sm text-muted-foreground">{payment.payer.phone}</p>

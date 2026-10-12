@@ -10,7 +10,6 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { attempt, ConfirmAction, EmptyState, PageBody, PageHeader, Pill } from "@/components/common"
 import { ClientDialog } from "@/components/client-dialog"
-import { useSessionUser } from "@/components/session-provider"
 import { initials } from "@/components/user-menu"
 import { formatMoney } from "@/lib/format"
 import { isOverdue } from "@/lib/rental"
@@ -18,7 +17,6 @@ import { useStore } from "@/lib/store"
 import type { Client } from "@/lib/types"
 
 export function ClientsView() {
-  const user = useSessionUser()
   const params = useSearchParams()
   const clients = useStore((s) => s.clients)
   const rentals = useStore((s) => s.rentals)
@@ -136,7 +134,7 @@ export function ClientsView() {
                             description="Past orders and rentals stay in the records. Clients with open rentals or orders can't be deleted."
                             confirmLabel="Delete"
                             destructive
-                            onConfirm={() => attempt(() => deleteClient(c.id, user.name), "Client deleted")}
+                            onConfirm={() => attempt(() => deleteClient(c.id), "Client deleted")}
                           />
                         </div>
                       </TableCell>

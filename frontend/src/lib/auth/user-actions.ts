@@ -1,34 +1,20 @@
 "use server"
 
-import { refresh } from "next/cache"
 import { z } from "zod"
-import type { ManagedUser, SessionUser } from "@/lib/types"
+import { api, toResult, type ActionResult } from "@/lib/api/server"
+import type { ManagedUser } from "@/lib/types"
 import { requireAccess } from "./dal"
 import { creatableRoles } from "./roles"
-import { emailTaken, findUserById, insertUser, listUsers, patchUser, removeUser } from "./users"
 
-// Every action re-checks the caller's role on the server. Server actions are
-// public endpoints, so the UI hiding a button is never enough.
+// Server actions are public endpoints, so each one re-checks the caller here,
+// and Django checks again: owners manage everyone in their business, managers
+// only staff at their own locations, never across businesses.
 
-export type ActionResult = { ok: true } | { ok: false; error: string }
-
-/**
- * Never across businesses. Owners manage everyone in their business;
- * managers only manage staff at their own locations.
- */
-function canManage(actor: SessionUser, target: ManagedUser) {
-  if (actor.id === target.id || !actor.tenantId || actor.tenantId !== target.tenantId) return false
-  if (actor.role === "owner") return true
-  return (
-    actor.role === "manager" &&
-    target.role === "staff" &&
-    target.locationIds.some((id) => actor.locationIds.includes(id))
-  )
-}
+export type { ActionResult }
 
 export async function getManageableUsers(): Promise<ManagedUser[]> {
-  const { user: actor } = await requireAccess("/users")
-  return listUsers(actor.tenantId).filter((u) => u.id === actor.id || canManage(actor, u))
+  await requireAccess("/users")
+  return api<ManagedUser[]>("users/")
 }
 
 const CreateUserSchema = z.object({
@@ -43,46 +29,29 @@ export async function createUser(input: z.input<typeof CreateUserSchema>): Promi
   const { user: actor } = await requireAccess("/users")
   const parsed = CreateUserSchema.safeParse(input)
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0].message }
-  const data = parsed.data
-
-  if (!creatableRoles(actor.role).includes(data.role)) {
+  if (!creatableRoles(actor.role).includes(parsed.data.role)) {
     return { ok: false, error: "You are not allowed to create this type of account." }
   }
-  if (data.role !== "owner" && data.locationIds.length === 0) {
-    return { ok: false, error: "Assign at least one location." }
-  }
-  if (actor.role === "manager" && !data.locationIds.every((id) => actor.locationIds.includes(id))) {
-    return { ok: false, error: "You can only assign your own locations." }
-  }
-  if (emailTaken(data.email)) return { ok: false, error: "An account with this email already exists." }
-
-  insertUser({ ...data, tenantId: actor.tenantId, createdBy: actor.id })
-  refresh()
-  return { ok: true }
+  return toResult(() => api("users/", { method: "POST", body: parsed.data }))
 }
 
-async function withTarget(id: string, fn: (target: ManagedUser) => void): Promise<ActionResult> {
-  const { user: actor } = await requireAccess("/users")
-  const target = findUserById(id)
-  if (!target || !canManage(actor, target)) {
-    return { ok: false, error: "You can't change this account." }
-  }
-  fn(target)
-  refresh()
-  return { ok: true }
-}
+const userPath = (id: string) => `users/${encodeURIComponent(id)}/`
 
 export async function setUserActive(id: string, active: boolean) {
-  return withTarget(id, () => patchUser(id, { active }))
+  await requireAccess("/users")
+  if (typeof active !== "boolean") return { ok: false, error: "Invalid request." } as ActionResult
+  return toResult(() => api(userPath(id), { method: "PATCH", body: { active } }))
 }
 
 export async function resetUserPassword(id: string, password: string): Promise<ActionResult> {
+  await requireAccess("/users")
   if (typeof password !== "string" || password.length < 8 || password.length > 128) {
     return { ok: false, error: "Password must be at least 8 characters" }
   }
-  return withTarget(id, () => patchUser(id, { password }))
+  return toResult(() => api(userPath(id), { method: "PATCH", body: { password } }))
 }
 
 export async function deleteUser(id: string) {
-  return withTarget(id, () => removeUser(id))
+  await requireAccess("/users")
+  return toResult(() => api(userPath(id), { method: "DELETE" }))
 }

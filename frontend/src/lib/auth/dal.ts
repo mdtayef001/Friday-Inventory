@@ -1,12 +1,10 @@
 import "server-only"
 import { cache } from "react"
-import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
+import { api } from "@/lib/api/server"
+import { ApiError } from "@/lib/api/errors"
 import type { Business, Role, SessionUser } from "@/lib/types"
 import { ROLE_HOME, canAccess } from "./roles"
-import { SESSION_COOKIE, decrypt } from "./session"
-import { findBusiness } from "./tenants"
-import { findUserById } from "./users"
 
 export interface Context {
   user: SessionUser
@@ -17,24 +15,23 @@ export interface Context {
 }
 
 /**
- * Data access layer: the one place that turns the session cookie into a user.
- * Re-checks the user and their business on every request, so disabling an
- * account, changing its role or suspending the business takes effect
- * immediately, even with a valid cookie.
+ * Data access layer: the one place that turns the login into a user. Asks
+ * Django on every request, so disabling an account, changing its role or
+ * suspending the business takes effect immediately, even with a valid token.
  */
 export const getContext = cache(async (): Promise<Context | null> => {
-  const session = await decrypt((await cookies()).get(SESSION_COOKIE)?.value)
-  if (!session) return null
-  const record = findUserById(session.userId)
-  if (!record || !record.active || record.role !== session.role) return null
-  const { id, name, email, role, tenantId, locationIds } = record
-  const user: SessionUser = { id, name, email, role, tenantId, locationIds }
-
-  if (role === "superadmin") return { user, business: null, locked: false }
-  const business = tenantId ? findBusiness(tenantId) : null
+  let me: { user: SessionUser; business: Business | null }
+  try {
+    me = await api("auth/me/")
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) return null
+    throw err
+  }
+  const { user, business } = me
+  if (user.role === "superadmin") return { user, business: null, locked: false }
   if (!business || business.status === "suspended") return null
   const locked = business.status === "unpaid"
-  if (locked && role !== "owner") return null
+  if (locked && user.role !== "owner") return null
   return { user, business, locked }
 })
 

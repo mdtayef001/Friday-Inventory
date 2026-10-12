@@ -195,10 +195,10 @@ export function SimpleSelect({
   )
 }
 
-/** Runs a store action and turns thrown errors into toasts. Returns true on success. */
-export function attempt(fn: () => void, success?: string) {
+/** Runs a store action, toasting success or the readable error. Resolves to whether it worked. */
+export async function attempt(fn: () => unknown, success?: string) {
   try {
-    fn()
+    await fn()
     if (success) toast.success(success)
     return true
   } catch (err) {
@@ -259,4 +259,22 @@ export function ConfirmAction({
       </AlertDialogContent>
     </AlertDialog>
   )
+}
+
+/**
+ * attempt() for forms: ignores repeat clicks while a save is still running,
+ * so a double click can't create two orders. Disable the submit button with `pending`.
+ */
+export function useAttempt() {
+  const [pending, setPending] = useState(false)
+  async function run(fn: () => unknown, success?: string) {
+    if (pending) return false
+    setPending(true)
+    try {
+      return await attempt(fn, success)
+    } finally {
+      setPending(false)
+    }
+  }
+  return [run, pending] as const
 }

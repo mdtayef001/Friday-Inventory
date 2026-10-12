@@ -26,7 +26,7 @@ async function AuthenticatedShell({ children }: { children: React.ReactNode }) {
 
   return (
     <SessionProvider user={user} business={business}>
-      <StoreGate business={business}>
+      <StoreGate user={user} business={business}>
         <SidebarProvider>
           <AppSidebar />
           <SidebarInset className="min-w-0">

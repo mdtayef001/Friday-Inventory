@@ -10,9 +10,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { attempt, ConfirmAction, EmptyState, Field, PageBody, PageHeader, SimpleSelect, StatCard } from "@/components/common"
+import { attempt, useAttempt, ConfirmAction, EmptyState, Field, PageBody, PageHeader, SimpleSelect, StatCard } from "@/components/common"
 import { ClientPicker } from "@/components/client-dialog"
-import { useScope, useSessionUser } from "@/components/session-provider"
+import { useScope } from "@/components/session-provider"
 import { RentalStatusPill } from "@/components/status"
 import { formatDate, formatMoney } from "@/lib/format"
 import { isOverdue, PLAN_LABEL, quoteRental, rentalDueDate, rentalOverdueDays } from "@/lib/rental"
@@ -23,7 +23,6 @@ import type { RentalPlan } from "@/lib/types"
 type Filter = "active" | "overdue" | "returned" | "all"
 
 export function RentalsView() {
-  const user = useSessionUser()
   const scope = useScope()
   const rentals = useStore((s) => s.rentals)
   const returnRental = useStore((s) => s.returnRental)
@@ -162,7 +161,7 @@ export function RentalsView() {
                             title="Mark rental as returned?"
                             description={`${r.quantity} × ${product?.name} goes back into stock at ${lookups.location.get(r.locationId)?.name}. Amount due: ${formatMoney(r.total)}.`}
                             confirmLabel="Mark returned"
-                            onConfirm={() => attempt(() => returnRental(r.id, user.name), "Rental returned")}
+                            onConfirm={() => attempt(() => returnRental(r.id), "Rental returned")}
                           />
                         )}
                       </TableCell>
@@ -181,7 +180,6 @@ export function RentalsView() {
 }
 
 function NewRentalDialog({ onClose }: { onClose: () => void }) {
-  const user = useSessionUser()
   const scope = useScope()
   const products = useStore((s) => s.products)
   const stock = useStore((s) => s.stock)
@@ -221,10 +219,12 @@ function NewRentalDialog({ onClose }: { onClose: () => void }) {
   const valid =
     clientId && product && Number.isInteger(qty) && qty > 0 && qty <= available && Number.isInteger(dayCount) && dayCount > 0 && rate !== "" && rateNum >= 0 && Number(deposit) >= 0
 
-  function submit(e: React.FormEvent) {
+  const [run, pending] = useAttempt()
+
+  async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (!valid || !product) return
-    const ok = attempt(
+    const ok = await run(
       () =>
         createRental(
           {
@@ -239,7 +239,6 @@ function NewRentalDialog({ onClose }: { onClose: () => void }) {
             deposit: Number(deposit) || 0,
             notes: notes.trim() || undefined,
           },
-          user.name,
         ),
       "Rental created",
     )
@@ -330,7 +329,7 @@ function NewRentalDialog({ onClose }: { onClose: () => void }) {
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!valid}>
+            <Button type="submit" disabled={!valid || pending}>
               Create rental
             </Button>
           </DialogFooter>

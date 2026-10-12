@@ -9,9 +9,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
 import { useStore, type ProductInput } from "@/lib/store"
 import type { Product } from "@/lib/types"
-import { attempt, Field, SimpleSelect } from "./common"
+import { useAttempt, Field, SimpleSelect } from "./common"
 import { ScanButton } from "./scanner"
-import { useScope, useSessionUser } from "./session-provider"
+import { useScope } from "./session-provider"
 
 const UNITS = ["pcs", "box", "pack", "set", "roll", "kg", "g", "litre", "metre", "pair"]
 
@@ -35,7 +35,6 @@ export function ProductForm({
   onDone: (product: Product) => void
   onCancel?: () => void
 }) {
-  const user = useSessionUser()
   const { locations } = useScope()
   const products = useStore((s) => s.products)
   const addProduct = useStore((s) => s.addProduct)
@@ -62,7 +61,9 @@ export function ProductForm({
   const [error, setError] = useState("")
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
 
-  function submit(e: React.FormEvent) {
+  const [run, pending] = useAttempt()
+
+  async function submit(e: React.FormEvent) {
     e.preventDefault()
     setError("")
     const price = Number(form.price)
@@ -100,12 +101,12 @@ export function ProductForm({
     }
 
     let saved: Product | undefined
-    const ok = attempt(() => {
+    const ok = await run(async () => {
       if (product) {
-        updateProduct(product.id, input, user.name)
+        await updateProduct(product.id, input)
         saved = { ...product, ...input }
       } else {
-        saved = addProduct(input, quantity > 0 ? { locationId: form.locationId, quantity } : null, user.name)
+        saved = await addProduct(input, quantity > 0 ? { locationId: form.locationId, quantity } : null)
       }
     }, product ? "Product updated" : "Product added")
     if (ok && saved) onDone(saved)
@@ -209,7 +210,7 @@ export function ProductForm({
             Cancel
           </Button>
         )}
-        <Button type="submit" size="lg">
+        <Button type="submit" size="lg" disabled={pending}>
           {product ? "Save changes" : "Add product"}
         </Button>
       </div>

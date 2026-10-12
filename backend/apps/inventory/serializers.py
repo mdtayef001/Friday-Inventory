@@ -1,27 +1,25 @@
 from rest_framework import serializers
 
+from apps.api import IdField, tenant_field
+
 from .models import Activity, Client, Location, Product, Rental, Shipment, ShipmentEvent, StockLevel, Transfer
 
-
-class TenantRelatedField(serializers.PrimaryKeyRelatedField):
-    """Only accepts ids from the requesting user's own business."""
-
-    def get_queryset(self):
-        return super().get_queryset().filter(business=self.context["request"].user.business)
-
-
-def tenant_field(model, **kwargs):
-    return TenantRelatedField(queryset=model.objects.all(), **kwargs)
+# Field names follow frontend/src/lib/types.ts (camelCased on the wire).
 
 
 class LocationSerializer(serializers.ModelSerializer):
+    id = IdField()
+
     class Meta:
         model = Location
         fields = ["id", "name", "type", "address", "phone"]
 
 
 class ProductSerializer(serializers.ModelSerializer):
-    rent_rates = serializers.DictField(child=serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0), required=False)
+    id = IdField()
+    rent_rates = serializers.DictField(
+        child=serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0), required=False
+    )
     created_by = serializers.CharField(source="created_by.name", read_only=True, default=None)
 
     class Meta:
@@ -37,7 +35,8 @@ class ProductSerializer(serializers.ModelSerializer):
     def to_representation(self, product):
         data = super().to_representation(product)
         rates = {plan: getattr(product, f"rent_{plan}") for plan in self.PLANS}
-        data["rent_rates"] = {k: float(v) for k, v in rates.items() if v is not None}
+        rates = {k: float(v) for k, v in rates.items() if v is not None}
+        data["rent_rates"] = rates if product.rentable and rates else None
         return data
 
     def validate_rent_rates(self, rates):
@@ -58,26 +57,27 @@ class ProductSerializer(serializers.ModelSerializer):
         if barcode and others.filter(barcode=barcode).exists():
             raise serializers.ValidationError({"barcode": f'Barcode "{barcode}" is already used by another product.'})
 
-        if "rent_rates" in attrs:
-            rates = attrs.pop("rent_rates")
+        rentable = attrs.get("rentable", self.instance.rentable if self.instance else False)
+        if "rent_rates" in attrs or not rentable:
+            rates = attrs.pop("rent_rates", None) or {}
             for plan in self.PLANS:
-                attrs[f"rent_{plan}"] = rates.get(plan)
+                attrs[f"rent_{plan}"] = rates.get(plan) if rentable else None
         return attrs
 
 
 class ProductCreateSerializer(ProductSerializer):
     """Adds optional opening stock when a product is created."""
 
-    initial_location = tenant_field(Location, required=False, allow_null=True, write_only=True)
+    initial_location_id = tenant_field(Location, source="initial_location", required=False, allow_null=True, write_only=True)
     initial_quantity = serializers.IntegerField(min_value=0, required=False, default=0, write_only=True)
 
     class Meta(ProductSerializer.Meta):
-        fields = ProductSerializer.Meta.fields + ["initial_location", "initial_quantity"]
+        fields = ProductSerializer.Meta.fields + ["initial_location_id", "initial_quantity"]
 
 
 class StockLevelSerializer(serializers.ModelSerializer):
-    product_id = serializers.IntegerField(read_only=True)
-    location_id = serializers.IntegerField(read_only=True)
+    product_id = IdField()
+    location_id = IdField()
 
     class Meta:
         model = StockLevel
@@ -85,13 +85,15 @@ class StockLevelSerializer(serializers.ModelSerializer):
 
 
 class StockAdjustSerializer(serializers.Serializer):
-    product = tenant_field(Product)
-    location = tenant_field(Location)
+    product_id = tenant_field(Product, source="product")
+    location_id = tenant_field(Location, source="location")
     delta = serializers.IntegerField()
     reason = serializers.CharField(required=False, allow_blank=True, max_length=200)
 
 
 class ClientSerializer(serializers.ModelSerializer):
+    id = IdField()
+
     class Meta:
         model = Client
         fields = ["id", "name", "company", "phone", "email", "address", "created_at"]
@@ -99,7 +101,7 @@ class ClientSerializer(serializers.ModelSerializer):
 
 
 class ShipmentEventSerializer(serializers.ModelSerializer):
-    by = serializers.CharField(source="by.name", read_only=True, default=None)
+    by = serializers.CharField(source="by.name", read_only=True, default="")
 
     class Meta:
         model = ShipmentEvent
@@ -107,14 +109,18 @@ class ShipmentEventSerializer(serializers.ModelSerializer):
 
 
 class ShipmentSerializer(serializers.ModelSerializer):
-    product = tenant_field(Product)
-    client = tenant_field(Client)
-    from_location = tenant_field(Location)
+    id = IdField()
+    product_id = tenant_field(Product, source="product")
+    client_id = tenant_field(Client, source="client")
+    from_location_id = tenant_field(Location, source="from_location")
     history = ShipmentEventSerializer(many=True, read_only=True)
 
     class Meta:
         model = Shipment
-        fields = ["id", "code", "product", "quantity", "client", "from_location", "status", "notes", "created_at", "history"]
+        fields = [
+            "id", "code", "product_id", "quantity", "client_id", "from_location_id", "status", "notes",
+            "created_at", "history",
+        ]
         read_only_fields = ["code", "status", "created_at"]
 
 
@@ -124,36 +130,39 @@ class ShipmentStatusSerializer(serializers.Serializer):
 
 
 class RentalSerializer(serializers.ModelSerializer):
-    product = tenant_field(Product)
-    client = tenant_field(Client)
-    location = tenant_field(Location)
+    id = IdField()
+    product_id = tenant_field(Product, source="product")
+    client_id = tenant_field(Client, source="client")
+    location_id = tenant_field(Location, source="location")
 
     class Meta:
         model = Rental
         fields = [
-            "id", "code", "product", "quantity", "client", "location", "start_date", "days", "plan",
+            "id", "code", "product_id", "quantity", "client_id", "location_id", "start_date", "days", "plan",
             "rate", "deposit", "total", "status", "returned_at", "notes", "created_at",
         ]
         read_only_fields = ["code", "total", "status", "returned_at", "created_at"]
 
 
 class TransferSerializer(serializers.ModelSerializer):
-    product = tenant_field(Product)
-    from_location = tenant_field(Location)
-    to_location = tenant_field(Location)
-    created_by = serializers.CharField(source="created_by.name", read_only=True, default=None)
+    id = IdField()
+    product_id = tenant_field(Product, source="product")
+    from_location_id = tenant_field(Location, source="from_location")
+    to_location_id = tenant_field(Location, source="to_location")
+    created_by = serializers.CharField(source="created_by.name", read_only=True, default="")
 
     class Meta:
         model = Transfer
         fields = [
-            "id", "code", "product", "quantity", "from_location", "to_location", "status",
+            "id", "code", "product_id", "quantity", "from_location_id", "to_location_id", "status",
             "created_at", "created_by", "received_at",
         ]
         read_only_fields = ["code", "status", "created_at", "received_at"]
 
 
 class ActivitySerializer(serializers.ModelSerializer):
-    user = serializers.CharField(source="user.name", read_only=True, default=None)
+    id = IdField()
+    user = serializers.CharField(source="user.name", read_only=True, default="")
 
     class Meta:
         model = Activity

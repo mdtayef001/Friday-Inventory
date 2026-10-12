@@ -59,6 +59,13 @@ class Business(models.Model):
         return "unpaid"
 
     @property
+    def access_ends_at(self):
+        """End of the trial or of the paid month, whichever is later."""
+        if self.paid_until and self.paid_until > self.trial_ends_at:
+            return self.paid_until
+        return self.trial_ends_at
+
+    @property
     def is_open(self):
         return self.status in ("trial", "active")
 

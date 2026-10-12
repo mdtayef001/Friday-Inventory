@@ -24,6 +24,8 @@ def log(user, action, detail=""):
 
 def change_stock(product, location, delta):
     """Add (or remove, with a negative delta) stock. Call inside a transaction."""
+    if product is None or location is None:
+        raise ValidationError("The product or location no longer exists.")
     row, _ = StockLevel.objects.select_for_update().get_or_create(
         business_id=product.business_id, product=product, location=location
     )

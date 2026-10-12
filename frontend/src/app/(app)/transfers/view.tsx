@@ -7,15 +7,14 @@ import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { attempt, ConfirmAction, EmptyState, Field, PageBody, PageHeader, SimpleSelect } from "@/components/common"
-import { useScope, useSessionUser } from "@/components/session-provider"
+import { attempt, useAttempt, ConfirmAction, EmptyState, Field, PageBody, PageHeader, SimpleSelect } from "@/components/common"
+import { useScope } from "@/components/session-provider"
 import { TransferStatusPill } from "@/components/status"
 import { formatDateTime } from "@/lib/format"
 import { qtyAt, useStore } from "@/lib/store"
 import { useLookups } from "@/lib/store/hooks"
 
 export function TransfersView() {
-  const user = useSessionUser()
   const scope = useScope()
   const transfers = useStore((s) => s.transfers)
   const receiveTransfer = useStore((s) => s.receiveTransfer)
@@ -84,7 +83,7 @@ export function TransfersView() {
                         {t.status === "in_transit" && (
                           <div className="flex justify-end gap-1">
                             {scope.has(t.toLocationId) && (
-                              <Button size="sm" onClick={() => attempt(() => receiveTransfer(t.id, user.name), "Transfer received")}>
+                              <Button size="sm" onClick={() => attempt(() => receiveTransfer(t.id), "Transfer received")}>
                                 <Check />
                                 Receive
                               </Button>
@@ -100,7 +99,7 @@ export function TransfersView() {
                                 description="The stock goes back to the location it was sent from."
                                 confirmLabel="Cancel transfer"
                                 destructive
-                                onConfirm={() => attempt(() => cancelTransfer(t.id, user.name), "Transfer cancelled")}
+                                onConfirm={() => attempt(() => cancelTransfer(t.id), "Transfer cancelled")}
                               />
                             )}
                           </div>
@@ -121,7 +120,6 @@ export function TransfersView() {
 }
 
 function NewTransferDialog({ onClose }: { onClose: () => void }) {
-  const user = useSessionUser()
   const scope = useScope()
   const allLocations = useStore((s) => s.locations)
   const products = useStore((s) => s.products)
@@ -137,10 +135,12 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
   const qty = Number(quantity)
   const valid = from && to && from !== to && productId && Number.isInteger(qty) && qty > 0 && qty <= available
 
-  function submit(e: React.FormEvent) {
+  const [run, pending] = useAttempt()
+
+  async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (!valid) return
-    const ok = attempt(() => createTransfer({ productId, quantity: qty, fromLocationId: from, toLocationId: to }, user.name), "Transfer sent")
+    const ok = await run(() => createTransfer({ productId, quantity: qty, fromLocationId: from, toLocationId: to }), "Transfer sent")
     if (ok) onClose()
   }
 
@@ -187,7 +187,7 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!valid}>
+            <Button type="submit" disabled={!valid || pending}>
               Send transfer
             </Button>
           </DialogFooter>

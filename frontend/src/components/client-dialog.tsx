@@ -7,11 +7,9 @@ import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useStore } from "@/lib/store"
 import type { Client } from "@/lib/types"
-import { attempt, Field, SimpleSelect } from "./common"
-import { useSessionUser } from "./session-provider"
+import { useAttempt, Field, SimpleSelect } from "./common"
 
 export function ClientDialog({ client, onClose, onSaved }: { client?: Client; onClose: () => void; onSaved?: (client: Client) => void }) {
-  const user = useSessionUser()
   const addClient = useStore((s) => s.addClient)
   const updateClient = useStore((s) => s.updateClient)
   const [form, setForm] = useState({
@@ -24,7 +22,9 @@ export function ClientDialog({ client, onClose, onSaved }: { client?: Client; on
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [key]: e.target.value }))
   const emailOk = !form.email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)
 
-  function submit(e: React.FormEvent) {
+  const [run, pending] = useAttempt()
+
+  async function submit(e: React.FormEvent) {
     e.preventDefault()
     const data = {
       name: form.name.trim(),
@@ -34,12 +34,12 @@ export function ClientDialog({ client, onClose, onSaved }: { client?: Client; on
       address: form.address.trim() || undefined,
     }
     let saved: Client | undefined
-    const ok = attempt(() => {
+    const ok = await run(async () => {
       if (client) {
-        updateClient(client.id, data, user.name)
+        await updateClient(client.id, data)
         saved = { ...client, ...data }
       } else {
-        saved = addClient(data, user.name)
+        saved = await addClient(data)
       }
     }, client ? "Client updated" : "Client added")
     if (ok && saved) {
@@ -77,7 +77,7 @@ export function ClientDialog({ client, onClose, onSaved }: { client?: Client; on
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={form.name.trim().length < 2 || !emailOk}>
+            <Button type="submit" disabled={form.name.trim().length < 2 || !emailOk || pending}>
               {client ? "Save" : "Add client"}
             </Button>
           </DialogFooter>

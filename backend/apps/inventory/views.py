@@ -59,8 +59,8 @@ class LocationViewSet(TenantViewSet, viewsets.ModelViewSet):
     allowed_roles = TEAM
     manager_permission = "managerLocations"
 
-    def get_queryset(self):
-        return self.scope_to_locations(super().get_queryset(), "id")
+    # Everyone sees every location's name (transfers and lookups need them);
+    # stock and edits stay limited to the user's own locations.
 
     def check_permissions(self, request):
         super().check_permissions(request)
@@ -76,6 +76,7 @@ class LocationViewSet(TenantViewSet, viewsets.ModelViewSet):
         services.log(self.request.user, "Location added", f"{location.name} ({location.type})")
 
     def perform_update(self, serializer):
+        self.check_location(serializer.instance)
         location = serializer.save()
         services.log(self.request.user, "Location updated", location.name)
 
@@ -133,7 +134,6 @@ class StockViewSet(TenantViewSet, mixins.ListModelMixin):
     model = StockLevel
     serializer_class = StockLevelSerializer
     allowed_roles = TEAM
-    pagination_class = None
 
     def get_queryset(self):
         return self.scope_to_locations(super().get_queryset(), "location_id")
@@ -242,6 +242,10 @@ class ActivityViewSet(TenantViewSet, mixins.ListModelMixin):
 
     def get_queryset(self):
         return super().get_queryset().select_related("user")
+
+    def list(self, request):
+        # The most recent 500 entries, like the frontend's log.
+        return Response(self.get_serializer(self.get_queryset()[:500], many=True).data)
 
     def check_permissions(self, request):
         super().check_permissions(request)

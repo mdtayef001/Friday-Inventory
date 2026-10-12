@@ -1,11 +1,9 @@
 "use server"
 
-import { refresh } from "next/cache"
 import { z } from "zod"
+import { api, toResult, type ActionResult } from "@/lib/api/server"
 import { CURRENCIES } from "@/lib/business"
 import { requireAccess } from "./dal"
-import { patchBusiness } from "./tenants"
-import type { ActionResult } from "./user-actions"
 
 const flag = z.boolean()
 const SettingsSchema = z.object({
@@ -26,10 +24,8 @@ const SettingsSchema = z.object({
 
 /** Owner only: business profile, feature switches and team permissions. */
 export async function updateBusinessSettings(input: z.input<typeof SettingsSchema>): Promise<ActionResult> {
-  const { business } = await requireAccess("/settings")
+  await requireAccess("/settings")
   const parsed = SettingsSchema.safeParse(input)
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0].message }
-  patchBusiness(business.id, parsed.data)
-  refresh()
-  return { ok: true }
+  return toResult(() => api("business/", { method: "PATCH", body: parsed.data }))
 }

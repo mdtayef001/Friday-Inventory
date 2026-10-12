@@ -7,8 +7,8 @@ import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { qtyAt, useStore } from "@/lib/store"
-import { attempt, Field, SimpleSelect } from "./common"
-import { useScope, useSessionUser } from "./session-provider"
+import { useAttempt, Field, SimpleSelect } from "./common"
+import { useScope } from "./session-provider"
 
 const REASONS = {
   add: ["New delivery from supplier", "Customer return", "Stock count correction", "Other"],
@@ -26,7 +26,6 @@ export function StockAdjustDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const user = useSessionUser()
   const { locations } = useScope()
   const product = useStore((s) => s.products.find((p) => p.id === productId))
   const stock = useStore((s) => s.stock)
@@ -35,17 +34,18 @@ export function StockAdjustDialog({
   const [locationId, setLocationId] = useState(initialLocation ?? locations[0]?.id ?? "")
   const [quantity, setQuantity] = useState("1")
   const [reason, setReason] = useState(REASONS.add[0])
+  const [run, pending] = useAttempt()
 
   if (!product) return null
   const current = qtyAt(stock, productId, locationId)
   const qty = Number(quantity)
   const valid = Number.isInteger(qty) && qty > 0 && !!locationId && (mode === "add" || qty <= current)
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (!valid || !product) return
-    const ok = attempt(
-      () => adjustStock(productId, locationId, mode === "add" ? qty : -qty, reason, user.name),
+    const ok = await run(
+      () => adjustStock(productId, locationId, mode === "add" ? qty : -qty, reason),
       mode === "add" ? `Added ${qty} ${product.unit}` : `Removed ${qty} ${product.unit}`,
     )
     if (ok) {
@@ -94,7 +94,7 @@ export function StockAdjustDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!valid} variant={mode === "remove" ? "destructive" : "default"}>
+            <Button type="submit" disabled={!valid || pending} variant={mode === "remove" ? "destructive" : "default"}>
               {mode === "add" ? "Add" : "Remove"} {Number.isFinite(qty) && qty > 0 ? qty : ""} {product.unit}
             </Button>
           </DialogFooter>
