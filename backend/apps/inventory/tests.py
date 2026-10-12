@@ -258,7 +258,8 @@ class SalesTests(SalesBase):
             self.assertNotIn(private, res.json())
         self.assertIsNone(res.json()["clientId"])
         self.assertEqual(self.sell().status_code, 403)  # not their shop
-        self.assertEqual(self.client.get("/api/sales/").status_code, 403)
+        mine = self.client.get("/api/sales/").json()
+        self.assertEqual([x["soldBy"] for x in mine], ["staff@a.com"])
 
     def test_delivered_order_becomes_a_sale_and_return_refunds_it(self):
         order = self.client.post(
@@ -414,3 +415,29 @@ class SalesInsightTests(SalesBase):
         self.client.credentials()
         self.login("staff@a.com")
         self.assertEqual(self.client.get("/api/sales/export/").status_code, 403)
+
+
+class MySalesTests(SalesBase):
+    def test_staff_only_ever_see_their_own_sales(self):
+        self.sell(quantity=1)  # by the owner
+        StockLevel.objects.create(business=self.biz, product=self.product, location=self.outlet, quantity=5)
+        self.client.credentials()
+        self.login("staff@a.com")
+        self.sell(locationId=self.outlet.id, quantity=2, unitPrice="450")
+        sales = self.client.get("/api/sales/").json()
+        self.assertEqual([(x["productName"], x["quantity"], x["revenue"]) for x in sales], [("TV", 2, 900)])
+        s = self.client.get("/api/sales/summary/", {"seller": str(self.owner.id)}).json()
+        self.assertEqual((s["count"], s["unitsSold"], s["revenue"], s["sellers"]), (1, 2, 900, []))
+        for private in ("profit", "cost", "margin"):
+            self.assertNotIn(private, s)
+        self.assertNotIn("profit", s["topProducts"][0])
+        self.assertEqual(self.client.get("/api/sales/export/").status_code, 403)
+
+    def test_owner_can_ask_for_just_their_own(self):
+        self.sell(quantity=1)
+        staff = User.objects.get(email="staff@a.com")
+        from .models import Sale
+
+        Sale.objects.create(business=self.biz, channel="store", product=self.product, product_name="TV", quantity=1, unit_price=1, sold_by=staff)
+        self.assertEqual(len(self.client.get("/api/sales/").json()), 2)
+        self.assertEqual(len(self.client.get("/api/sales/", {"mine": "1"}).json()), 1)

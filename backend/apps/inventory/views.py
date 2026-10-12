@@ -327,9 +327,15 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin)
         qs = super().get_queryset().select_related("sold_by")
         return self.scope_to_locations(qs, "location_id")
 
+    def mine_only(self):
+        """Staff only ever see their own sales; anyone can ask for theirs with ?mine=1."""
+        return self.request.user.role == User.Role.STAFF or self.request.query_params.get("mine") == "1"
+
     def filtered(self):
-        """Sales matching ?from=&to= (ISO times), ?location=, ?product=, ?seller= and ?channel=."""
+        """Sales matching ?from=&to= (ISO times), ?location=, ?product=, ?seller=, ?channel= and ?mine=1."""
         qs = self.get_queryset()
+        if self.mine_only():
+            qs = qs.filter(sold_by=self.request.user)
         params = self.request.query_params
         for name, lookup in (("from", "sold_at__gte"), ("to", "sold_at__lt")):
             if params.get(name):
@@ -338,6 +344,8 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin)
                     raise ValidationError({name: "Use an ISO date and time."})
                 qs = qs.filter(**{lookup: when})
         for name, field in (("location", "location_id"), ("product", "product_id"), ("seller", "sold_by_id")):
+            if name == "seller" and self.mine_only():
+                continue  # already limited to the user's own sales
             if params.get(name):
                 if not params[name].isdigit():
                     raise ValidationError({name: "Unknown id."})
@@ -348,20 +356,14 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin)
             qs = qs.filter(channel=params["channel"])
         return qs
 
-    def check_can_read(self):
-        if self.request.user.role == User.Role.STAFF:
-            raise PermissionDenied()
-
     def list(self, request):
         """The newest sales matching the filters (up to 500; the summary has the full totals)."""
-        self.check_can_read()
         sales = self.filtered()[: self.LIST_LIMIT]
         return Response(self.get_serializer(sales, many=True).data)
 
     @action(detail=False)
     def summary(self, request):
         """Totals for the filtered sales. Refunded sales are counted separately and left out."""
-        self.check_can_read()
         qs = self.filtered()
         revenue, cost = self.money_expressions()
         zero = Decimal("0")
@@ -389,7 +391,7 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin)
             "refunded_count": qs.filter(refunded_at__isnull=False).count(),
             "channels": {ch: public(t) for ch, t in channels.items()},
             # Everyone who has sold within this user's view, for the seller filter.
-            "sellers": [
+            "sellers": [] if self.mine_only() else [
                 {"id": str(uid), "name": name}
                 for uid, name in self.get_queryset().filter(sold_by__isnull=False)
                 .values_list("sold_by_id", "sold_by__name").distinct().order_by("sold_by__name")
@@ -461,7 +463,8 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin)
     @action(detail=False)
     def export(self, request):
         """Every sale matching the filters as a CSV file that opens in Excel."""
-        self.check_can_read()
+        if request.user.role == User.Role.STAFF:
+            raise PermissionDenied()
         show_profit = self.show_profit()
         sales = self.filtered().select_related("location", "client", "sold_by")
         response = HttpResponse(content_type="text/csv; charset=utf-8")

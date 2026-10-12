@@ -7,6 +7,7 @@ import {
   Boxes,
   CalendarClock,
   CreditCard,
+  HandCoins,
   History,
   LayoutDashboard,
   Package,
@@ -45,6 +46,7 @@ const NAV = [
     items: [
       { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       { href: "/entry", label: "Quick Entry", icon: ScanBarcode },
+      { href: "/my-sales", label: "My Sales", icon: HandCoins },
     ],
   },
   {

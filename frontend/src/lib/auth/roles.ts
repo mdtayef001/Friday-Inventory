@@ -34,6 +34,7 @@ const prefix = (p: string) => (path: string) => path === p || path.startsWith(p 
 const ROUTE_RULES: Rule[] = [
   { test: prefix("/platform"), roles: ["superadmin"] },
   { test: prefix("/entry"), roles: TEAM },
+  { test: prefix("/my-sales"), roles: TEAM },
   { test: prefix("/settings"), roles: ["owner"] },
   { test: prefix("/billing"), roles: ["owner"] },
   { test: prefix("/subscribe"), roles: ["owner"] },
@@ -64,6 +65,7 @@ export const APP_ROUTES = [
   "/subscribe",
   "/invoice",
   "/entry",
+  "/my-sales",
 ]
 
 export function isAppRoute(path: string) {
