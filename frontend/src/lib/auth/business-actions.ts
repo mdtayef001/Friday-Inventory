@@ -11,7 +11,7 @@ const SettingsSchema = z.object({
   industry: z.string().trim().max(60),
   settings: z.object({
     currency: z.enum(CURRENCIES as [string, ...string[]]),
-    modules: z.object({ rentals: flag, tracking: flag, transfers: flag }),
+    modules: z.object({ rentals: flag, tracking: flag, transfers: flag, trackingLinks: flag }),
     permissions: z.object({
       managerUsers: flag,
       managerActivity: flag,

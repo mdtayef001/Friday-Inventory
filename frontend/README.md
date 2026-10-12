@@ -41,6 +41,10 @@ Demo accounts (created by `seed_demo`, also listed on the login page in developm
 - **Owner** (`/settings`): business name and currency, turns features on or off (rentals, order tracking,
   transfers) and decides what managers and staff may do. Creates owners, managers and staff.
 - **Manager / staff**: work only at the locations they're assigned to, with what the owner allows.
+- **Client tracking links**: every order has a public page, `/track/<token>`, that shows the client its status
+  timeline and nothing internal (no prices, stock, notes or staff names). Staff share it from the order panel
+  (Copy link, WhatsApp, Email). The owner can switch it off in Business Settings; links stop working 30 days after
+  the order is finished, or while the business is locked.
 - Every business's data is kept separate. Accounts can never see or manage another business.
 
 ## SSLCommerz setup

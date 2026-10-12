@@ -6,7 +6,7 @@ from rest_framework.test import APITestCase
 
 from apps.accounts.models import Business, User
 
-from .models import Location, Product, StockLevel
+from .models import Location, Product, Shipment, StockLevel
 
 PASSWORD = "a-long-test-password-1"
 
@@ -160,3 +160,57 @@ class StockFlowTests(ApiTestCase):
         self.biz.settings["modules"]["rentals"] = False
         self.biz.save()
         self.assertEqual(self.client.get("/api/rentals/").status_code, 403)
+
+
+class PublicTrackingTests(ApiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.login("owner@a.com")
+        client_id = self.client.post("/api/clients/", {"name": "Rahim"}, format="json").json()["id"]
+        self.order = self.client.post(
+            "/api/shipments/",
+            {"productId": self.product.id, "quantity": 2, "clientId": client_id, "fromLocationId": self.warehouse.id, "notes": "secret note"},
+            format="json",
+        ).json()
+        self.client.credentials()  # the client has no login
+
+    def track(self, token=None):
+        return self.client.get(f"/api/track/{token or self.order['trackingToken']}/")
+
+    def test_client_sees_status_without_logging_in(self):
+        res = self.track()
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual((data["businessName"], data["productName"], data["status"]), ("Shop A", "TV", "pending"))
+        self.assertEqual([e["status"] for e in data["history"]], ["pending"])
+
+    def test_nothing_internal_is_shown(self):
+        body = self.track().content.decode()
+        for private in ("secret note", "Main", "price", "cost", "owner@a.com", "Rahim", '"by"'):
+            self.assertNotIn(private, body)
+
+    def test_unknown_or_order_number_tokens_fail(self):
+        self.assertEqual(self.track("not-a-real-token").status_code, 404)
+        self.assertEqual(self.track(self.order["code"]).status_code, 404)
+
+    def test_owner_can_turn_links_off(self):
+        self.biz.settings["modules"]["trackingLinks"] = False
+        self.biz.save()
+        self.assertEqual(self.track().status_code, 404)
+
+    def test_link_expires_30_days_after_delivery(self):
+        from .models import ShipmentEvent
+
+        shipment = Shipment.objects.get(pk=self.order["id"])
+        shipment.status = "delivered"
+        shipment.save()
+        ShipmentEvent.objects.create(shipment=shipment, status="delivered")
+        self.assertEqual(self.track().status_code, 200)
+        ShipmentEvent.objects.filter(shipment=shipment).update(at=timezone.now() - timedelta(days=31))
+        Shipment.objects.filter(pk=shipment.pk).update(created_at=timezone.now() - timedelta(days=40))
+        self.assertEqual(self.track().status_code, 404)
+
+    def test_locked_business_hides_links(self):
+        self.biz.trial_ends_at = timezone.now() - timedelta(days=1)
+        self.biz.save()
+        self.assertEqual(self.track().status_code, 404)

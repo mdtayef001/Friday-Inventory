@@ -1,3 +1,4 @@
+from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from . import views
@@ -12,4 +13,7 @@ router.register("rentals", views.RentalViewSet, basename="rental")
 router.register("transfers", views.TransferViewSet, basename="transfer")
 router.register("activity", views.ActivityViewSet, basename="activity")
 
-urlpatterns = router.urls
+urlpatterns = [
+    path("track/<str:token>/", views.PublicTrackingView.as_view()),
+    *router.urls,
+]

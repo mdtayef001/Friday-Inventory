@@ -36,7 +36,7 @@ export interface ManagedUser extends SessionUser {
  * suspended: the super admin switched the business off by hand.
  */
 export type BusinessStatus = "trial" | "active" | "unpaid" | "suspended"
-export type ModuleId = "rentals" | "tracking" | "transfers"
+export type ModuleId = "rentals" | "tracking" | "transfers" | "trackingLinks"
 
 /** Things an owner can switch on or off for managers and staff. */
 export interface Permissions {
@@ -166,6 +166,8 @@ export interface StatusEvent<S extends string> {
 export interface Shipment {
   id: string
   code: string
+  /** Key to the client's public tracking page, /track/<token>. */
+  trackingToken: string
   productId: string
   quantity: number
   clientId: string
@@ -220,4 +222,16 @@ export interface Activity {
   user: string
   action: string
   detail: string
+}
+
+/** What a client sees on their public tracking page. */
+export interface PublicTracking {
+  code: string
+  businessName: string
+  productName: string
+  quantity: number
+  status: ShipmentStatus
+  createdAt: string
+  contactPhone: string
+  history: { status: ShipmentStatus; at: string }[]
 }

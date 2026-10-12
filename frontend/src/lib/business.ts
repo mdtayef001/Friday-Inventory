@@ -40,6 +40,7 @@ export const MODULES: Record<ModuleId, { label: string; description: string }> =
   rentals: { label: "Rentals", description: "Rent items out by day, week, month or a fixed price." },
   tracking: { label: "Orders & delivery tracking", description: "Track orders from pending to delivered." },
   transfers: { label: "Stock transfers", description: "Move stock between warehouses and shops." },
+  trackingLinks: { label: "Client tracking links", description: "Send clients a link to check their order status. No login needed." },
 }
 
 export const PERMISSIONS: Record<PermissionId, { label: string; description: string; role: "manager" | "staff" }> = {
@@ -55,7 +56,7 @@ export const CURRENCIES = ["USD", "EUR", "GBP", "BDT", "INR", "AED", "SAR", "CAD
 export function defaultSettings(): BusinessSettings {
   return {
     currency: "USD",
-    modules: { rentals: true, tracking: true, transfers: true },
+    modules: { rentals: true, tracking: true, transfers: true, trackingLinks: true },
     permissions: {
       managerUsers: true,
       managerActivity: false,

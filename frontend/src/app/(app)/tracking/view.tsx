@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { Ban, Check, ChevronRight, Plus, Search, Truck, Undo2 } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -10,8 +11,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { attempt, useAttempt, ConfirmAction, EmptyState, Field, PageBody, PageHeader, SimpleSelect } from "@/components/common"
 import { ClientPicker } from "@/components/client-dialog"
-import { useScope } from "@/components/session-provider"
+import { usePermissions, useScope } from "@/components/session-provider"
 import { SHIPMENT_FLOW, SHIPMENT_STATUS, ShipmentStatusPill } from "@/components/status"
+import { TrackingLinkShare, copyTrackingLink } from "@/components/tracking-link"
 import { formatDateTime, timeAgo } from "@/lib/format"
 import { qtyAt, useStore } from "@/lib/store"
 import { useLookups } from "@/lib/store/hooks"
@@ -192,6 +194,8 @@ function ShipmentDetail({ shipment: s }: { shipment: Shipment }) {
           {s.notes && <Row label="Notes" value={s.notes} />}
         </div>
 
+        <TrackingLinkShare shipment={s} client={client} />
+
         {!closed && (
           <div className="space-y-3">
             <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note to the next update (optional)" rows={2} />
@@ -270,6 +274,7 @@ function NewOrderDialog({ onClose }: { onClose: () => void }) {
   const stock = useStore((s) => s.stock)
   const createShipment = useStore((s) => s.createShipment)
   const [run, pending] = useAttempt()
+  const links = usePermissions().module("trackingLinks")
   const [from, setFrom] = useState(scope.locations[0]?.id ?? "")
   const [clientId, setClientId] = useState("")
   const [productId, setProductId] = useState("")
@@ -283,11 +288,16 @@ function NewOrderDialog({ onClose }: { onClose: () => void }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (!valid) return
-    const ok = await run(
-      () => createShipment({ productId, quantity: qty, clientId, fromLocationId: from, notes: notes.trim() || undefined }),
-      "Order created",
-    )
-    if (ok) onClose()
+    let created: Shipment | undefined
+    const ok = await run(async () => {
+      created = await createShipment({ productId, quantity: qty, clientId, fromLocationId: from, notes: notes.trim() || undefined })
+    })
+    if (!ok || !created) return
+    const order = created
+    toast.success(`Order ${order.code} created`, {
+      action: links ? { label: "Copy client link", onClick: () => void copyTrackingLink(order) } : undefined,
+    })
+    onClose()
   }
 
   return (

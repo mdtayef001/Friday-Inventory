@@ -1,8 +1,13 @@
+from datetime import timedelta
+
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.accounts.models import User
 from apps.accounts.permissions import TEAM, IsTenantMember, ManagerNeedsPermission, allowed_location_ids
@@ -15,6 +20,7 @@ from .serializers import (
     LocationSerializer,
     ProductCreateSerializer,
     ProductSerializer,
+    PublicTrackingSerializer,
     RentalSerializer,
     ShipmentSerializer,
     ShipmentStatusSerializer,
@@ -252,3 +258,37 @@ class ActivityViewSet(TenantViewSet, mixins.ListModelMixin):
         user = request.user
         if user.role == User.Role.MANAGER and not user.business.permission_on("managerActivity"):
             raise PermissionDenied()
+
+
+class PublicTrackingView(APIView):
+    """A client's order tracking link. No login: the long random token is the key.
+
+    Hidden when the owner turns client links off, when the business is locked
+    or suspended, and 30 days after the order is finished.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request, token):
+        shipment = (
+            Shipment.objects.select_related("business", "product", "from_location")
+            .prefetch_related("history")
+            .filter(tracking_token=token)
+            .first()
+        )
+        if not shipment or not self.visible(shipment):
+            raise NotFound("This tracking link isn't available.")
+        return Response(PublicTrackingSerializer(shipment).data)
+
+    @staticmethod
+    def visible(shipment):
+        business = shipment.business
+        if not business.is_open or not business.module_on("tracking") or not business.module_on("trackingLinks"):
+            return False
+        if shipment.status in Shipment.CLOSED:
+            last = shipment.history.all()
+            closed_at = max((e.at for e in last), default=shipment.created_at)
+            if timezone.now() - closed_at > timedelta(days=Shipment.TRACKING_LINK_DAYS):
+                return False
+        return True

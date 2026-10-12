@@ -12,7 +12,7 @@ from .permissions import creatable_roles
 # Shapes follow frontend/src/lib/types.ts (camelCased on the wire).
 
 CURRENCIES = ["USD", "EUR", "GBP", "BDT", "INR", "AED", "SAR", "CAD", "AUD"]
-MODULES = ["rentals", "tracking", "transfers"]
+MODULES = ["rentals", "tracking", "transfers", "trackingLinks"]
 PERMISSIONS = ["managerUsers", "managerActivity", "managerProducts", "managerLocations", "staffCreateProducts"]
 
 

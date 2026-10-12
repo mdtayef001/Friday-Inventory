@@ -11,7 +11,7 @@ from django.utils import timezone
 def default_settings():
     return {
         "currency": "USD",
-        "modules": {"rentals": True, "tracking": True, "transfers": True},
+        "modules": {"rentals": True, "tracking": True, "transfers": True, "trackingLinks": True},
         "permissions": {
             "managerUsers": True,
             "managerActivity": False,

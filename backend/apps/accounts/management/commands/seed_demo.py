@@ -103,7 +103,7 @@ class Command(BaseCommand):
             trial_ends_at=ago(113), paid_until=ago(-18),
         )
         cafe_settings = default_settings()
-        cafe_settings["modules"] = {"rentals": False, "tracking": True, "transfers": False}
+        cafe_settings["modules"] = {"rentals": False, "tracking": True, "transfers": False, "trackingLinks": True}
         cafe = Business.objects.create(
             name="Green Leaf Café", industry="Food & beverage", trial_ends_at=ago(-2), settings=cafe_settings,
         )

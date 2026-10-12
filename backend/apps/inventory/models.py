@@ -1,4 +1,5 @@
 import math
+import secrets
 from datetime import timedelta
 
 from django.conf import settings
@@ -93,6 +94,11 @@ class Client(TenantModel):
         return self.name
 
 
+def tracking_token():
+    """Long and random, so a client's link can't be guessed from the order number."""
+    return secrets.token_urlsafe(16)
+
+
 class Shipment(TenantModel):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
@@ -104,8 +110,13 @@ class Shipment(TenantModel):
 
     # Statuses after which the goods are back on the shelf.
     RESTOCKED = (Status.RETURNED, Status.CANCELLED)
+    # The order is finished; its tracking link stops working this long after.
+    CLOSED = (Status.DELIVERED, Status.RETURNED, Status.CANCELLED)
+    TRACKING_LINK_DAYS = 30
 
     code = models.CharField(max_length=32)
+    # For the client's public tracking page.
+    tracking_token = models.CharField(max_length=32, unique=True, default=tracking_token)
     product = models.ForeignKey(Product, null=True, on_delete=models.SET_NULL, related_name="+")
     quantity = models.PositiveIntegerField(validators=[MinValueValidator(1)])
     client = models.ForeignKey(Client, null=True, on_delete=models.SET_NULL, related_name="shipments")

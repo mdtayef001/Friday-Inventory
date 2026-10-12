@@ -118,10 +118,10 @@ class ShipmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Shipment
         fields = [
-            "id", "code", "product_id", "quantity", "client_id", "from_location_id", "status", "notes",
-            "created_at", "history",
+            "id", "code", "tracking_token", "product_id", "quantity", "client_id", "from_location_id", "status",
+            "notes", "created_at", "history",
         ]
-        read_only_fields = ["code", "status", "created_at"]
+        read_only_fields = ["code", "tracking_token", "status", "created_at"]
 
 
 class ShipmentStatusSerializer(serializers.Serializer):
@@ -167,3 +167,29 @@ class ActivitySerializer(serializers.ModelSerializer):
     class Meta:
         model = Activity
         fields = ["id", "at", "user", "action", "detail"]
+
+
+class PublicTrackingSerializer(serializers.ModelSerializer):
+    """What a client sees on their tracking link. Nothing internal: no prices,
+    stock, notes, staff names or warehouse."""
+
+    business_name = serializers.CharField(source="business.name")
+    product_name = serializers.SerializerMethodField()
+    contact_phone = serializers.SerializerMethodField()
+    history = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Shipment
+        fields = ["code", "business_name", "product_name", "quantity", "status", "created_at", "contact_phone", "history"]
+
+    def get_product_name(self, shipment):
+        return shipment.product.name if shipment.product else ""
+
+    def get_contact_phone(self, shipment):
+        return shipment.from_location.phone if shipment.from_location else ""
+
+    def get_history(self, shipment):
+        return [
+            {"status": e.status, "at": serializers.DateTimeField().to_representation(e.at)}
+            for e in shipment.history.all()
+        ]
