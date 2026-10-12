@@ -39,7 +39,11 @@ export function usePermissions() {
       canOpen: (path: string) => canAccess(user, path, business.settings),
       module: (id: keyof Business["settings"]["modules"]) => business.settings.modules[id],
       /** Owner/manager follow "managerProducts"; staff follow "staffCreateProducts". */
-      canCreateProducts: hasPermission(user.role, user.role === "staff" ? "staffCreateProducts" : "managerProducts", business.settings),
+      canCreateProducts:
+        user.canAddStock && hasPermission(user.role, user.role === "staff" ? "staffCreateProducts" : "managerProducts", business.settings),
+      /** Per-person rights (always true for owners and managers). */
+      canSell: user.canSell,
+      canAddStock: user.canAddStock,
     }),
     [user, business],
   )

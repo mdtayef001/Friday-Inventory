@@ -39,10 +39,12 @@ class SessionUserSerializer(serializers.ModelSerializer):
     id = IdField()
     tenant_id = IdField(source="business_id")
     location_ids = StrPrimaryKeyRelatedField(source="locations", many=True, read_only=True)
+    can_sell = serializers.BooleanField(source="may_sell", read_only=True)
+    can_add_stock = serializers.BooleanField(source="may_add_stock", read_only=True)
 
     class Meta:
         model = User
-        fields = ["id", "name", "email", "role", "tenant_id", "location_ids"]
+        fields = ["id", "name", "email", "role", "tenant_id", "location_ids", "can_sell", "can_add_stock"]
 
 
 class BusinessSerializer(serializers.ModelSerializer):
@@ -116,8 +118,8 @@ class ManagedUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            "id", "name", "email", "role", "tenant_id", "location_ids", "active", "created_at",
-            "created_by", "last_login_at", "password",
+            "id", "name", "email", "role", "tenant_id", "location_ids", "active", "can_sell", "can_add_stock",
+            "created_at", "created_by", "last_login_at", "password",
         ]
 
     def validate_name(self, value):

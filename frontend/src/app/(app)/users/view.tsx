@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
@@ -21,7 +22,7 @@ import { ConfirmAction, Field, PageBody, PageHeader, Pill, SimpleSelect, type Pi
 import { useBusiness, useScope, useSessionUser } from "@/components/session-provider"
 import { initials } from "@/components/user-menu"
 import { creatableRoles, ROLE_LABEL } from "@/lib/auth/roles"
-import { createUser, deleteUser, resetUserPassword, setUserActive, type ActionResult } from "@/lib/auth/user-actions"
+import { createUser, deleteUser, resetUserPassword, setUserActive, setUserRights, type ActionResult } from "@/lib/auth/user-actions"
 import { formatDate } from "@/lib/format"
 import { useStore } from "@/lib/store"
 import type { ManagedUser, Role, TenantRole } from "@/lib/types"
@@ -74,6 +75,7 @@ export function UsersView({ users }: { users: ManagedUser[] }) {
                 <TableHead className="pl-4">Person</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Locations</TableHead>
+                <TableHead>Can do</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead className="w-10 pr-4" />
@@ -102,6 +104,35 @@ export function UsersView({ users }: { users: ManagedUser[] }) {
                     </TableCell>
                     <TableCell className="max-w-64 text-sm text-muted-foreground">
                       {u.role === "owner" ? "All locations" : u.locationIds.map(locationName).join(", ")}
+                    </TableCell>
+                    <TableCell>
+                      {u.role !== "staff" ? (
+                        <span className="text-sm text-muted-foreground">Everything</span>
+                      ) : (
+                        <div className="grid gap-1.5">
+                          {(
+                            [
+                              ["canSell", "Sell"],
+                              ["canAddStock", "Add stock"],
+                            ] as const
+                          ).map(([key, label]) => (
+                            <label key={key} className="flex items-center gap-2 text-sm whitespace-nowrap">
+                              <Switch
+                                size="sm"
+                                checked={u[key]}
+                                disabled={isMe}
+                                aria-label={`${label}: ${u.name}`}
+                                onCheckedChange={(on) =>
+                                  startTransition(async () => {
+                                    showResult(await setUserRights(u.id, { [key]: on }), `${u.name} ${on ? "can" : "can no longer"} ${label.toLowerCase()}`)
+                                  })
+                                }
+                              />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>{u.active ? <Pill tone="green">Active</Pill> : <Pill tone="red">Disabled</Pill>}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{formatDate(u.createdAt)}</TableCell>

@@ -122,8 +122,8 @@ class ProductViewSet(TenantViewSet, viewsets.ModelViewSet):
             return
         user = request.user
         if user.role == User.Role.STAFF:
-            # Staff may only create, and only when the owner allows it.
-            if self.action != "create" or not user.business.permission_on("staffCreateProducts"):
+            # Staff may only create, only when the owner allows it, and only if they may add stock.
+            if self.action != "create" or not user.business.permission_on("staffCreateProducts") or not user.may_add_stock:
                 raise PermissionDenied()
 
     def perform_create(self, serializer):
@@ -154,6 +154,8 @@ class StockViewSet(TenantViewSet, mixins.ListModelMixin):
 
     @action(detail=False, methods=["post"])
     def adjust(self, request):
+        if not request.user.may_add_stock:
+            raise PermissionDenied("You aren't allowed to change stock. Ask your manager.")
         serializer = StockAdjustSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -503,6 +505,8 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin)
         return response
 
     def create(self, request):
+        if not request.user.may_sell:
+            raise PermissionDenied("You aren't allowed to sell. Ask your manager.")
         serializer = SellSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data

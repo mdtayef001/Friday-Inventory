@@ -20,7 +20,7 @@ type Result = { kind: "found"; product: Product; code: string } | { kind: "new";
 export function EntryView() {
   const user = useSessionUser()
   const { locations } = useScope()
-  const { canCreateProducts } = usePermissions()
+  const { canCreateProducts, canSell, canAddStock } = usePermissions()
   const products = useStore((s) => s.products)
   const activity = useStore((s) => s.activity)
   const [locationId, setLocationId] = useState(locations[0]?.id ?? "")
@@ -48,7 +48,15 @@ export function EntryView() {
     <PageBody className="max-w-4xl">
       <PageHeader
         title={`Hi ${user.name.split(" ")[0]}, what came in?`}
-        description={canCreateProducts ? "Scan a QR code or barcode, type it, or add a new product by hand." : "Scan a QR code or barcode, or type it, to add stock."}
+        description={
+          canCreateProducts
+            ? "Scan a QR code or barcode, type it, or add a new product by hand."
+            : canAddStock && canSell
+              ? "Scan a QR code or barcode, or type it, to add stock or sell."
+              : canSell
+                ? "Scan a QR code or barcode, or type it, to sell."
+                : "Scan a QR code or barcode, or type it, to add stock."
+        }
       />
 
       <Card>
@@ -197,6 +205,7 @@ export function EntryView() {
 }
 
 function FoundProduct({ product, locationId, onDone }: { product: Product; locationId: string; onDone: () => void }) {
+  const { canSell, canAddStock } = usePermissions()
   const stock = useStore((s) => s.stock)
   const locationName = useStore((s) => s.locations.find((l) => l.id === locationId)?.name)
   const adjustStock = useStore((s) => s.adjustStock)
@@ -256,14 +265,18 @@ function FoundProduct({ product, locationId, onDone }: { product: Product; locat
           </Button>
         </div>
         <div className="flex w-full gap-2 sm:w-auto">
-          <Button size="lg" variant="outline" className="h-12 flex-1 px-6 text-base" onClick={() => setSelling(true)} disabled={current === 0}>
-            <ShoppingCart />
-            Sell
-          </Button>
-          <Button size="lg" className="h-12 flex-1 px-6 text-base" onClick={add} disabled={pending}>
-            <PackagePlus />
-            Add {quantity} {product.unit}
-          </Button>
+          {canSell && (
+            <Button size="lg" variant={canAddStock ? "outline" : "default"} className="h-12 flex-1 px-6 text-base" onClick={() => setSelling(true)} disabled={current === 0}>
+              <ShoppingCart />
+              Sell
+            </Button>
+          )}
+          {canAddStock && (
+            <Button size="lg" className="h-12 flex-1 px-6 text-base" onClick={add} disabled={pending}>
+              <PackagePlus />
+              Add {quantity} {product.unit}
+            </Button>
+          )}
         </div>
       </CardContent>
       {selling && (

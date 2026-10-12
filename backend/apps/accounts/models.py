@@ -115,6 +115,9 @@ class User(AbstractUser):
     # Locations this user works at. Empty for owners (they see everything).
     locations = models.ManyToManyField("inventory.Location", blank=True, related_name="users")
     created_by = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    # Per-person rights for staff, set by the owner or their manager. Owners and managers can always do both.
+    can_sell = models.BooleanField(default=True)
+    can_add_stock = models.BooleanField(default=True)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["name"]
@@ -130,6 +133,14 @@ class User(AbstractUser):
     @property
     def is_superadmin(self):
         return self.role == self.Role.SUPERADMIN
+
+    @property
+    def may_sell(self):
+        return self.role != self.Role.STAFF or self.can_sell
+
+    @property
+    def may_add_stock(self):
+        return self.role != self.Role.STAFF or self.can_add_stock
 
     def save(self, *args, **kwargs):
         # Super admins get Django admin access; everyone else uses the app only.

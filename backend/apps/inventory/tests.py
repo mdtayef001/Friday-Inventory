@@ -441,3 +441,53 @@ class MySalesTests(SalesBase):
         Sale.objects.create(business=self.biz, channel="store", product=self.product, product_name="TV", quantity=1, unit_price=1, sold_by=staff)
         self.assertEqual(len(self.client.get("/api/sales/").json()), 2)
         self.assertEqual(len(self.client.get("/api/sales/", {"mine": "1"}).json()), 1)
+
+
+class StaffRightsTests(SalesBase):
+    def setUp(self):
+        super().setUp()
+        StockLevel.objects.create(business=self.biz, product=self.product, location=self.outlet, quantity=5)
+        self.staff = User.objects.get(email="staff@a.com")
+
+    def as_staff(self):
+        self.client.credentials()
+        self.login("staff@a.com")
+
+    def adjust(self, delta):
+        return self.client.post(
+            "/api/stock/adjust/", {"productId": self.product.id, "locationId": self.outlet.id, "delta": delta}, format="json"
+        )
+
+    def test_owner_turns_off_selling_for_one_staff_member(self):
+        res = self.client.patch(f"/api/users/{self.staff.id}/", {"canSell": False}, format="json")
+        self.assertEqual((res.status_code, res.json()["canSell"], res.json()["canAddStock"]), (200, False, True))
+        self.as_staff()
+        self.assertFalse(self.client.get("/api/auth/me/").json()["user"]["canSell"])
+        self.assertEqual(self.sell(locationId=self.outlet.id, quantity=1).status_code, 403)
+        self.assertEqual(self.adjust(2).status_code, 204)
+
+    def test_owner_turns_off_stock_entry(self):
+        self.client.patch(f"/api/users/{self.staff.id}/", {"canAddStock": False}, format="json")
+        self.as_staff()
+        self.assertEqual(self.adjust(2).status_code, 403)
+        self.assertEqual(self.adjust(-1).status_code, 403)
+        new = self.client.post("/api/products/", {"sku": "NEW-1", "name": "New", "price": 1}, format="json")
+        self.assertEqual(new.status_code, 403)
+        self.assertEqual(self.sell(locationId=self.outlet.id, quantity=1).status_code, 201)
+
+    def test_managers_and_owners_always_have_both(self):
+        self.owner.can_sell = self.owner.can_add_stock = False
+        self.owner.save()
+        me = self.client.get("/api/auth/me/").json()["user"]
+        self.assertEqual((me["canSell"], me["canAddStock"]), (True, True))
+        self.assertEqual(self.sell(quantity=1).status_code, 201)
+
+    def test_manager_sets_rights_for_staff_at_their_shop(self):
+        manager = User.objects.create_user(email="mg@a.com", password=PASSWORD, name="Mg", role="manager", business=self.biz)
+        manager.locations.set([self.outlet])
+        self.client.credentials()
+        self.login("mg@a.com")
+        res = self.client.patch(f"/api/users/{self.staff.id}/", {"canSell": False}, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        self.staff.refresh_from_db()
+        self.assertFalse(self.staff.can_sell)

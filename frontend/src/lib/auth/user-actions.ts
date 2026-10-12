@@ -51,6 +51,16 @@ export async function resetUserPassword(id: string, password: string): Promise<A
   return toResult(() => api(userPath(id), { method: "PATCH", body: { password } }))
 }
 
+/** Staff rights: whether this person may sell, and may add or change stock. */
+export async function setUserRights(id: string, rights: { canSell?: boolean; canAddStock?: boolean }): Promise<ActionResult> {
+  await requireAccess("/users")
+  const body: Record<string, boolean> = {}
+  if (typeof rights.canSell === "boolean") body.canSell = rights.canSell
+  if (typeof rights.canAddStock === "boolean") body.canAddStock = rights.canAddStock
+  if (Object.keys(body).length === 0) return { ok: false, error: "Nothing to change." }
+  return toResult(() => api(userPath(id), { method: "PATCH", body }))
+}
+
 export async function deleteUser(id: string) {
   await requireAccess("/users")
   return toResult(() => api(userPath(id), { method: "DELETE" }))

@@ -18,6 +18,9 @@ export interface SessionUser {
   tenantId: string | null
   /** Locations this user works at. Empty for owners (they see everything). */
   locationIds: string[]
+  /** Per-person rights. Always true for owners and managers; set per staff member. */
+  canSell: boolean
+  canAddStock: boolean
 }
 
 export interface ManagedUser extends SessionUser {
