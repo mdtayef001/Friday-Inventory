@@ -29,7 +29,9 @@ class Location(TenantModel):
     phone = models.CharField(max_length=40, blank=True)
 
     class Meta:
-        ordering = ["name"]
+        # Creation order, so the main warehouse a business set up first stays first
+        # and is the default in forms.
+        ordering = ["id"]
 
     def __str__(self):
         return self.name
