@@ -87,6 +87,11 @@ DATABASES = {
         conn_health_checks=True,
     )
 }
+if DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql":
+    # Supabase's transaction pooler (port 6543, used on Vercel) hands each transaction to a
+    # different server connection, which breaks prepared statements and server-side cursors.
+    DATABASES["default"].setdefault("OPTIONS", {})["prepare_threshold"] = None
+    DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
 AUTH_USER_MODEL = "accounts.User"
 
