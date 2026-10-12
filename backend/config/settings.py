@@ -93,6 +93,26 @@ if DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql":
     DATABASES["default"].setdefault("OPTIONS", {})["prepare_threshold"] = None
     DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
+# The login rate limit lives in the cache. On Vercel each function instance has its own memory,
+# so with PostgreSQL keep it in a database table every instance shares (made by createcachetable).
+CACHES = {
+    "default": (
+        {"BACKEND": "django.core.cache.backends.db.DatabaseCache", "LOCATION": "django_cache"}
+        if DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql"
+        else {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+    )
+}
+
+# Send warnings and errors (with tracebacks) to stdout, where Vercel's logs pick them up.
+# Django's default only prints them while DEBUG is on.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "root": {"handlers": ["console"], "level": "WARNING"},
+    "loggers": {"django": {"handlers": ["console"], "level": "WARNING", "propagate": False}},
+}
+
 AUTH_USER_MODEL = "accounts.User"
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -191,4 +211,8 @@ FIELD_ENCRYPTION_KEY = os.environ.get("FIELD_ENCRYPTION_KEY", "")
 
 SSLCOMMERZ_STORE_ID = os.environ.get("SSLCOMMERZ_STORE_ID", "")
 SSLCOMMERZ_STORE_PASSWORD = os.environ.get("SSLCOMMERZ_STORE_PASSWORD", "")
-SSLCOMMERZ_SANDBOX = os.environ.get("SSLCOMMERZ_SANDBOX", "true").lower() != "false"
+# Sandbox by default only while developing, so a live site never takes sandbox (unpaid) payments.
+SSLCOMMERZ_SANDBOX = env_bool("SSLCOMMERZ_SANDBOX", DEBUG)
+
+# Vercel Cron sends this as a Bearer token when calling /api/cron/cleanup/.
+CRON_SECRET = os.environ.get("CRON_SECRET", "")

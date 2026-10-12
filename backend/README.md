@@ -27,6 +27,30 @@ back to how it started.
 
 Run the tests with `python manage.py test apps`.
 
+## Deploying (Vercel + Supabase)
+
+Two Vercel projects from this repository, both in Singapore (`sin1`, set in each `vercel.json`),
+and a Supabase project in Singapore (`ap-southeast-1`).
+
+- **backend** (Root Directory `backend`): Vercel finds Django from `manage.py` and runs `collectstatic`.
+  Environment: `DATABASE_URL` (Supabase *Transaction pooler*, port 6543, `?sslmode=require`),
+  `DJANGO_SECRET_KEY`, `JWT_SIGNING_KEY`, `FIELD_ENCRYPTION_KEY`, `DJANGO_ALLOWED_HOSTS` (the backend's
+  domain), `CORS_ALLOWED_ORIGINS` and `FRONTEND_URL` (the frontend's address), `CRON_SECRET`,
+  and the `SSLCOMMERZ_*` keys. Leave `DJANGO_DEBUG` unset.
+- **frontend** (Root Directory `frontend`): `API_URL` (`https://<backend domain>/api`) and the same
+  `JWT_SIGNING_KEY` as the backend.
+
+Vercel doesn't run migrations. Before deploying a change that adds one, run it against production
+from here, with the *Session pooler* string (port 5432):
+
+```bash
+DATABASE_URL='postgresql://…pooler.supabase.com:5432/postgres?sslmode=require' \
+  sh -c 'python manage.py migrate && python manage.py createcachetable'
+```
+
+In Supabase, turn off the Data API (Project Settings → Data API): Django is the only thing that
+reads the database, and the Data API would otherwise expose its tables over HTTP.
+
 ## Layout
 
 | Path | What it is |

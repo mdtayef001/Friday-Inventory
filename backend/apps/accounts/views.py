@@ -1,3 +1,7 @@
+import hmac
+
+from django.conf import settings
+from django.core.management import call_command
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
@@ -50,6 +54,21 @@ class LogoutView(APIView):
             RefreshToken(request.data.get("refresh", "")).blacklist()
         except TokenError:
             pass
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CronCleanupView(APIView):
+    """Daily job (Vercel Cron, see vercel.json): deletes expired login tokens so the
+    blacklist tables don't grow forever. Vercel sends CRON_SECRET as a Bearer token."""
+
+    authentication_classes = []
+    permission_classes = []
+
+    def get(self, request):
+        sent = request.headers.get("Authorization", "")
+        if not settings.CRON_SECRET or not hmac.compare_digest(sent, f"Bearer {settings.CRON_SECRET}"):
+            raise NotFound()
+        call_command("flushexpiredtokens")
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

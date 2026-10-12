@@ -1,5 +1,10 @@
+from datetime import timedelta
+
 from django.core.cache import cache
+from django.test import override_settings
+from django.utils import timezone
 from rest_framework.test import APITestCase
+from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
 
 from .models import Business, User
 
@@ -74,3 +79,23 @@ class AccountTests(APITestCase):
         self.login("owner@x.com")
         self.assertEqual(self.client.get("/api/platform/businesses/").status_code, 403)
         self.assertEqual(self.client.get("/api/platform/payments/").status_code, 404)
+
+
+@override_settings(CRON_SECRET="a-cron-secret")
+class CronCleanupTests(APITestCase):
+    def test_needs_the_secret(self):
+        self.assertEqual(self.client.get("/api/cron/cleanup/").status_code, 404)
+        self.assertEqual(self.client.get("/api/cron/cleanup/", HTTP_AUTHORIZATION="Bearer wrong").status_code, 404)
+
+    @override_settings(CRON_SECRET="")
+    def test_off_without_a_secret(self):
+        self.assertEqual(self.client.get("/api/cron/cleanup/", HTTP_AUTHORIZATION="Bearer ").status_code, 404)
+
+    def test_deletes_expired_tokens(self):
+        user = User.objects.create_user(email="old@x.com", password=PASSWORD, name="Old", role="superadmin")
+        now = timezone.now()
+        OutstandingToken.objects.create(user=user, jti="old", token="t1", created_at=now - timedelta(days=2), expires_at=now - timedelta(days=1))
+        OutstandingToken.objects.create(user=user, jti="new", token="t2", created_at=now, expires_at=now + timedelta(hours=1))
+        res = self.client.get("/api/cron/cleanup/", HTTP_AUTHORIZATION="Bearer a-cron-secret")
+        self.assertEqual(res.status_code, 204)
+        self.assertEqual(list(OutstandingToken.objects.values_list("jti", flat=True)), ["new"])
