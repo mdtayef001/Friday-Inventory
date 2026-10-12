@@ -48,6 +48,7 @@ export const PERMISSIONS: Record<PermissionId, { label: string; description: str
   managerProducts: { label: "Add, edit and delete products", description: "Otherwise they can view products and change stock only.", role: "manager" },
   managerLocations: { label: "Edit their shop details", description: "Change name, address and phone of shops they run.", role: "manager" },
   managerActivity: { label: "See the activity log", description: "Who did what, and when.", role: "manager" },
+  managerProfit: { label: "See cost and profit", description: "On the Sales page and when selling. Otherwise they see prices only.", role: "manager" },
   staffCreateProducts: { label: "Create new products", description: "When a scanned code is unknown. Otherwise staff only add stock.", role: "staff" },
 }
 
@@ -60,6 +61,7 @@ export function defaultSettings(): BusinessSettings {
     permissions: {
       managerUsers: true,
       managerActivity: false,
+      managerProfit: false,
       managerProducts: true,
       managerLocations: false,
       staffCreateProducts: true,

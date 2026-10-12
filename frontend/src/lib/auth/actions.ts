@@ -32,7 +32,7 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
     tokens = await api("auth/login/", { method: "POST", body: parsed.data, token: null })
   } catch (err) {
     if (err instanceof ApiError && err.status === 429) {
-      return { error: "Too many failed attempts. Try again in a minute.", email }
+      return { error: "Too many login attempts. Try again in a minute.", email }
     }
     if (err instanceof ApiError && err.status < 500) return { error: "Incorrect email or password.", email }
     return { error: "Couldn't reach the server. Please try again.", email }

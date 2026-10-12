@@ -18,6 +18,7 @@ def default_settings():
             "managerProducts": True,
             "managerLocations": False,
             "staffCreateProducts": True,
+            "managerProfit": False,
         },
     }
 

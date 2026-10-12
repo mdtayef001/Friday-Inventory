@@ -42,6 +42,7 @@ export type ModuleId = "rentals" | "tracking" | "transfers" | "trackingLinks"
 export interface Permissions {
   managerUsers: boolean
   managerActivity: boolean
+  managerProfit: boolean
   managerProducts: boolean
   managerLocations: boolean
   staffCreateProducts: boolean

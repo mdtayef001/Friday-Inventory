@@ -45,7 +45,8 @@ Demo accounts (created by `seed_demo`, also listed on the login page in developm
   past profit. Walk-in sales use **Sell** (product page, Quick Entry); a delivered order becomes a sale at the
   price agreed when it was placed (a return refunds it); a returned rental records its income. The **Sales**
   page (owners and managers) shows revenue, profit, margin and units sold for any period, shop, product, sale type
-  or seller, with every sale listed. Only the owner sees cost and profit; managers see their own shops.
+  or seller, a revenue and profit chart, top products, and **Export CSV** (opens in Excel). Only the owner sees
+  cost and profit, unless they switch on "See cost and profit" for managers; managers see their own shops.
 - **Client tracking links**: every order has a public page, `/track/<token>`, that shows the client its status
   timeline and nothing internal (no prices, stock, notes or staff names). Staff share it from the order panel
   (Copy link, WhatsApp, Email). The owner can switch it off in Business Settings; links stop working 30 days after

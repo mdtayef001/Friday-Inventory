@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input"
 import { ClientPicker } from "@/components/client-dialog"
 import { Field, SimpleSelect, useAttempt } from "@/components/common"
-import { useScope, useSessionUser } from "@/components/session-provider"
+import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { formatMoney } from "@/lib/format"
 import { qtyAt, useStore } from "@/lib/store"
 
@@ -34,6 +34,7 @@ export function SellDialog({
   const stock = useStore((s) => s.stock)
   const sell = useStore((s) => s.sell)
   const [run, pending] = useAttempt()
+  const showProfit = usePermissions().can("managerProfit")
   const [locationId, setLocationId] = useState(initialLocation ?? locations.find((l) => qtyAt(stock, productId, l.id) > 0)?.id ?? locations[0]?.id ?? "")
   const [quantity, setQuantity] = useState(String(initialQuantity))
   const [price, setPrice] = useState(String(product?.price ?? ""))
@@ -48,7 +49,6 @@ export function SellDialog({
   const total = qty * unitPrice - off
   const valid =
     !!locationId && Number.isInteger(qty) && qty > 0 && qty <= available && price !== "" && unitPrice >= 0 && off >= 0 && total >= 0
-  const isOwner = user.role === "owner"
   // Staff don't see the client list, so they sell without one.
   const canPickClient = user.role !== "staff"
 
@@ -97,7 +97,7 @@ export function SellDialog({
               <span>Total</span>
               <span className="tabular-nums">{Number.isFinite(total) ? formatMoney(Math.max(0, total)) : "—"}</span>
             </div>
-            {isOwner && Number.isFinite(total) && qty > 0 && (
+            {showProfit && Number.isFinite(total) && qty > 0 && (
               <div className="mt-1 flex justify-between text-muted-foreground">
                 <span>Profit</span>
                 <span className="tabular-nums">{formatMoney(total - qty * product.cost)}</span>

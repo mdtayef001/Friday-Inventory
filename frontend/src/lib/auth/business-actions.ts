@@ -15,6 +15,7 @@ const SettingsSchema = z.object({
     permissions: z.object({
       managerUsers: flag,
       managerActivity: flag,
+      managerProfit: flag,
       managerProducts: flag,
       managerLocations: flag,
       staffCreateProducts: flag,

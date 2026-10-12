@@ -356,3 +356,61 @@ class SalesSummaryTests(SalesBase):
         for private in ("cost", "profit", "margin"):
             self.assertNotIn(private, s)
             self.assertNotIn(private, s["channels"]["store"])
+
+
+class SalesInsightTests(SalesBase):
+    def test_series_fills_empty_days(self):
+        self.sell(quantity=2, unitPrice="500")
+        since = (timezone.localtime() - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+        series = self.client.get("/api/sales/summary/", {"from": since.isoformat()}).json()["series"]
+        self.assertEqual(series["bucket"], "day")
+        self.assertEqual(len(series["points"]), 7)
+        self.assertEqual(series["points"][-1], {"date": timezone.localdate().isoformat(), "revenue": 1000, "profit": 400})
+        self.assertEqual(series["points"][0]["revenue"], 0)
+
+    def test_long_ranges_group_by_month(self):
+        self.sell()
+        since = (timezone.now() - timedelta(days=200)).isoformat()
+        series = self.client.get("/api/sales/summary/", {"from": since}).json()["series"]
+        self.assertEqual(series["bucket"], "month")
+        self.assertTrue(series["points"][-1]["date"].endswith("-01"))
+        self.assertEqual(sum(p["revenue"] for p in series["points"]), 960)
+
+    def test_top_products_leave_out_rentals(self):
+        self.sell(quantity=3, unitPrice="500")
+        top = self.client.get("/api/sales/summary/").json()["topProducts"]
+        self.assertEqual(top, [{"productId": str(self.product.id), "name": "TV", "units": 3, "revenue": 1500, "profit": 600}])
+
+    def test_csv_export_opens_in_excel_and_is_safe(self):
+        self.product.name = "=HYPERLINK(evil)"
+        self.product.save()
+        self.sell(quantity=2, unitPrice="500")
+        res = self.client.get("/api/sales/export/")
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("attachment;", res["Content-Disposition"])
+        body = res.content.decode("utf-8")
+        self.assertTrue(body.startswith("﻿"))
+        lines = body.lstrip("﻿").splitlines()
+        self.assertEqual(lines[0], "Date,Type,Product,Quantity,Unit price,Discount,Total,Unit cost,Cost,Profit,Shop,Client,Sold by,Refunded")
+        self.assertIn("'=HYPERLINK(evil)", lines[1])
+        self.assertIn(",1000.00,", lines[1])
+
+    def test_manager_sees_profit_only_when_the_owner_allows(self):
+        manager = User.objects.create_user(email="m3@a.com", password=PASSWORD, name="M", role="manager", business=self.biz)
+        manager.locations.set([self.warehouse])
+        self.sell()
+        self.client.credentials()
+        self.login("m3@a.com")
+        self.assertNotIn("profit", self.client.get("/api/sales/summary/").json())
+        self.assertNotIn("Profit", self.client.get("/api/sales/export/").content.decode())
+        self.biz.settings["permissions"]["managerProfit"] = True
+        self.biz.save()
+        s = self.client.get("/api/sales/summary/").json()
+        self.assertEqual((s["profit"], s["topProducts"][0]["profit"]), (360, 360))
+        self.assertIn("profit", self.client.get("/api/sales/").json()[0])
+        self.assertIn("Profit", self.client.get("/api/sales/export/").content.decode())
+
+    def test_staff_cannot_export(self):
+        self.client.credentials()
+        self.login("staff@a.com")
+        self.assertEqual(self.client.get("/api/sales/export/").status_code, 403)

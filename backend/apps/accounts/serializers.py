@@ -13,7 +13,7 @@ from .permissions import creatable_roles
 
 CURRENCIES = ["USD", "EUR", "GBP", "BDT", "INR", "AED", "SAR", "CAD", "AUD"]
 MODULES = ["rentals", "tracking", "transfers", "trackingLinks"]
-PERMISSIONS = ["managerUsers", "managerActivity", "managerProducts", "managerLocations", "staffCreateProducts"]
+PERMISSIONS = ["managerUsers", "managerActivity", "managerProducts", "managerLocations", "staffCreateProducts", "managerProfit"]
 
 
 class LoginSerializer(TokenObtainPairSerializer):

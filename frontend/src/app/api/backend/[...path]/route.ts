@@ -32,9 +32,14 @@ async function forward(req: NextRequest, ctx: RouteContext<"/api/backend/[...pat
 
   if (!res) return NextResponse.json({ detail: "Couldn't reach the server. Please try again." }, { status: 502 })
   if (res.status === 204) return new NextResponse(null, { status: 204 })
+  const disposition = res.headers.get("content-disposition")
   return new NextResponse(await res.text(), {
     status: res.status,
-    headers: { "Content-Type": res.headers.get("content-type") ?? "application/json" },
+    headers: {
+      "Content-Type": res.headers.get("content-type") ?? "application/json",
+      // File downloads such as the sales CSV.
+      ...(disposition && { "Content-Disposition": disposition }),
+    },
   })
 }
 

@@ -1,8 +1,11 @@
 from datetime import timedelta
 
+import csv
 from decimal import Decimal
 
-from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum
+from django.db.models import Count, DecimalField, ExpressionWrapper, F, Max, Min, Q, Sum
+from django.db.models.functions import TruncDay, TruncMonth
+from django.http import HttpResponse
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
@@ -308,8 +311,15 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin)
     serializer_class = SaleSerializer
     allowed_roles = TEAM
 
+    def show_profit(self):
+        """Owners always; managers when the owner switches "managerProfit" on."""
+        user = self.request.user
+        if user.role == User.Role.OWNER:
+            return True
+        return user.role == User.Role.MANAGER and user.business.permission_on("managerProfit")
+
     def get_serializer_context(self):
-        return {**super().get_serializer_context(), "show_profit": self.request.user.role == User.Role.OWNER}
+        return {**super().get_serializer_context(), "show_profit": self.show_profit()}
 
     LIST_LIMIT = 500
 
@@ -353,9 +363,7 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin)
         """Totals for the filtered sales. Refunded sales are counted separately and left out."""
         self.check_can_read()
         qs = self.filtered()
-        money = DecimalField(max_digits=16, decimal_places=2)
-        revenue = ExpressionWrapper(F("unit_price") * F("quantity") - F("discount"), output_field=money)
-        cost = ExpressionWrapper(F("unit_cost") * F("quantity"), output_field=money)
+        revenue, cost = self.money_expressions()
         zero = Decimal("0")
 
         def totals(rows):
@@ -366,7 +374,7 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin)
         counted = qs.filter(refunded_at__isnull=True)
         overall = totals(counted)
         channels = {ch: totals(counted.filter(channel=ch)) for ch in Sale.Channel.values}
-        show_profit = request.user.role == User.Role.OWNER
+        show_profit = self.show_profit()
 
         def public(t):
             out = {"count": t["count"], "revenue": float(t["revenue"])}
@@ -389,7 +397,107 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin)
         }
         if show_profit:
             data["margin"] = round(float(overall["profit"] / overall["revenue"] * 100), 1) if overall["revenue"] else None
+        data["series"] = self.series(counted, show_profit)
+        data["top_products"] = self.top_products(counted, show_profit)
         return Response(data)
+
+    @staticmethod
+    def money_expressions():
+        money = DecimalField(max_digits=16, decimal_places=2)
+        revenue = ExpressionWrapper(F("unit_price") * F("quantity") - F("discount"), output_field=money)
+        cost = ExpressionWrapper(F("unit_cost") * F("quantity"), output_field=money)
+        return revenue, cost
+
+    def series(self, counted, show_profit):
+        """Revenue (and profit) per day, or per month when the range is longer than two months.
+        Days or months with no sales are included as zero, so the chart has no gaps."""
+        params = self.request.query_params
+        now = timezone.localtime()
+        start = parse_datetime(params["from"]) if params.get("from") else counted.aggregate(m=Min("sold_at"))["m"]
+        end = parse_datetime(params["to"]) if params.get("to") else now
+        if start is None:
+            return {"bucket": "day", "points": []}
+        start, end = timezone.localtime(start), timezone.localtime(min(end, now))
+        bucket = "day" if (end - start).days <= 62 else "month"
+        trunc = TruncDay if bucket == "day" else TruncMonth
+        revenue, cost = self.money_expressions()
+        rows = {
+            timezone.localtime(r["period"]).date(): r
+            for r in counted.annotate(period=trunc("sold_at")).values("period").annotate(revenue=Sum(revenue), cost=Sum(cost))
+        }
+        points, day = [], start.date() if bucket == "day" else start.date().replace(day=1)
+        while day <= end.date():
+            r = rows.get(day, {})
+            point = {"date": day.isoformat(), "revenue": float(r.get("revenue") or 0)}
+            if show_profit:
+                point["profit"] = float((r.get("revenue") or 0) - (r.get("cost") or 0))
+            points.append(point)
+            day = day + timedelta(days=1) if bucket == "day" else (day.replace(day=28) + timedelta(days=4)).replace(day=1)
+        return {"bucket": bucket, "points": points}
+
+    @staticmethod
+    def top_products(counted, show_profit):
+        """Products sold (not rentals), best revenue first."""
+        revenue, cost = SaleViewSet.money_expressions()
+        rows = (
+            counted.exclude(channel=Sale.Channel.RENTAL)
+            .values("product_id")
+            .annotate(name=Max("product_name"), units=Sum("quantity"), revenue=Sum(revenue), cost=Sum(cost))
+            .order_by("-revenue")[:100]
+        )
+        out = []
+        for r in rows:
+            item = {
+                "product_id": str(r["product_id"]) if r["product_id"] else None,
+                "name": r["name"] if r["product_id"] else "Deleted products",
+                "units": r["units"],
+                "revenue": float(r["revenue"]),
+            }
+            if show_profit:
+                item["profit"] = float(r["revenue"] - r["cost"])
+            out.append(item)
+        return out
+
+    @action(detail=False)
+    def export(self, request):
+        """Every sale matching the filters as a CSV file that opens in Excel."""
+        self.check_can_read()
+        show_profit = self.show_profit()
+        sales = self.filtered().select_related("location", "client", "sold_by")
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="sales-{timezone.localdate().isoformat()}.csv"'
+        response.write("\ufeff")  # BOM, so Excel reads the file as UTF-8 (names, ৳)
+        writer = csv.writer(response)
+
+        def text(value):
+            # Typed by users: stop Excel from running a name like "=HYPERLINK(...)" as a formula.
+            value = value or ""
+            return "'" + value if value[:1] in ("=", "+", "-", "@", "\t", "\r") else value
+
+        header = ["Date", "Type", "Product", "Quantity", "Unit price", "Discount", "Total"]
+        if show_profit:
+            header += ["Unit cost", "Cost", "Profit"]
+        writer.writerow(header + ["Shop", "Client", "Sold by", "Refunded"])
+        for s in sales.iterator():
+            row = [
+                timezone.localtime(s.sold_at).strftime("%Y-%m-%d %H:%M"),
+                s.get_channel_display(),
+                text(s.product_name),
+                s.quantity,
+                s.unit_price,
+                s.discount,
+                s.revenue,
+            ]
+            if show_profit:
+                row += [s.unit_cost, s.cost, s.profit]
+            row += [
+                text(s.location.name if s.location else ""),
+                text(s.client.name if s.client else "Walk-in"),
+                text(s.sold_by.name if s.sold_by else ""),
+                timezone.localtime(s.refunded_at).strftime("%Y-%m-%d %H:%M") if s.refunded_at else "",
+            ]
+            writer.writerow(row)
+        return response
 
     def create(self, request):
         serializer = SellSerializer(data=request.data, context={"request": request})
