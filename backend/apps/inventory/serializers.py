@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from apps.api import IdField, tenant_field
 
-from .models import Activity, Client, Location, Product, Rental, Sale, Shipment, ShipmentEvent, StockLevel, Transfer
+from .models import Activity, Client, Location, Product, Rental, Sale, Shipment, ShipmentEvent, StockLevel, StockRequest, Transfer
 
 # Field names follow frontend/src/lib/types.ts (camelCased on the wire).
 
@@ -242,3 +242,42 @@ class SellSerializer(serializers.Serializer):
 
 class RentalReturnSerializer(serializers.Serializer):
     holidays = serializers.IntegerField(min_value=0, required=False, default=0)
+
+
+class StockRequestSerializer(serializers.ModelSerializer):
+    id = IdField()
+    product_id = tenant_field(Product, source="product")
+    to_location_id = tenant_field(Location, source="to_location")
+    requested_by = serializers.CharField(source="requested_by.name", read_only=True, default="")
+    requested_by_id = IdField()
+    decided_by = serializers.CharField(source="decided_by.name", read_only=True, default="")
+    transfer_id = IdField()
+    from_location_id = serializers.SerializerMethodField()
+    # "received" once the transfer it created has arrived.
+    stage = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StockRequest
+        fields = [
+            "id", "code", "product_id", "quantity", "to_location_id", "note", "status", "stage", "requested_by",
+            "requested_by_id", "created_at", "decided_by", "decided_at", "decision_note", "transfer_id", "from_location_id",
+        ]
+        read_only_fields = ["code", "status", "created_at", "decided_at", "decision_note"]
+
+    def get_from_location_id(self, req):
+        return str(req.transfer.from_location_id) if req.transfer and req.transfer.from_location_id else None
+
+    def get_stage(self, req):
+        if req.status == StockRequest.Status.APPROVED and req.transfer:
+            return {"received": "received", "cancelled": "cancelled"}.get(req.transfer.status, "in_transit")
+        return req.status
+
+
+class ApproveRequestSerializer(serializers.Serializer):
+    from_location_id = tenant_field(Location, source="from_location")
+    quantity = serializers.IntegerField(min_value=1, required=False)
+    note = serializers.CharField(required=False, allow_blank=True, max_length=300)
+
+
+class DeclineRequestSerializer(serializers.Serializer):
+    note = serializers.CharField(required=False, allow_blank=True, max_length=300)

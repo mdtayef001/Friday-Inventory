@@ -553,3 +553,65 @@ class RentalScanTests(SalesBase):
         staff.can_sell = False
         staff.save()
         self.assertEqual(self.client.post(f"/api/rentals/{res.json()['id']}/return/", {}, format="json").status_code, 403)
+
+
+class StockRequestTests(ApiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.manager = User.objects.create_user(email="shop@a.com", password=PASSWORD, name="Shop Mgr", role="manager", business=self.biz)
+        self.manager.locations.set([self.outlet])
+        self.login("shop@a.com")
+
+    def ask(self, quantity=4):
+        res = self.client.post("/api/stock-requests/", {"productId": self.product.id, "quantity": quantity, "toLocationId": self.outlet.id, "note": "Weekend rush"}, format="json")
+        self.assertEqual(res.status_code, 201, res.content)
+        return res.json()
+
+    def as_owner(self):
+        self.client.credentials()
+        self.login("owner@a.com")
+
+    def test_shop_asks_owner_approves_and_stock_arrives(self):
+        req = self.ask()
+        self.assertEqual((req["status"], req["stage"], req["requestedBy"]), ("pending", "pending", "Shop Mgr"))
+        self.as_owner()
+        res = self.client.post(f"/api/stock-requests/{req['id']}/approve/", {"fromLocationId": self.warehouse.id, "quantity": 3}, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        approved = res.json()
+        self.assertEqual((approved["status"], approved["stage"], approved["fromLocationId"]), ("approved", "in_transit", str(self.warehouse.id)))
+        self.assertEqual(self.qty(self.warehouse), 7)  # left the warehouse
+        self.client.post(f"/api/transfers/{approved['transferId']}/receive/")
+        self.assertEqual(self.client.get("/api/stock-requests/").json()[0]["stage"], "received")
+        self.assertEqual(self.qty(self.outlet), 3)
+
+    def test_cannot_approve_more_than_the_warehouse_has(self):
+        req = self.ask(quantity=50)
+        self.as_owner()
+        res = self.client.post(f"/api/stock-requests/{req['id']}/approve/", {"fromLocationId": self.warehouse.id}, format="json")
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(self.client.get("/api/stock-requests/").json()[0]["status"], "pending")
+
+    def test_manager_cannot_send_from_a_location_they_dont_run(self):
+        req = self.ask()
+        res = self.client.post(f"/api/stock-requests/{req['id']}/approve/", {"fromLocationId": self.warehouse.id}, format="json")
+        self.assertEqual(res.status_code, 403)
+
+    def test_decline_cancel_and_no_double_handling(self):
+        req = self.ask()
+        self.assertEqual(self.client.post(f"/api/stock-requests/{req['id']}/decline/", {}, format="json").status_code, 403)
+        self.as_owner()
+        declined = self.client.post(f"/api/stock-requests/{req['id']}/decline/", {"note": "Order next week"}, format="json").json()
+        self.assertEqual((declined["status"], declined["decisionNote"], declined["decidedBy"]), ("declined", "Order next week", "owner@a.com"))
+        again = self.client.post(f"/api/stock-requests/{req['id']}/approve/", {"fromLocationId": self.warehouse.id}, format="json")
+        self.assertEqual(again.status_code, 400)
+        self.client.credentials()
+        self.login("shop@a.com")
+        other = self.ask()
+        self.assertEqual(self.client.post(f"/api/stock-requests/{other['id']}/cancel/").json()["status"], "cancelled")
+
+    def test_only_for_own_shop_and_needs_transfers_on(self):
+        res = self.client.post("/api/stock-requests/", {"productId": self.product.id, "quantity": 1, "toLocationId": self.warehouse.id}, format="json")
+        self.assertEqual(res.status_code, 403)
+        self.biz.settings["modules"]["transfers"] = False
+        self.biz.save()
+        self.assertEqual(self.client.get("/api/stock-requests/").status_code, 403)

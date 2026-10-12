@@ -13,6 +13,7 @@ router.register("rentals", views.RentalViewSet, basename="rental")
 router.register("transfers", views.TransferViewSet, basename="transfer")
 router.register("activity", views.ActivityViewSet, basename="activity")
 router.register("sales", views.SaleViewSet, basename="sale")
+router.register("stock-requests", views.StockRequestViewSet, basename="stock-request")
 
 urlpatterns = [
     path("track/<str:token>/", views.PublicTrackingView.as_view()),

@@ -271,3 +271,25 @@ export interface Sale {
   /** Set when the goods came back; refunded sales don't count. */
   refundedAt: string | null
 }
+
+export type StockRequestStatus = "pending" | "approved" | "declined" | "cancelled"
+
+/** A shop asking for stock. Approving it sends a transfer; `stage` follows that transfer. */
+export interface StockRequest {
+  id: string
+  code: string
+  productId: string | null
+  quantity: number
+  toLocationId: string | null
+  note: string
+  status: StockRequestStatus
+  stage: StockRequestStatus | "in_transit" | "received"
+  requestedBy: string
+  requestedById: string | null
+  createdAt: string
+  decidedBy: string
+  decidedAt: string | null
+  decisionNote: string
+  transferId: string | null
+  fromLocationId: string | null
+}

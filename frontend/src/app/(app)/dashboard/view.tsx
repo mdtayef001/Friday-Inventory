@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import Link from "next/link"
 import { AlertTriangle, ArrowRight, Boxes, CalendarClock, DollarSign, Package, Truck } from "lucide-react"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
@@ -10,6 +10,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { PageBody, PageHeader, Pill, StatCard } from "@/components/common"
 import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { SHIPMENT_STATUS } from "@/components/status"
+import { RequestStockDialog } from "@/components/stock-request-dialog"
 import { formatMoney, formatNumber, timeAgo } from "@/lib/format"
 import { isOverdue, rentalOverdueDays } from "@/lib/rental"
 import { qtyAt, useStore } from "@/lib/store"
@@ -23,6 +24,9 @@ export function DashboardView() {
   const user = useSessionUser()
   const scope = useScope()
   const { canOpen, module } = usePermissions()
+  const [requesting, setRequesting] = useState<{ productId: string; locationId?: string } | null>(null)
+  // Shops ask the warehouse for stock when transfers are on.
+  const canRequest = module("transfers") && canOpen("/transfers")
   const showOrders = module("tracking")
   const showRentals = module("rentals")
   const products = useStore((s) => s.products)
@@ -41,12 +45,12 @@ export function DashboardView() {
     // A shop that never carries an item isn't "out" of it.
     const runningLow = scope.locations.flatMap((l) =>
       products
-        .map((p) => ({ product: p, location: l.name, quantity: qtyAt(stock, p.id, l.id) }))
+        .map((p) => ({ product: p, location: l.name, locationId: l.id, quantity: qtyAt(stock, p.id, l.id) }))
         .filter((r) => r.quantity > 0 && r.quantity <= r.product.lowStockThreshold),
     )
     const outEverywhere = products
       .filter((p) => scope.locations.every((l) => qtyAt(stock, p.id, l.id) === 0))
-      .map((p) => ({ product: p, location: "All locations", quantity: 0 }))
+      .map((p) => ({ product: p, location: "All locations", locationId: undefined as string | undefined, quantity: 0 }))
     const lowStock = [...outEverywhere, ...runningLow.sort((a, b) => a.quantity - b.quantity)]
 
     const myRentals = rentals.filter((r) => scope.has(r.locationId))
@@ -155,18 +159,21 @@ export function DashboardView() {
             <CardDescription>{data.lowStock.length} item(s) need restocking</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {data.lowStock.slice(0, 6).map(({ product, location, quantity }) => (
-              <Link
-                key={product.id + location}
-                href={`/products/${product.id}`}
-                className="flex items-center justify-between gap-3 rounded-lg text-sm hover:underline"
-              >
-                <span className="min-w-0">
+            {data.lowStock.slice(0, 6).map(({ product, location, locationId, quantity }) => (
+              <div key={product.id + location} className="flex items-center justify-between gap-3 text-sm">
+                <Link href={`/products/${product.id}`} className="min-w-0 rounded-lg hover:underline">
                   <span className="block truncate font-medium">{product.name}</span>
                   <span className="block truncate text-xs text-muted-foreground">{location}</span>
+                </Link>
+                <span className="flex shrink-0 items-center gap-2">
+                  {quantity === 0 ? <Pill tone="red">Out</Pill> : <Pill tone="amber">{quantity} left</Pill>}
+                  {canRequest && (
+                    <Button size="xs" variant="outline" onClick={() => setRequesting({ productId: product.id, locationId })}>
+                      Request
+                    </Button>
+                  )}
                 </span>
-                {quantity === 0 ? <Pill tone="red">Out</Pill> : <Pill tone="amber">{quantity} left</Pill>}
-              </Link>
+              </div>
             ))}
             {data.lowStock.length === 0 && <p className="text-sm text-muted-foreground">Everything is well stocked.</p>}
             {data.lowStock.length > 6 && (
@@ -238,6 +245,7 @@ export function DashboardView() {
           </CardContent>
         </Card>
       </div>
+      {requesting && <RequestStockDialog productId={requesting.productId} locationId={requesting.locationId} onClose={() => setRequesting(null)} />}
     </PageBody>
   )
 }

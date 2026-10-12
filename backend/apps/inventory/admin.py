@@ -1,8 +1,8 @@
 from django.contrib import admin
 
-from .models import Activity, Client, Location, Product, Rental, Sale, Shipment, StockLevel, Transfer
+from .models import Activity, Client, Location, Product, Rental, Sale, Shipment, StockLevel, StockRequest, Transfer
 
-admin.site.register([Location, Client, StockLevel, Shipment, Rental, Transfer])
+admin.site.register([Location, Client, StockLevel, Shipment, Rental, Transfer, StockRequest])
 
 
 @admin.register(Product)

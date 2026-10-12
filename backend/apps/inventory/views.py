@@ -19,9 +19,11 @@ from apps.accounts.models import User
 from apps.accounts.permissions import TEAM, IsTenantMember, ManagerNeedsPermission, allowed_location_ids
 
 from . import services
-from .models import Activity, Client, Location, Product, Rental, Sale, Shipment, StockLevel, Transfer
+from .models import Activity, Client, Location, Product, Rental, Sale, Shipment, StockLevel, StockRequest, Transfer
 from .serializers import (
     ActivitySerializer,
+    ApproveRequestSerializer,
+    DeclineRequestSerializer,
     ClientSerializer,
     LocationSerializer,
     ProductCreateSerializer,
@@ -35,6 +37,7 @@ from .serializers import (
     ShipmentStatusSerializer,
     StockAdjustSerializer,
     StockLevelSerializer,
+    StockRequestSerializer,
     TransferSerializer,
 )
 
@@ -538,3 +541,54 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin)
         self.check_location(data["location"])
         sale = services.sell(request.user, **data)
         return Response(self.get_serializer(sale).data, status=status.HTTP_201_CREATED)
+
+
+class StockRequestViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin):
+    """Shops ask for stock; the owner, or a manager of the location it ships from, approves.
+
+    Managers see requests for their own shops plus every waiting request they could
+    fill from a location they run. Part of the transfers feature.
+    """
+
+    model = StockRequest
+    serializer_class = StockRequestSerializer
+    module = "transfers"
+
+    def get_queryset(self):
+        qs = super().get_queryset().select_related("requested_by", "decided_by", "transfer")
+        allowed = allowed_location_ids(self.request.user)
+        if allowed is None:
+            return qs
+        return qs.filter(Q(to_location_id__in=allowed) | Q(status=StockRequest.Status.PENDING) | Q(transfer__from_location_id__in=allowed))
+
+    def perform_create(self, serializer):
+        data = serializer.validated_data
+        self.check_location(data["to_location"])
+        serializer.instance = services.request_stock(self.request.user, **data)
+
+    def respond(self, req):
+        return Response(StockRequestSerializer(req, context=self.get_serializer_context()).data)
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        body = ApproveRequestSerializer(data=request.data, context={"request": request})
+        body.is_valid(raise_exception=True)
+        # Whoever sends it must run the location it leaves from.
+        self.check_location(body.validated_data["from_location"])
+        return self.respond(services.approve_request(request.user, self.get_object(), **body.validated_data))
+
+    @action(detail=True, methods=["post"])
+    def decline(self, request, pk=None):
+        req = self.get_object()
+        if request.user.role != User.Role.OWNER and req.requested_by_id == request.user.id:
+            raise PermissionDenied("Someone else has to decline your own request. You can cancel it.")
+        body = DeclineRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        return self.respond(services.decline_request(request.user, req, **body.validated_data))
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        req = self.get_object()
+        if request.user.role != User.Role.OWNER and req.requested_by_id != request.user.id:
+            raise PermissionDenied("Only the person who asked can cancel it.")
+        return self.respond(services.cancel_request(request.user, req))

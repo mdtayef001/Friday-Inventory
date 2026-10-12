@@ -15,6 +15,7 @@ import type {
   Shipment,
   ShipmentStatus,
   StockLevel,
+  StockRequest,
   Transfer,
 } from "@/lib/types"
 
@@ -32,6 +33,7 @@ export interface Data {
   shipments: Shipment[]
   rentals: Rental[]
   transfers: Transfer[]
+  stockRequests: StockRequest[]
   activity: Activity[]
 }
 type Collection = keyof Data
@@ -67,6 +69,11 @@ interface Actions {
   createTransfer(input: Pick<Transfer, "productId" | "quantity" | "fromLocationId" | "toLocationId">): Promise<Transfer>
   receiveTransfer(id: string): Promise<void>
   cancelTransfer(id: string): Promise<void>
+
+  requestStock(input: { productId: string; quantity: number; toLocationId: string; note?: string }): Promise<StockRequest>
+  approveRequest(id: string, input: { fromLocationId: string; quantity: number }): Promise<void>
+  declineRequest(id: string, note?: string): Promise<void>
+  cancelRequest(id: string): Promise<void>
 }
 
 export type Store = Data & Actions
@@ -79,6 +86,7 @@ const empty = (): Data => ({
   shipments: [],
   rentals: [],
   transfers: [],
+  stockRequests: [],
   activity: [],
 })
 
@@ -91,6 +99,7 @@ const ENDPOINT: Record<Collection, string> = {
   shipments: "shipments/",
   rentals: "rentals/",
   transfers: "transfers/",
+  stockRequests: "stock-requests/",
   activity: "activity/",
 }
 
@@ -207,10 +216,25 @@ export const useStore = create<Store>()((set) => {
       return call<Transfer>("transfers/", "POST", input, "transfers", "stock")
     },
     async receiveTransfer(id) {
-      await call(`transfers/${id}/receive/`, "POST", {}, "transfers", "stock")
+      await call(`transfers/${id}/receive/`, "POST", {}, "transfers", "stock", "stockRequests")
     },
     async cancelTransfer(id) {
-      await call(`transfers/${id}/cancel/`, "POST", {}, "transfers", "stock")
+      await call(`transfers/${id}/cancel/`, "POST", {}, "transfers", "stock", "stockRequests")
+    },
+
+    async requestStock(input) {
+      positiveInt(input.quantity)
+      return call<StockRequest>("stock-requests/", "POST", input, "stockRequests")
+    },
+    async approveRequest(id, input) {
+      positiveInt(input.quantity)
+      await call(`stock-requests/${id}/approve/`, "POST", input, "stockRequests", "transfers", "stock")
+    },
+    async declineRequest(id, note) {
+      await call(`stock-requests/${id}/decline/`, "POST", { note: note ?? "" }, "stockRequests")
+    },
+    async cancelRequest(id) {
+      await call(`stock-requests/${id}/cancel/`, "POST", {}, "stockRequests")
     },
   }
 })
@@ -227,7 +251,7 @@ function readableFor(user: SessionUser, business: Business): Collection[] {
   names.push("clients")
   if (modules.tracking) names.push("shipments")
   if (modules.rentals) names.push("rentals")
-  if (modules.transfers) names.push("transfers")
+  if (modules.transfers) names.push("transfers", "stockRequests")
   if (user.role === "owner" || permissions.managerActivity) names.push("activity")
   return names
 }

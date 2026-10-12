@@ -11,7 +11,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from .models import Activity, Rental, Sale, Shipment, ShipmentEvent, StockLevel, Transfer
+from .models import Activity, Rental, Sale, Shipment, ShipmentEvent, StockLevel, StockRequest, Transfer
 
 
 def ref_code(prefix):
@@ -311,3 +311,61 @@ def record_rental_income(user, rental):
         rental=rental,
         sold_by=user,
     )
+
+
+# ---------- Stock requests ----------
+
+
+def request_stock(user, *, product, quantity, to_location, note=""):
+    req = StockRequest.objects.create(
+        business=user.business,
+        code=ref_code("REQ"),
+        product=product,
+        quantity=quantity,
+        to_location=to_location,
+        note=note,
+        requested_by=user,
+    )
+    log(user, "Stock requested", f"{req.code} · {quantity} × {product.name} for {to_location.name}")
+    return req
+
+
+def _decide(user, req, status, note=""):
+    req = StockRequest.objects.select_for_update().get(pk=req.pk)
+    if req.status != StockRequest.Status.PENDING:
+        raise ValidationError("This request was already handled.")
+    req.status = status
+    req.decided_by = user
+    req.decided_at = timezone.now()
+    req.decision_note = note
+    return req
+
+
+@transaction.atomic
+def approve_request(user, req, *, from_location, quantity=None, note=""):
+    """Sends the stock: creates the transfer from the chosen warehouse or shop."""
+    req = _decide(user, req, StockRequest.Status.APPROVED, note)
+    if req.product is None or req.to_location is None:
+        raise ValidationError("The product or shop no longer exists.")
+    req.transfer = create_transfer(
+        user, product=req.product, quantity=quantity or req.quantity, from_location=from_location, to_location=req.to_location
+    )
+    req.save()
+    log(user, "Request approved", f"{req.code} · {req.transfer.code} sent from {from_location.name}")
+    return req
+
+
+@transaction.atomic
+def decline_request(user, req, note=""):
+    req = _decide(user, req, StockRequest.Status.DECLINED, note)
+    req.save()
+    log(user, "Request declined", req.code + (f" · {note}" if note else ""))
+    return req
+
+
+@transaction.atomic
+def cancel_request(user, req):
+    req = _decide(user, req, StockRequest.Status.CANCELLED)
+    req.save()
+    log(user, "Request cancelled", req.code)
+    return req

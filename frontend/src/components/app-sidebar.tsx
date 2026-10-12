@@ -89,7 +89,9 @@ export function AppSidebar() {
   const openShipments = useStore(
     (s) => s.shipments.filter((sh) => scope.has(sh.fromLocationId) && ["pending", "processing", "in_delivery"].includes(sh.status)).length,
   )
-  const badges: Record<string, number> = { "/rentals": overdue, "/tracking": openShipments }
+  // Requests waiting for someone else to approve (owners see all of them).
+  const waitingRequests = useStore((s) => s.stockRequests.filter((r) => r.status === "pending" && (user.role === "owner" || r.requestedById !== user.id)).length)
+  const badges: Record<string, number> = { "/rentals": overdue, "/tracking": openShipments, "/transfers": waitingRequests }
 
   return (
     <Sidebar collapsible="icon">

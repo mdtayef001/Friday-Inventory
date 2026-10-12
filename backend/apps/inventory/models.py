@@ -278,3 +278,30 @@ class Sale(TenantModel):
     @property
     def profit(self):
         return self.revenue - self.cost
+
+
+class StockRequest(TenantModel):
+    """A shop asking for stock. Approving it sends a transfer from the chosen warehouse."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Waiting"
+        APPROVED = "approved", "Sent"
+        DECLINED = "declined", "Declined"
+        CANCELLED = "cancelled", "Cancelled"
+
+    code = models.CharField(max_length=32)
+    product = models.ForeignKey(Product, null=True, on_delete=models.SET_NULL, related_name="+")
+    quantity = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    to_location = models.ForeignKey(Location, null=True, on_delete=models.SET_NULL, related_name="+")
+    note = models.CharField(max_length=300, blank=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decision_note = models.CharField(max_length=300, blank=True)
+    # The transfer that fulfils it; its status says whether the stock has arrived.
+    transfer = models.OneToOneField(Transfer, null=True, blank=True, on_delete=models.SET_NULL, related_name="request")
+
+    class Meta:
+        ordering = ["-created_at"]
