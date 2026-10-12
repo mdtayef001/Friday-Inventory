@@ -47,6 +47,16 @@ Demo accounts (created by `seed_demo`, also listed on the login page in developm
   page (owners and managers) shows revenue, profit, margin and units sold for any period, shop, product, sale type
   or seller, a revenue and profit chart, top products, and **Export CSV** (opens in Excel). Only the owner sees
   cost and profit, unless they switch on "See cost and profit" for managers; managers see their own shops.
+- **My Sales**: everyone (staff included) sees their own sales today and this month, with prices but never cost.
+- **Per-person rights**: each staff account has **Can sell** and **Can add stock** switches on the Users page.
+- **Rentals by scanning**: **Scan out** needs no day count (expected days are optional, for the due date only);
+  **Scan in** counts the real days out, takes off holidays typed by staff (per-day plan only), and shows what to
+  collect after the deposit. Staff can rent at their own shops if they may sell.
+- **Stock requests**: a manager asks for stock (Transfers or the dashboard's low-stock list); the owner or a manager of
+  the sending location approves and picks where it ships from, which creates the transfer.
+- **Payment methods**: each business chooses in Business Settings: cash (always), mobile banking (with the number to
+  show customers), card machine, and online through **its own** SSLCommerz account (password stored encrypted). Every
+  sale records how it was paid; online sales show a QR code, hold the stock, and only count once SSLCommerz confirms.
 - **Client tracking links**: every order has a public page, `/track/<token>`, that shows the client its status
   timeline and nothing internal (no prices, stock, notes or staff names). Staff share it from the order panel
   (Copy link, WhatsApp, Email). The owner can switch it off in Business Settings; links stop working 30 days after

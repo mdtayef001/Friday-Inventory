@@ -397,7 +397,7 @@ class SalesInsightTests(SalesBase):
         body = res.content.decode("utf-8")
         self.assertTrue(body.startswith("﻿"))
         lines = body.lstrip("﻿").splitlines()
-        self.assertEqual(lines[0], "Date,Type,Product,Quantity,Unit price,Discount,Total,Unit cost,Cost,Profit,Shop,Client,Sold by,Refunded")
+        self.assertEqual(lines[0], "Date,Type,Product,Quantity,Unit price,Discount,Total,Unit cost,Cost,Profit,Payment,Payment status,Shop,Client,Sold by,Refunded")
         self.assertIn("'=HYPERLINK(evil)", lines[1])
         self.assertIn(",1000.00,", lines[1])
 
@@ -615,3 +615,106 @@ class StockRequestTests(ApiTestCase):
         self.biz.settings["modules"]["transfers"] = False
         self.biz.save()
         self.assertEqual(self.client.get("/api/stock-requests/").status_code, 403)
+
+
+class PaymentMethodTests(SalesBase):
+    def settings_with(self, **payments):
+        current = self.client.get("/api/business/").json()["settings"]
+        current["payments"] = {**current["payments"], **payments}
+        return self.client.patch("/api/business/", {"settings": current}, format="json")
+
+    def save_merchant(self):
+        return self.client.put("/api/business/merchant/", {"storeId": "shop123", "storePassword": "s3cret", "sandbox": True}, format="json")
+
+    def test_cash_only_by_default(self):
+        self.assertEqual(self.sell(paymentMethod="card").status_code, 400)
+        res = self.sell()
+        self.assertEqual((res.json()["paymentMethod"], res.json()["paymentStatus"]), ("cash", "paid"))
+
+    def test_owner_turns_on_mobile_and_card(self):
+        self.assertEqual(self.settings_with(mobile=True).status_code, 400)  # needs the number
+        self.assertEqual(self.settings_with(mobile=True, mobileNumber="bKash 01711000000", card=True).status_code, 200)
+        self.assertEqual(self.sell(paymentMethod="mobile").json()["paymentMethod"], "mobile")
+        self.assertEqual(self.sell(quantity=1, paymentMethod="card").status_code, 201)
+        methods = self.client.get("/api/sales/summary/").json()["methods"]
+        self.assertEqual((methods["mobile"]["count"], methods["card"]["count"], methods["cash"]["count"]), (1, 1, 0))
+
+    def test_merchant_password_is_encrypted_and_never_returned(self):
+        self.assertEqual(self.settings_with(online=True).status_code, 400)  # account first
+        res = self.save_merchant()
+        self.assertEqual(res.json(), {"configured": True, "storeId": "shop123", "sandbox": True, "hasPassword": True})
+        from apps.accounts.models import MerchantAccount
+
+        stored = MerchantAccount.objects.get(business=self.biz)
+        self.assertNotIn("s3cret", stored.store_password)
+        self.assertEqual(stored.password, "s3cret")
+        self.assertEqual(self.settings_with(online=True).status_code, 200)
+        self.client.credentials()
+        self.login("staff@a.com")
+        self.assertEqual(self.client.get("/api/business/merchant/").status_code, 403)
+
+    def online_sale(self):
+        from unittest import mock
+
+        self.save_merchant()
+        self.settings_with(online=True)
+        with mock.patch("apps.billing.sslcommerz.open_session", return_value=("https://sandbox.sslcommerz.com/pay/x", None)) as opened:
+            res = self.sell(quantity=2, unitPrice="500", paymentMethod="online")
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(opened.call_args.kwargs["amount"], 1000)
+        return res.json()
+
+    def test_online_sale_holds_stock_until_paid(self):
+        from unittest import mock
+
+        sale = self.online_sale()
+        self.assertEqual((sale["paymentStatus"], sale["paymentUrl"]), ("pending", "https://sandbox.sslcommerz.com/pay/x"))
+        self.assertEqual(self.qty(self.warehouse), 8)  # held
+        s = self.client.get("/api/sales/summary/").json()
+        self.assertEqual((s["revenue"], s["waitingCount"]), (0, 1))
+        from .models import Sale
+
+        tran = Sale.objects.get(pk=sale["id"]).tran_id
+        # A forged callback: SSLCommerz says it isn't valid.
+        with mock.patch("apps.billing.sslcommerz.check", return_value=(False, "", "")):
+            self.client.credentials()
+            self.client.post("/api/sale-payments/success/", {"tranId": tran, "valId": "FAKE"}, format="json")
+        self.login("owner@a.com")
+        self.assertEqual(self.client.get(f"/api/sales/{sale['id']}/").json()["paymentStatus"], "pending")
+        with mock.patch("apps.billing.sslcommerz.check", return_value=(True, "BKASH-BKash", "BANK1")):
+            res = self.client.post("/api/sale-payments/success/", {"tranId": tran, "valId": "VAL1"}, format="json")
+        self.assertEqual(res.json()["status"], "success")
+        paid = self.client.get(f"/api/sales/{sale['id']}/").json()
+        self.assertEqual((paid["paymentStatus"], paid["gatewayMethod"]), ("paid", "BKASH-BKash"))
+        self.assertEqual(self.client.get("/api/sales/summary/").json()["methods"]["online"]["revenue"], 1000)
+
+    def test_failed_or_cancelled_online_payment_gives_stock_back(self):
+        sale = self.online_sale()
+        from .models import Sale
+
+        tran = Sale.objects.get(pk=sale["id"]).tran_id
+        self.client.post("/api/sale-payments/fail/", {"tranId": tran}, format="json")
+        self.assertEqual(self.qty(self.warehouse), 10)
+        self.assertEqual(self.client.get(f"/api/sales/{sale['id']}/").json()["paymentStatus"], "failed")
+        other = self.online_sale()
+        self.client.post(f"/api/sales/{other['id']}/cancel-payment/")
+        self.assertEqual(self.qty(self.warehouse), 10)
+
+    def test_unfinished_online_payment_expires_after_30_minutes(self):
+        sale = self.online_sale()
+        from .models import Sale
+
+        Sale.objects.filter(pk=sale["id"]).update(sold_at=timezone.now() - timedelta(minutes=31))
+        self.assertEqual(self.client.get(f"/api/sales/{sale['id']}/").json()["paymentStatus"], "cancelled")
+        self.assertEqual(self.qty(self.warehouse), 10)
+
+    def test_rental_return_records_how_it_was_paid(self):
+        rental = self.client.post(
+            "/api/rentals/",
+            {"productId": self.product.id, "quantity": 1, "clientId": self.client_id, "locationId": self.warehouse.id,
+             "startDate": timezone.now().isoformat(), "plan": "daily", "rate": "100"},
+            format="json",
+        ).json()
+        self.assertEqual(self.client.post(f"/api/rentals/{rental['id']}/return/", {"paymentMethod": "card"}, format="json").status_code, 400)
+        self.client.post(f"/api/rentals/{rental['id']}/return/", {"paymentMethod": "cash"}, format="json")
+        self.assertEqual(self.client.get("/api/sales/").json()[0]["paymentMethod"], "cash")

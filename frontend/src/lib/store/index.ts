@@ -54,7 +54,18 @@ interface Actions {
   updateClient(id: string, patch: Partial<Omit<Client, "id" | "createdAt">>): Promise<void>
   deleteClient(id: string): Promise<void>
 
-  sell(input: { productId: string; locationId: string; quantity: number; unitPrice: number; discount: number; clientId?: string }): Promise<Sale>
+  sell(input: {
+    productId: string
+    locationId: string
+    quantity: number
+    unitPrice: number
+    discount: number
+    clientId?: string
+    paymentMethod: Sale["paymentMethod"]
+  }): Promise<Sale>
+  /** The current state of an online payment, for the waiting screen. */
+  checkSale(id: string): Promise<Sale>
+  cancelOnlinePayment(id: string): Promise<void>
 
   createShipment(
     input: Pick<Shipment, "productId" | "quantity" | "clientId" | "fromLocationId" | "notes"> & { unitPrice?: number },
@@ -64,7 +75,7 @@ interface Actions {
   createRental(
     input: Pick<Rental, "productId" | "quantity" | "clientId" | "locationId" | "startDate" | "days" | "plan" | "rate" | "deposit" | "notes">,
   ): Promise<Rental>
-  returnRental(id: string, holidays?: number): Promise<void>
+  returnRental(id: string, holidays?: number, paymentMethod?: Sale["paymentMethod"]): Promise<void>
 
   createTransfer(input: Pick<Transfer, "productId" | "quantity" | "fromLocationId" | "toLocationId">): Promise<Transfer>
   receiveTransfer(id: string): Promise<void>
@@ -192,6 +203,15 @@ export const useStore = create<Store>()((set) => {
       positiveInt(input.quantity)
       return call<Sale>("sales/", "POST", input, "stock")
     },
+    async checkSale(id) {
+      const sale = await request<Sale>(`sales/${id}/`)
+      // A failed or expired payment put the stock back.
+      if (sale.paymentStatus !== "pending") await reload("stock")
+      return sale
+    },
+    async cancelOnlinePayment(id) {
+      await call(`sales/${id}/cancel-payment/`, "POST", {}, "stock")
+    },
 
     async createShipment(input) {
       positiveInt(input.quantity)
@@ -206,8 +226,8 @@ export const useStore = create<Store>()((set) => {
       if (input.days != null) positiveInt(input.days, "Expected days")
       return call<Rental>("rentals/", "POST", input, "rentals", "stock")
     },
-    async returnRental(id, holidays = 0) {
-      await call(`rentals/${id}/return/`, "POST", { holidays }, "rentals", "stock")
+    async returnRental(id, holidays = 0, paymentMethod = "") {
+      await call(`rentals/${id}/return/`, "POST", { holidays, paymentMethod }, "rentals", "stock")
     },
 
     async createTransfer(input) {

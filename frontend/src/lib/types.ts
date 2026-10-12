@@ -52,11 +52,25 @@ export interface Permissions {
 }
 export type PermissionId = keyof Permissions
 
+/** How customers can pay. Cash always works; the rest are the owner's choice. */
+export interface PaymentSettings {
+  mobile: boolean
+  /** Shown to staff and customers, e.g. "bKash 01711000000". */
+  mobileNumber: string
+  card: boolean
+  /** Online through the business's own SSLCommerz account. */
+  online: boolean
+}
+
 export interface BusinessSettings {
   currency: string
   modules: Record<ModuleId, boolean>
   permissions: Permissions
+  payments: PaymentSettings
 }
+
+export type PaymentMethod = "cash" | "mobile" | "card" | "online"
+export type PaymentStatus2 = "paid" | "pending" | "failed" | "cancelled"
 
 export interface Business {
   id: string
@@ -270,6 +284,13 @@ export interface Sale {
   soldAt: string
   /** Set when the goods came back; refunded sales don't count. */
   refundedAt: string | null
+  /** "" when not recorded (orders, older sales). */
+  paymentMethod: PaymentMethod | ""
+  /** Only "paid" counts. Online payments wait for SSLCommerz. */
+  paymentStatus: PaymentStatus2
+  gatewayMethod: string
+  /** Only right after starting an online payment: the SSLCommerz page to pay on. */
+  paymentUrl?: string
 }
 
 export type StockRequestStatus = "pending" | "approved" | "declined" | "cancelled"

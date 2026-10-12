@@ -16,7 +16,8 @@ import { request } from "@/lib/api/client"
 import { formatDateTime, formatMoney, formatNumber } from "@/lib/format"
 import { useStore } from "@/lib/store"
 import { useLookups } from "@/lib/store/hooks"
-import type { Sale, SaleChannel } from "@/lib/types"
+import type { PaymentMethod, Sale, SaleChannel } from "@/lib/types"
+import { PAYMENT_METHODS } from "@/lib/business"
 import { cn } from "@/lib/utils"
 
 interface Totals {
@@ -29,6 +30,8 @@ interface Totals {
 interface Summary extends Totals {
   unitsSold: number
   refundedCount: number
+  waitingCount: number
+  methods: Record<PaymentMethod | "none", { count: number; revenue: number }>
   margin?: number | null
   channels: Record<SaleChannel, Totals>
   sellers: { id: string; name: string }[]
@@ -109,6 +112,7 @@ export function SalesView() {
   const [product, setProduct] = useState("all")
   const [seller, setSeller] = useState("all")
   const [channel, setChannel] = useState<"all" | SaleChannel>("all")
+  const [method, setMethod] = useState<"all" | PaymentMethod | "none">("all")
   const [data, setData] = useState<{ key: string; summary: Summary; sales: Sale[] } | null>(null)
   const [error, setError] = useState("")
 
@@ -121,8 +125,9 @@ export function SalesView() {
     if (product !== "all") q.set("product", product)
     if (seller !== "all") q.set("seller", seller)
     if (channel !== "all") q.set("channel", channel)
+    if (method !== "all") q.set("method", method)
     return q.toString()
-  }, [period, customFrom, customTo, location, product, seller, channel])
+  }, [period, customFrom, customTo, location, product, seller, channel, method])
 
   useEffect(() => {
     let cancelled = false
@@ -188,6 +193,16 @@ export function SalesView() {
           options={[{ value: "all", label: "All sale types" }, ...(Object.keys(CHANNELS) as SaleChannel[]).map((c) => ({ value: c, label: CHANNELS[c].label }))]}
         />
         <SimpleSelect
+          className="w-40"
+          value={method}
+          onChange={(v) => setMethod(v as typeof method)}
+          options={[
+            { value: "all", label: "Any payment" },
+            ...(Object.keys(PAYMENT_METHODS) as PaymentMethod[]).map((m) => ({ value: m, label: PAYMENT_METHODS[m].short })),
+            { value: "none", label: "Not recorded" },
+          ]}
+        />
+        <SimpleSelect
           className="w-44"
           value={seller}
           onChange={setSeller}
@@ -205,7 +220,7 @@ export function SalesView() {
             <StatCard
               label="Revenue"
               value={formatMoney(summary.revenue)}
-              hint={`${formatNumber(summary.count)} sale${summary.count === 1 ? "" : "s"}${summary.refundedCount ? ` · ${summary.refundedCount} refunded` : ""}`}
+              hint={`${formatNumber(summary.count)} sale${summary.count === 1 ? "" : "s"}${summary.refundedCount ? ` · ${summary.refundedCount} refunded` : ""}${summary.waitingCount ? ` · ${summary.waitingCount} waiting for payment` : ""}`}
               icon={DollarSign}
             />
             {showProfit && (
@@ -330,6 +345,23 @@ export function SalesView() {
         </div>
       )}
 
+      {summary && (
+        <Card size="sm">
+          <CardContent className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
+            <span className="font-medium">How it was paid</span>
+            {(["cash", "mobile", "card", "online", "none"] as const)
+              .filter((m) => summary.methods[m]?.count)
+              .map((m) => (
+                <span key={m} className="tabular-nums">
+                  <span className="text-muted-foreground">{m === "none" ? "Not recorded" : PAYMENT_METHODS[m].short}</span> {formatMoney(summary.methods[m].revenue)}
+                  <span className="text-muted-foreground"> · {summary.methods[m].count}</span>
+                </span>
+              ))}
+            {Object.values(summary.methods).every((m) => !m.count) && <span className="text-muted-foreground">No paid sales in this view.</span>}
+          </CardContent>
+        </Card>
+      )}
+
       <Card className={cn(loading && data && "opacity-60 transition-opacity")}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -361,6 +393,7 @@ export function SalesView() {
                     <TableHead className="text-right">Total</TableHead>
                     {showProfit && <TableHead className="text-right">Profit</TableHead>}
                     <TableHead>Type</TableHead>
+                    <TableHead>Payment</TableHead>
                     <TableHead>Shop</TableHead>
                     <TableHead>Client</TableHead>
                     <TableHead className="pr-4">Sold by</TableHead>
@@ -368,7 +401,7 @@ export function SalesView() {
                 </TableHeader>
                 <TableBody>
                   {sales.map((s) => (
-                    <TableRow key={s.id} className={cn(s.refundedAt && "text-muted-foreground opacity-60")}>
+                    <TableRow key={s.id} className={cn((s.refundedAt || s.paymentStatus !== "paid") && "text-muted-foreground opacity-60")}>
                       <TableCell className="pl-4 text-sm whitespace-nowrap">{formatDateTime(s.soldAt)}</TableCell>
                       <TableCell className="max-w-64 font-medium">
                         <span className="line-clamp-2">{s.productName}</span>
@@ -386,6 +419,9 @@ export function SalesView() {
                       <TableCell>
                         <Pill tone={CHANNELS[s.channel].tone}>{CHANNELS[s.channel].label}</Pill>
                       </TableCell>
+                      <TableCell className="text-sm whitespace-nowrap">
+                        <PaymentCell sale={s} />
+                      </TableCell>
                       <TableCell className="text-sm whitespace-nowrap">{(s.locationId && lookups.location.get(s.locationId)?.name) || "—"}</TableCell>
                       <TableCell className="text-sm whitespace-nowrap">{(s.clientId && lookups.client.get(s.clientId)?.name) || "Walk-in"}</TableCell>
                       <TableCell className="pr-4 text-sm whitespace-nowrap">{s.soldBy || "—"}</TableCell>
@@ -399,4 +435,14 @@ export function SalesView() {
       </Card>
     </PageBody>
   )
+}
+
+/** "Cash", "Online · BKASH", or the payment state when it isn't paid. Shared with My Sales. */
+export function PaymentCell({ sale: s }: { sale: Sale }) {
+  if (s.paymentStatus === "pending") return <Pill tone="amber">Waiting for payment</Pill>
+  if (s.paymentStatus === "failed") return <Pill tone="red">Payment failed</Pill>
+  if (s.paymentStatus === "cancelled") return <Pill tone="gray">Cancelled</Pill>
+  if (!s.paymentMethod) return <span className="text-muted-foreground">—</span>
+  const label = PAYMENT_METHODS[s.paymentMethod].short
+  return <span title={s.gatewayMethod || undefined}>{s.gatewayMethod ? `${label} · ${s.gatewayMethod.split(/[-·]/)[0].trim()}` : label}</span>
 }

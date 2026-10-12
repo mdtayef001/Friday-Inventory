@@ -65,19 +65,28 @@ class BusinessSerializer(serializers.ModelSerializer):
     def validate_settings(self, value):
         """Exactly the shape of BusinessSettings in the frontend, nothing more."""
         try:
-            modules, permissions = value["modules"], value["permissions"]
+            modules, permissions, payments = value["modules"], value["permissions"], value["payments"]
             clean = {
                 "currency": value["currency"],
                 "modules": {k: modules[k] for k in MODULES},
                 "permissions": {k: permissions[k] for k in PERMISSIONS},
+                "payments": {k: payments[k] for k in ("mobile", "card", "online")},
             }
-        except (KeyError, TypeError):
+            number = payments.get("mobileNumber", "")
+        except (KeyError, TypeError, AttributeError):
             raise serializers.ValidationError("Settings are incomplete.")
         if clean["currency"] not in CURRENCIES:
             raise serializers.ValidationError("Unsupported currency.")
-        flags = [*clean["modules"].values(), *clean["permissions"].values()]
+        flags = [*clean["modules"].values(), *clean["permissions"].values(), *clean["payments"].values()]
         if not all(isinstance(f, bool) for f in flags):
             raise serializers.ValidationError("Feature switches must be on or off.")
+        if not isinstance(number, str) or len(number) > 60:
+            raise serializers.ValidationError("The mobile banking number is too long.")
+        clean["payments"]["mobileNumber"] = number.strip()
+        if clean["payments"]["mobile"] and not clean["payments"]["mobileNumber"]:
+            raise serializers.ValidationError("Add the bKash / Nagad number customers should send money to.")
+        if clean["payments"]["online"] and not (self.instance and hasattr(self.instance, "merchant")):
+            raise serializers.ValidationError("Save your SSLCommerz Store ID and password first, then turn on online payments.")
         return clean
 
 
@@ -221,3 +230,15 @@ class BusinessWithOwnerSerializer(serializers.Serializer):
 
     def to_representation(self, business):
         return BusinessSummarySerializer(business).data
+
+
+class MerchantAccountSerializer(serializers.Serializer):
+    """The owner's own SSLCommerz account. The password is write-only and never returned."""
+
+    store_id = serializers.CharField(max_length=100)
+    store_password = serializers.CharField(max_length=200, required=False, allow_blank=True, write_only=True)
+    sandbox = serializers.BooleanField(default=True)
+    has_password = serializers.SerializerMethodField()
+
+    def get_has_password(self, merchant):
+        return bool(getattr(merchant, "store_password", ""))

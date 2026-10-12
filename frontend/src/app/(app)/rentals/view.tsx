@@ -15,12 +15,14 @@ import { useAttempt, EmptyState, Field, PageBody, PageHeader, SimpleSelect, Stat
 import { ClientPicker } from "@/components/client-dialog"
 import { usePermissions, useScope } from "@/components/session-provider"
 import { CodeInput, ScanButton } from "@/components/scanner"
+import { PaymentPicker } from "@/components/payment-picker"
+import { PAYMENT_METHODS } from "@/lib/business"
 import { RentalStatusPill } from "@/components/status"
 import { formatDate, formatMoney } from "@/lib/format"
 import { countDays, isOverdue, PLAN_LABEL, quoteRental, rentalDueDate, rentalOverdueDays } from "@/lib/rental"
 import { qtyAt, useStore } from "@/lib/store"
 import { useLookups } from "@/lib/store/hooks"
-import type { Product, Rental, RentalPlan } from "@/lib/types"
+import type { PaymentMethod, Product, Rental, RentalPlan } from "@/lib/types"
 
 type Filter = "active" | "overdue" | "returned" | "all"
 
@@ -434,6 +436,7 @@ function ReturnRentalDialog({ rental: r, onClose }: { rental: Rental; onClose: (
   const returnRental = useStore((s) => s.returnRental)
   const [run, pending] = useAttempt()
   const [holidays, setHolidays] = useState("")
+  const [method, setMethod] = useState<PaymentMethod>("cash")
   const daysOut = countDays(r.startDate)
   const off = r.plan === "daily" ? Number(holidays) || 0 : 0
   const holidaysOk = Number.isInteger(off) && off >= 0 && off < daysOut
@@ -444,7 +447,10 @@ function ReturnRentalDialog({ rental: r, onClose }: { rental: Rental; onClose: (
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (!holidaysOk) return
-    const ok = await run(() => returnRental(r.id, off), `Returned. ${due >= 0 ? `Collect ${formatMoney(due)}` : `Give back ${formatMoney(-due)}`}.`)
+    const ok = await run(
+      () => returnRental(r.id, off, method),
+      `Returned. ${due >= 0 ? `Collect ${formatMoney(due)} (${PAYMENT_METHODS[method].short})` : `Give back ${formatMoney(-due)}`}.`,
+    )
     if (ok) onClose()
   }
 
@@ -503,6 +509,7 @@ function ReturnRentalDialog({ rental: r, onClose }: { rental: Rental; onClose: (
               <span className="tabular-nums">{formatMoney(Math.abs(due))}</span>
             </div>
           </div>
+          {due > 0 && <PaymentPicker value={method} onChange={setMethod} allowOnline={false} />}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel

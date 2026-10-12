@@ -1,4 +1,4 @@
-import type { BusinessSettings, BusinessStatus, ModuleId, PermissionId } from "@/lib/types"
+import type { BusinessSettings, BusinessStatus, ModuleId, PaymentMethod, PermissionId } from "@/lib/types"
 
 // One subscription for every business: a flat monthly price, no usage limits.
 // New businesses get a free trial; when the trial or a paid month runs out the
@@ -66,5 +66,23 @@ export function defaultSettings(): BusinessSettings {
       managerLocations: false,
       staffCreateProducts: true,
     },
+    payments: { mobile: false, mobileNumber: "", card: false, online: false },
   }
+}
+
+export const PAYMENT_METHODS: Record<PaymentMethod, { label: string; short: string }> = {
+  cash: { label: "Cash", short: "Cash" },
+  mobile: { label: "Mobile banking (bKash / Nagad)", short: "Mobile" },
+  card: { label: "Card machine", short: "Card" },
+  online: { label: "Online (SSLCommerz)", short: "Online" },
+}
+
+/** The payment methods this business has switched on. Cash always. */
+export function enabledMethods(settings: BusinessSettings): PaymentMethod[] {
+  const p = settings.payments
+  const on: PaymentMethod[] = ["cash"]
+  if (p?.mobile) on.push("mobile")
+  if (p?.card) on.push("card")
+  if (p?.online) on.push("online")
+  return on
 }

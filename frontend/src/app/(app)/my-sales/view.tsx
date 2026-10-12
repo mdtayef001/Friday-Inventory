@@ -13,6 +13,7 @@ import { formatDateTime, formatMoney, formatNumber } from "@/lib/format"
 import { useLookups } from "@/lib/store/hooks"
 import type { Sale } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import { PaymentCell } from "../sales/view"
 
 interface Totals {
   count: number
@@ -94,13 +95,14 @@ export function MySalesView() {
                     <TableHead className="text-right">Qty</TableHead>
                     <TableHead className="text-right">Price</TableHead>
                     <TableHead className="text-right">Total</TableHead>
+                    <TableHead>Payment</TableHead>
                     <TableHead>Shop</TableHead>
                     <TableHead className="pr-4">Type</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {data.sales.map((s) => (
-                    <TableRow key={s.id} className={cn(s.refundedAt && "text-muted-foreground opacity-60")}>
+                    <TableRow key={s.id} className={cn((s.refundedAt || s.paymentStatus !== "paid") && "text-muted-foreground opacity-60")}>
                       <TableCell className="pl-4 text-sm whitespace-nowrap">{formatDateTime(s.soldAt)}</TableCell>
                       <TableCell className="font-medium">
                         <span className="flex items-center gap-2">
@@ -115,6 +117,9 @@ export function MySalesView() {
                         {s.discount > 0 && <div className="text-xs text-muted-foreground">−{formatMoney(s.discount)}</div>}
                       </TableCell>
                       <TableCell className="text-right font-medium tabular-nums whitespace-nowrap">{formatMoney(s.revenue)}</TableCell>
+                      <TableCell className="text-sm whitespace-nowrap">
+                        <PaymentCell sale={s} />
+                      </TableCell>
                       <TableCell className="text-sm whitespace-nowrap">{(s.locationId && lookups.location.get(s.locationId)?.name) || "—"}</TableCell>
                       <TableCell className="pr-4 text-sm">{CHANNEL_LABEL[s.channel]}</TableCell>
                     </TableRow>

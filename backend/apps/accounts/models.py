@@ -20,6 +20,8 @@ def default_settings():
             "staffCreateProducts": True,
             "managerProfit": False,
         },
+        # How customers can pay. Cash always works; the rest are the owner's choice.
+        "payments": {"mobile": False, "mobileNumber": "", "card": False, "online": False},
     }
 
 
@@ -146,3 +148,29 @@ class User(AbstractUser):
         # Super admins get Django admin access; everyone else uses the app only.
         self.is_staff = self.is_superuser = self.role == self.Role.SUPERADMIN
         super().save(*args, **kwargs)
+
+
+class MerchantAccount(models.Model):
+    """A business's own SSLCommerz account, for customers paying online at the
+    counter. Not the platform's account, which only collects subscriptions."""
+
+    business = models.OneToOneField(Business, on_delete=models.CASCADE, related_name="merchant")
+    store_id = models.CharField(max_length=100)
+    # Encrypted with apps.accounts.crypto; never sent back to the browser.
+    store_password = models.TextField()
+    sandbox = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.business} · {self.store_id}"
+
+    @property
+    def password(self):
+        from .crypto import decrypt
+
+        return decrypt(self.store_password)
+
+    def set_password(self, raw):
+        from .crypto import encrypt
+
+        self.store_password = encrypt(raw)

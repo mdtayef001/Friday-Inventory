@@ -176,6 +176,11 @@ FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 # Production only: allow the test gateway when no SSLCommerz keys are set. Never on a live site.
 PAYMENTS_TEST_GATEWAY = env_bool("PAYMENTS_TEST_GATEWAY", False)
 
+# Encrypts secrets stored in the database (businesses' own SSLCommerz passwords).
+# Optional: derived from DJANGO_SECRET_KEY when empty. A Fernet key:
+# python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+FIELD_ENCRYPTION_KEY = os.environ.get("FIELD_ENCRYPTION_KEY", "")
+
 SSLCOMMERZ_STORE_ID = os.environ.get("SSLCOMMERZ_STORE_ID", "")
 SSLCOMMERZ_STORE_PASSWORD = os.environ.get("SSLCOMMERZ_STORE_PASSWORD", "")
 SSLCOMMERZ_SANDBOX = os.environ.get("SSLCOMMERZ_SANDBOX", "true").lower() != "false"

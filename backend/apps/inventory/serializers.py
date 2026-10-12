@@ -220,7 +220,7 @@ class SaleSerializer(serializers.ModelSerializer):
         fields = [
             "id", "channel", "product_id", "product_name", "quantity", "unit_price", "unit_cost", "discount",
             "revenue", "cost", "profit", "location_id", "client_id", "order_id", "rental_id", "sold_by",
-            "sold_by_id", "sold_at", "refunded_at",
+            "sold_by_id", "sold_at", "refunded_at", "payment_method", "payment_status", "gateway_method",
         ]
 
     def to_representation(self, sale):
@@ -238,10 +238,15 @@ class SellSerializer(serializers.Serializer):
     unit_price = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0)
     discount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0, required=False, default=0)
     client_id = tenant_field(Client, source="client", required=False, allow_null=True)
+    payment_method = serializers.ChoiceField(choices=Sale.Method.choices, required=False, default=Sale.Method.CASH)
 
 
 class RentalReturnSerializer(serializers.Serializer):
     holidays = serializers.IntegerField(min_value=0, required=False, default=0)
+    # How the rental was paid when it came back. Online isn't offered here.
+    payment_method = serializers.ChoiceField(
+        choices=[("", "Not recorded"), *[c for c in Sale.Method.choices if c[0] != Sale.Method.ONLINE]], required=False, default=""
+    )
 
 
 class StockRequestSerializer(serializers.ModelSerializer):

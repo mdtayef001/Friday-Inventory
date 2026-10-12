@@ -244,6 +244,9 @@ class RentalViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMi
         body.is_valid(raise_exception=True)
         rental = self.get_object()
         self.check_location(rental.location)
+        method = body.validated_data["payment_method"]
+        if method and method not in services.enabled_methods(request.user.business):
+            raise ValidationError("This payment method isn't turned on for your business.")
         rental = services.return_rental(request.user, rental, **body.validated_data)
         return Response(RentalSerializer(rental, context={"request": request}).data)
 
@@ -329,7 +332,7 @@ class PublicTrackingView(APIView):
         return True
 
 
-class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin):
+class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin):
     """Sales. Anyone on the team can record a walk-in sale at their own shops;
     owners and managers can list them (managers only for their shops). Cost and
     profit are shown to owners only."""
@@ -352,7 +355,14 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin)
 
     def get_queryset(self):
         qs = super().get_queryset().select_related("sold_by")
+        if self.request.user.role == User.Role.STAFF:
+            qs = qs.filter(sold_by=self.request.user)
         return self.scope_to_locations(qs, "location_id")
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        # Online payments nobody finished give their stock back before anything is read.
+        services.expire_online_payments(request.user.business)
 
     def mine_only(self):
         """Staff only ever see their own sales; anyone can ask for theirs with ?mine=1."""
@@ -381,6 +391,11 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin)
             if params["channel"] not in Sale.Channel.values:
                 raise ValidationError({"channel": "Unknown sale type."})
             qs = qs.filter(channel=params["channel"])
+        if params.get("method"):
+            method = "" if params["method"] == "none" else params["method"]
+            if method and method not in Sale.Method.values:
+                raise ValidationError({"method": "Unknown payment method."})
+            qs = qs.filter(payment_method=method)
         return qs
 
     def list(self, request):
@@ -400,7 +415,8 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin)
             r, c = agg["revenue"] or zero, agg["cost"] or zero
             return {"count": agg["count"], "revenue": r, "cost": c, "profit": r - c, "units": agg["units"] or 0}
 
-        counted = qs.filter(refunded_at__isnull=True)
+        # Only money actually received: not refunded, and paid (online payments can still be waiting).
+        counted = qs.filter(refunded_at__isnull=True, payment_status=Sale.PaymentStatus.PAID)
         overall = totals(counted)
         channels = {ch: totals(counted.filter(channel=ch)) for ch in Sale.Channel.values}
         show_profit = self.show_profit()
@@ -416,6 +432,13 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin)
             # Units of products sold; a rental is income, not units sold.
             "units_sold": channels["store"]["units"] + channels["order"]["units"],
             "refunded_count": qs.filter(refunded_at__isnull=False).count(),
+            "waiting_count": qs.filter(payment_status=Sale.PaymentStatus.PENDING).count(),
+            # By how it was paid; "none" = not recorded (orders, older sales).
+            "methods": {
+                (m or "none"): {"count": t["count"], "revenue": float(t["revenue"])}
+                for m in [*Sale.Method.values, ""]
+                for t in [totals(counted.filter(payment_method=m))]
+            },
             "channels": {ch: public(t) for ch, t in channels.items()},
             # Everyone who has sold within this user's view, for the seller filter.
             "sellers": [] if self.mine_only() else [
@@ -507,7 +530,7 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin)
         header = ["Date", "Type", "Product", "Quantity", "Unit price", "Discount", "Total"]
         if show_profit:
             header += ["Unit cost", "Cost", "Profit"]
-        writer.writerow(header + ["Shop", "Client", "Sold by", "Refunded"])
+        writer.writerow(header + ["Payment", "Payment status", "Shop", "Client", "Sold by", "Refunded"])
         for s in sales.iterator():
             row = [
                 timezone.localtime(s.sold_at).strftime("%Y-%m-%d %H:%M"),
@@ -520,6 +543,7 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin)
             ]
             if show_profit:
                 row += [s.unit_cost, s.cost, s.profit]
+            row += [s.get_payment_method_display() if s.payment_method else "", s.get_payment_status_display()]
             row += [
                 text(s.location.name if s.location else ""),
                 text(s.client.name if s.client else "Walk-in"),
@@ -540,7 +564,20 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin)
             data["client"] = None
         self.check_location(data["location"])
         sale = services.sell(request.user, **data)
-        return Response(self.get_serializer(sale).data, status=status.HTTP_201_CREATED)
+        body = self.get_serializer(sale).data
+        if sale.payment_status == Sale.PaymentStatus.PENDING:
+            url, error = services.open_online_payment(sale)
+            if error:
+                services.release_online_payment(sale, Sale.PaymentStatus.FAILED)
+                return Response({"detail": error}, status=502)
+            body["payment_url"] = url
+        return Response(body, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="cancel-payment")
+    def cancel_payment(self, request, pk=None):
+        """Staff give up on an online payment that hasn't come through; the stock goes back."""
+        sale = services.release_online_payment(self.get_object())
+        return Response(self.get_serializer(sale).data)
 
 
 class StockRequestViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateModelMixin):
@@ -592,3 +629,28 @@ class StockRequestViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateMod
         if request.user.role != User.Role.OWNER and req.requested_by_id != request.user.id:
             raise PermissionDenied("Only the person who asked can cancel it.")
         return self.respond(services.cancel_request(request.user, req))
+
+
+class SalePaymentResultView(APIView):
+    """The frontend forwards what SSLCommerz posted after a customer paid at the
+    counter. A sale is only marked paid after SSLCommerz confirms it directly."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request, result):
+        if result not in ("success", "fail", "cancel", "ipn"):
+            raise NotFound()
+        tran_id = str(request.data.get("tran_id", ""))
+        val_id = str(request.data.get("val_id", ""))
+        sale = Sale.objects.filter(tran_id=tran_id).first() if tran_id else None
+        if not sale:
+            return Response({"status": "failed"})
+        if result in ("success", "ipn") and val_id:
+            sale = services.confirm_online_payment(tran_id, val_id)
+        elif result in ("fail", "cancel"):
+            sale = services.release_online_payment(
+                sale, Sale.PaymentStatus.CANCELLED if result == "cancel" else Sale.PaymentStatus.FAILED
+            )
+        outcome = {"paid": "success", "pending": "pending"}.get(sale.payment_status, sale.payment_status)
+        return Response({"status": outcome, "business": sale.business.name})

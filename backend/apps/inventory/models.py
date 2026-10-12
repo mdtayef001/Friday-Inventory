@@ -263,6 +263,28 @@ class Sale(TenantModel):
     # Set when the goods come back (a delivered order returned). Refunded sales don't count.
     refunded_at = models.DateTimeField(null=True, blank=True)
 
+    class Method(models.TextChoices):
+        CASH = "cash", "Cash"
+        MOBILE = "mobile", "Mobile banking"
+        CARD = "card", "Card machine"
+        ONLINE = "online", "Online (SSLCommerz)"
+
+    class PaymentStatus(models.TextChoices):
+        PAID = "paid", "Paid"
+        PENDING = "pending", "Waiting for payment"
+        FAILED = "failed", "Payment failed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    # Empty when not recorded (orders, and sales from before payment methods).
+    payment_method = models.CharField(max_length=10, choices=Method.choices, blank=True)
+    # Only paid sales count. Online sales wait for SSLCommerz; the stock is held meanwhile.
+    payment_status = models.CharField(max_length=10, choices=PaymentStatus.choices, default=PaymentStatus.PAID)
+    tran_id = models.CharField(max_length=40, null=True, blank=True, unique=True)
+    # From SSLCommerz once paid, e.g. "BKASH-BKash".
+    gateway_method = models.CharField(max_length=100, blank=True)
+    val_id = models.CharField(max_length=100, blank=True)
+    bank_tran_id = models.CharField(max_length=100, blank=True)
+
     class Meta:
         ordering = ["-sold_at"]
         indexes = [models.Index(fields=["business", "sold_at"])]

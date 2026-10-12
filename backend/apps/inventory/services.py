@@ -6,7 +6,9 @@ raised as ValidationError with a readable message the frontend shows as a toast.
 """
 
 import secrets
+from datetime import timedelta
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -164,7 +166,7 @@ def create_rental(user, *, product, quantity, client, location, start_date, plan
 
 
 @transaction.atomic
-def return_rental(user, rental, holidays=0):
+def return_rental(user, rental, holidays=0, payment_method=""):
     """Scan in: count the days it was out, take off holidays (per-day plan only), price it, restock."""
     rental = Rental.objects.select_for_update().get(pk=rental.pk)
     if rental.status != Rental.Status.ACTIVE:
@@ -183,7 +185,7 @@ def return_rental(user, rental, holidays=0):
     rental.total = Rental.quote(rental.plan, rental.rate, days_out, rental.quantity, holidays)
     rental.save(update_fields=["status", "returned_at", "days_out", "holidays", "total"])
     log(user, "Rental returned", f"{rental.code} · {days_out} days" + (f" − {holidays} holidays" if holidays else ""))
-    record_rental_income(user, rental)
+    record_rental_income(user, rental, payment_method)
     return rental
 
 
@@ -240,13 +242,33 @@ def cancel_transfer(user, transfer):
 # transaction as the stock change it belongs to.
 
 
+def enabled_methods(business):
+    """How this business lets customers pay. Cash always works."""
+    payments = business.settings.get("payments", {})
+    methods = {Sale.Method.CASH}
+    if payments.get("mobile"):
+        methods.add(Sale.Method.MOBILE)
+    if payments.get("card"):
+        methods.add(Sale.Method.CARD)
+    if payments.get("online") and hasattr(business, "merchant"):
+        methods.add(Sale.Method.ONLINE)
+    return methods
+
+
 @transaction.atomic
-def sell(user, *, product, location, quantity, unit_price, discount=0, client=None):
-    """A walk-in sale at a shop: takes the stock and records the money."""
+def sell(user, *, product, location, quantity, unit_price, discount=0, client=None, payment_method=Sale.Method.CASH):
+    """A walk-in sale at a shop: takes the stock and records the money. An online
+    payment waits for SSLCommerz: the stock is held, and the sale only counts once paid."""
     if discount > unit_price * quantity:
         raise ValidationError("The discount can't be more than the total.")
+    if payment_method not in enabled_methods(user.business):
+        raise ValidationError("This payment method isn't turned on for your business.")
+    online = payment_method == Sale.Method.ONLINE
     change_stock(product, location, -quantity)
     sale = Sale.objects.create(
+        payment_method=payment_method,
+        payment_status=Sale.PaymentStatus.PENDING if online else Sale.PaymentStatus.PAID,
+        tran_id=f"FRS{secrets.token_hex(8).upper()}" if online else None,
         business=user.business,
         channel=Sale.Channel.STORE,
         product=product,
@@ -259,8 +281,89 @@ def sell(user, *, product, location, quantity, unit_price, discount=0, client=No
         client=client,
         sold_by=user,
     )
-    log(user, "Sold", f"{quantity} × {product.name} at {location.name} for {sale.revenue:.2f}")
+    if online:
+        log(user, "Online payment started", f"{quantity} × {product.name} at {location.name} for {sale.revenue:.2f}")
+    else:
+        log(user, "Sold", f"{quantity} × {product.name} at {location.name} for {sale.revenue:.2f} ({sale.get_payment_method_display()})")
     return sale
+
+
+# ---------- Online payments at the counter (the business's own SSLCommerz account) ----------
+
+PENDING_MINUTES = 30
+
+
+def open_online_payment(sale):
+    """Starts the SSLCommerz checkout for a waiting sale. Returns (url, error)."""
+    from apps.billing import sslcommerz
+
+    account = sslcommerz.merchant_account(sale.business)
+    if not account:
+        return None, "Online payments aren't set up. The owner adds the SSLCommerz account in Business Settings."
+    client = sale.client
+    return sslcommerz.open_session(
+        account,
+        tran_id=sale.tran_id,
+        amount=sale.revenue,
+        currency=sale.business.settings.get("currency", "BDT"),
+        callback_base=f"{settings.FRONTEND_URL.rstrip('/')}/api/sale-payments/sslcommerz",
+        customer={
+            "name": client.name if client else "",
+            "email": client.email if client else "",
+            "phone": client.phone if client else "",
+            "address": client.address if client else sale.business.name,
+        },
+        product_name=f"{sale.quantity} x {sale.product_name}",
+        product_category="Retail",
+        value_a=str(sale.business_id),
+    )
+
+
+@transaction.atomic
+def confirm_online_payment(tran_id, val_id):
+    """Called with what SSLCommerz posted back. Only marks the sale paid after
+    SSLCommerz confirms it directly. Safe to call twice (redirect and IPN)."""
+    from apps.billing import sslcommerz
+
+    sale = Sale.objects.select_for_update().select_related("business").filter(tran_id=tran_id).first()
+    if not sale:
+        return None
+    if sale.payment_status != Sale.PaymentStatus.PENDING:
+        return sale
+    account = sslcommerz.merchant_account(sale.business)
+    if not account:
+        return sale
+    ok, method, bank_tran_id = sslcommerz.check(
+        account, val_id, tran_id=tran_id, amount=sale.revenue, currency=sale.business.settings.get("currency", "BDT")
+    )
+    if ok:
+        sale.payment_status = Sale.PaymentStatus.PAID
+        sale.gateway_method = method
+        sale.val_id = val_id
+        sale.bank_tran_id = bank_tran_id
+        sale.save(update_fields=["payment_status", "gateway_method", "val_id", "bank_tran_id"])
+        Activity.objects.create(business=sale.business, user=sale.sold_by, action="Paid online", detail=f"{sale.quantity} × {sale.product_name} · {method}")
+    return sale
+
+
+@transaction.atomic
+def release_online_payment(sale, status=Sale.PaymentStatus.CANCELLED):
+    """The payment failed, was cancelled, or ran out of time: put the stock back."""
+    sale = Sale.objects.select_for_update().get(pk=sale.pk)
+    if sale.payment_status != Sale.PaymentStatus.PENDING:
+        return sale
+    if sale.product and sale.location:
+        change_stock(sale.product, sale.location, sale.quantity)
+    sale.payment_status = status
+    sale.save(update_fields=["payment_status"])
+    return sale
+
+
+def expire_online_payments(business):
+    """Online payments nobody finished within 30 minutes give their stock back."""
+    cutoff = timezone.now() - timedelta(minutes=PENDING_MINUTES)
+    for sale in Sale.objects.filter(business=business, payment_status=Sale.PaymentStatus.PENDING, sold_at__lt=cutoff):
+        release_online_payment(sale)
 
 
 def record_order_sale(user, shipment):
@@ -293,7 +396,7 @@ def refund_order_sale(shipment):
     Sale.objects.filter(shipment=shipment, refunded_at__isnull=True).update(refunded_at=timezone.now())
 
 
-def record_rental_income(user, rental):
+def record_rental_income(user, rental, payment_method=""):
     """Rental money counts when the item comes back. Recorded as one line for the
     whole rental; there's no purchase cost, so it's all profit."""
     product = rental.product
@@ -310,6 +413,7 @@ def record_rental_income(user, rental):
         client=rental.client,
         rental=rental,
         sold_by=user,
+        payment_method=payment_method,
     )
 
 
