@@ -16,7 +16,7 @@ import { BusinessStatusPill, PaymentsTable } from "@/components/platform"
 import { initials } from "@/components/user-menu"
 import { deleteBusiness, resetOwnerPassword, setBusinessSuspended } from "@/lib/auth/platform-actions"
 import type { ActionResult } from "@/lib/auth/user-actions"
-import { ROLE_LABEL } from "@/lib/auth/roles"
+import { roleLabel } from "@/lib/auth/roles"
 import { formatDate, timeAgo } from "@/lib/format"
 import { MODULES, PERMISSIONS, PRICE_LABEL, accessEndsAt, daysLeft } from "@/lib/business"
 import type { BusinessSummary, ManagedUser, ModuleId, Payment, PermissionId } from "@/lib/types"
@@ -162,7 +162,7 @@ export function BusinessDetailView({ business, users, payments }: { business: Bu
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Pill tone={u.role === "owner" ? "violet" : u.role === "manager" ? "blue" : "gray"}>{ROLE_LABEL[u.role]}</Pill>
+                    <Pill tone={u.role === "owner" ? "violet" : u.role === "manager" ? "blue" : "gray"}>{roleLabel(u)}</Pill>
                   </TableCell>
                   <TableCell>{u.active ? <Pill tone="green">Active</Pill> : <Pill tone="red">Disabled</Pill>}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{u.lastLoginAt ? timeAgo(u.lastLoginAt) : "Never"}</TableCell>

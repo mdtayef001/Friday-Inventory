@@ -42,10 +42,11 @@ class SessionUserSerializer(serializers.ModelSerializer):
     location_ids = StrPrimaryKeyRelatedField(source="locations", many=True, read_only=True)
     can_sell = serializers.BooleanField(source="may_sell", read_only=True)
     can_add_stock = serializers.BooleanField(source="may_add_stock", read_only=True)
+    is_main_owner = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = User
-        fields = ["id", "name", "email", "role", "tenant_id", "location_ids", "can_sell", "can_add_stock"]
+        fields = ["id", "name", "email", "role", "tenant_id", "location_ids", "can_sell", "can_add_stock", "is_main_owner"]
 
 
 class BusinessSerializer(serializers.ModelSerializer):
@@ -103,7 +104,7 @@ class BusinessSummarySerializer(BusinessSerializer):
         fields = BusinessSerializer.Meta.fields + ["owner", "user_count", "last_active_at"]
 
     def get_owner(self, business):
-        owner = business.users.filter(role=User.Role.OWNER).order_by("date_joined").first()
+        owner = business.main_owner()
         return {"id": str(owner.id), "name": owner.name, "email": owner.email} if owner else None
 
     def get_user_count(self, business):
@@ -125,12 +126,13 @@ class ManagedUserSerializer(serializers.ModelSerializer):
     created_by = IdField(source="created_by_id")
     last_login_at = serializers.DateTimeField(source="last_login", read_only=True)
     password = serializers.CharField(write_only=True, required=False, min_length=8, max_length=128)
+    is_main_owner = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = User
         fields = [
             "id", "name", "email", "role", "tenant_id", "location_ids", "active", "can_sell", "can_add_stock",
-            "created_at", "created_by", "last_login_at", "password",
+            "created_at", "created_by", "last_login_at", "password", "is_main_owner",
         ]
 
     def validate_name(self, value):
@@ -149,7 +151,7 @@ class ManagedUserSerializer(serializers.ModelSerializer):
         return value
 
     def validate_role(self, value):
-        if value not in creatable_roles(self.context["request"].user.role):
+        if value not in creatable_roles(self.context["request"].user):
             raise serializers.ValidationError("You are not allowed to create this type of account.")
         return value
 

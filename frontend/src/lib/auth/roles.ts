@@ -1,12 +1,17 @@
 // Route permissions. No server-only imports so proxy.ts and client
 // components can share the same rules.
-import type { BusinessSettings, ModuleId, PermissionId, Role, TenantRole } from "@/lib/types"
+import type { BusinessSettings, ModuleId, PermissionId, Role, SessionUser, TenantRole } from "@/lib/types"
 
 export const ROLE_LABEL: Record<Role, string> = {
   superadmin: "Super admin",
   owner: "Owner",
   manager: "Manager",
   staff: "Staff",
+}
+
+/** "Owner" for the business's Owner, "Admin" for any other owner-level account. */
+export function roleLabel(user: Pick<SessionUser, "role" | "isMainOwner">) {
+  return user.role === "owner" && !user.isMainOwner ? "Admin" : ROLE_LABEL[user.role]
 }
 
 export const ROLE_HOME: Record<Role, string> = {
@@ -93,9 +98,18 @@ export function hasPermission(role: Role, permission: PermissionId, settings: Bu
   return role === needs && settings.permissions[permission]
 }
 
-/** Which roles a user of `role` is allowed to create inside their business. */
-export function creatableRoles(role: Role): TenantRole[] {
-  if (role === "owner") return ["owner", "manager", "staff"]
-  if (role === "manager") return ["staff"]
+/**
+ * Which roles `user` may give. Only the Owner makes admins ("owner" accounts after the first);
+ * admins make managers and staff, managers make staff. Same rules as Django.
+ */
+export function creatableRoles(user: Pick<SessionUser, "role" | "isMainOwner">): TenantRole[] {
+  if (user.role === "owner") return user.isMainOwner ? ["owner", "manager", "staff"] : ["manager", "staff"]
+  if (user.role === "manager") return ["staff"]
   return []
+}
+
+/** Whether `actor` may edit, disable or delete `user`: nobody changes themselves or the Owner, and only the Owner changes admins. */
+export function canManageUser(actor: Pick<SessionUser, "id" | "isMainOwner">, user: Pick<SessionUser, "id" | "role" | "isMainOwner">) {
+  if (actor.id === user.id || user.isMainOwner) return false
+  return user.role !== "owner" || actor.isMainOwner
 }

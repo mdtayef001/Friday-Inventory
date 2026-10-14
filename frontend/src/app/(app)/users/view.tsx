@@ -21,17 +21,26 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ConfirmAction, Field, PageBody, PageHeader, Pill, SimpleSelect, type PillTone } from "@/components/common"
 import { useBusiness, useScope, useSessionUser } from "@/components/session-provider"
 import { initials } from "@/components/user-menu"
-import { creatableRoles, ROLE_LABEL } from "@/lib/auth/roles"
-import { createUser, deleteUser, resetUserPassword, setUserActive, setUserRights, updateUser, type ActionResult } from "@/lib/auth/user-actions"
+import { canManageUser, creatableRoles, roleLabel } from "@/lib/auth/roles"
+import { createUser, deleteUser, resetUserPassword, setUserActive, updateUser, type ActionResult } from "@/lib/auth/user-actions"
 import { formatDate } from "@/lib/format"
 import { useLocations } from "@/lib/data/queries"
 import type { ManagedUser, Role, TenantRole } from "@/lib/types"
 
 const ROLE_TONE: Record<Role, PillTone> = { superadmin: "violet", owner: "violet", manager: "blue", staff: "gray" }
 const ROLE_HELP: Record<TenantRole, string> = {
-  owner: "Full access to the business: every location, account and setting.",
+  owner: "Full access to every location and setting, like you. Only you can change or remove an admin.",
   manager: "Runs their assigned shops. What else they can do is set in Business Settings.",
   staff: "Uses Quick Entry to add products and stock at their shops.",
+}
+
+/** What someone may do, in words. Changed with Edit. */
+function canDo(u: ManagedUser) {
+  if (u.role !== "staff") return "Everything"
+  if (u.canSell && u.canAddStock) return "Sell and add stock"
+  if (u.canSell) return "Sell only"
+  if (u.canAddStock) return "Add stock only"
+  return "View only"
 }
 
 function showResult(result: ActionResult, success: string) {
@@ -101,44 +110,18 @@ export function UsersView({ users }: { users: ManagedUser[] }) {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Pill tone={ROLE_TONE[u.role]}>{ROLE_LABEL[u.role]}</Pill>
+                      <Pill tone={ROLE_TONE[u.role]}>{roleLabel(u)}</Pill>
                     </TableCell>
                     <TableCell className="max-w-64 text-sm text-muted-foreground">
                       {u.role === "owner" ? "All locations" : u.locationIds.map(locationName).join(", ")}
                     </TableCell>
                     <TableCell>
-                      {u.role !== "staff" ? (
-                        <span className="text-sm text-muted-foreground">Everything</span>
-                      ) : (
-                        <div className="grid gap-1.5">
-                          {(
-                            [
-                              ["canSell", "Sell"],
-                              ["canAddStock", "Add stock"],
-                            ] as const
-                          ).map(([key, label]) => (
-                            <label key={key} className="flex items-center gap-2 text-sm whitespace-nowrap">
-                              <Switch
-                                size="sm"
-                                checked={u[key]}
-                                disabled={isMe}
-                                aria-label={`${label}: ${u.name}`}
-                                onCheckedChange={(on) =>
-                                  startTransition(async () => {
-                                    showResult(await setUserRights(u.id, { [key]: on }), `${u.name} ${on ? "can" : "can no longer"} ${label.toLowerCase()}`)
-                                  })
-                                }
-                              />
-                              {label}
-                            </label>
-                          ))}
-                        </div>
-                      )}
+                      <span className="text-sm text-muted-foreground">{canDo(u)}</span>
                     </TableCell>
                     <TableCell>{u.active ? <Pill tone="green">Active</Pill> : <Pill tone="red">Disabled</Pill>}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{formatDate(u.createdAt)}</TableCell>
                     <TableCell className="pr-4">
-                      {!isMe && (
+                      {canManageUser(me, u) && (
                         <DropdownMenu>
                           <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Actions" />}>
                             <MoreHorizontal />
@@ -209,7 +192,7 @@ export function UsersView({ users }: { users: ManagedUser[] }) {
 function UserDialog({ user, onClose }: { user?: ManagedUser; onClose: () => void }) {
   const me = useSessionUser()
   const scope = useScope()
-  const roles = creatableRoles(me.role)
+  const roles = creatableRoles(me)
   const [pending, startTransition] = useTransition()
   const [role, setRole] = useState<TenantRole>(user ? (user.role as TenantRole) : roles.includes("staff") ? "staff" : roles[0])
   const [name, setName] = useState(user?.name ?? "")
@@ -260,7 +243,7 @@ function UserDialog({ user, onClose }: { user?: ManagedUser; onClose: () => void
           </DialogHeader>
           {roles.length > 1 && (
             <Field label="Role" hint={ROLE_HELP[role]}>
-              <SimpleSelect value={role} onChange={(v) => setRole(v as TenantRole)} options={roles.map((r) => ({ value: r, label: ROLE_LABEL[r] }))} />
+              <SimpleSelect value={role} onChange={(v) => setRole(v as TenantRole)} options={roles.map((r) => ({ value: r, label: r === "owner" ? "Admin" : roleLabel({ role: r, isMainOwner: false }) }))} />
             </Field>
           )}
           <div className="grid gap-4 sm:grid-cols-2">

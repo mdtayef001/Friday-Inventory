@@ -29,7 +29,7 @@ export async function createUser(input: z.input<typeof CreateUserSchema>): Promi
   const { user: actor } = await requireAccess("/users")
   const parsed = CreateUserSchema.safeParse(input)
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0].message }
-  if (!creatableRoles(actor.role).includes(parsed.data.role)) {
+  if (!creatableRoles(actor).includes(parsed.data.role)) {
     return { ok: false, error: "You are not allowed to create this type of account." }
   }
   return toResult(() => api("users/", { method: "POST", body: parsed.data }))
@@ -47,7 +47,7 @@ export async function updateUser(id: string, input: z.input<typeof UpdateUserSch
   const { user: actor } = await requireAccess("/users")
   const parsed = UpdateUserSchema.safeParse(input)
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0].message }
-  if (!creatableRoles(actor.role).includes(parsed.data.role)) {
+  if (!creatableRoles(actor).includes(parsed.data.role)) {
     return { ok: false, error: "You are not allowed to give this role." }
   }
   return toResult(() => api(userPath(id), { method: "PATCH", body: parsed.data }))
@@ -65,16 +65,6 @@ export async function resetUserPassword(id: string, password: string): Promise<A
     return { ok: false, error: "Password must be at least 8 characters" }
   }
   return toResult(() => api(userPath(id), { method: "PATCH", body: { password } }))
-}
-
-/** Staff rights: whether this person may sell, and may add or change stock. */
-export async function setUserRights(id: string, rights: { canSell?: boolean; canAddStock?: boolean }): Promise<ActionResult> {
-  await requireAccess("/users")
-  const body: Record<string, boolean> = {}
-  if (typeof rights.canSell === "boolean") body.canSell = rights.canSell
-  if (typeof rights.canAddStock === "boolean") body.canAddStock = rights.canAddStock
-  if (Object.keys(body).length === 0) return { ok: false, error: "Nothing to change." }
-  return toResult(() => api(userPath(id), { method: "PATCH", body }))
 }
 
 export async function deleteUser(id: string) {

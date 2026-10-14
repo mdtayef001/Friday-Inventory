@@ -105,8 +105,12 @@ class UserViewSet(viewsets.ModelViewSet):
 
     def get_object(self):
         user = super().get_object()
-        if self.request.method not in ("GET", "HEAD", "OPTIONS") and user.pk == self.request.user.pk:
-            raise PermissionDenied("You can't change your own account here.")
+        if self.request.method not in ("GET", "HEAD", "OPTIONS"):
+            if user.pk == self.request.user.pk:
+                raise PermissionDenied("You can't change your own account here.")
+            # Admins have the Owner's access, but not over the Owner or other admins.
+            if user.role == User.Role.OWNER and not self.request.user.is_main_owner:
+                raise PermissionDenied("Only the owner can change the owner's or an admin's account.")
         return user
 
     def check_permissions(self, request):

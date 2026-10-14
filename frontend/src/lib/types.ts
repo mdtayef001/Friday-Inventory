@@ -28,6 +28,8 @@ export interface SessionUser {
   /** Per-person rights. Always true for owners and managers; set per staff member. */
   canSell: boolean
   canAddStock: boolean
+  /** The business's Owner (its first owner account). Other owner-level accounts are admins. */
+  isMainOwner: boolean
 }
 
 export interface ManagedUser extends SessionUser {

@@ -49,6 +49,11 @@ class Business(models.Model):
     def __str__(self):
         return self.name
 
+    def main_owner(self):
+        """The Owner: the business's first owner account. Any later ones are admins,
+        with the same access except over the Owner and other admins."""
+        return self.users.filter(role=User.Role.OWNER).order_by("date_joined", "id").first()
+
     @property
     def status(self):
         """trial | active | unpaid | suspended. Worked out from dates, never stored."""
@@ -135,6 +140,13 @@ class User(AbstractUser):
     @property
     def is_superadmin(self):
         return self.role == self.Role.SUPERADMIN
+
+    @property
+    def is_main_owner(self):
+        if self.role != self.Role.OWNER or not self.business_id:
+            return False
+        main = self.business.main_owner()
+        return main is not None and main.pk == self.pk
 
     @property
     def may_sell(self):

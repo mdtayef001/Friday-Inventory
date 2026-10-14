@@ -159,3 +159,26 @@ class EditAccountTests(APITestCase):
         other.locations.set([self.shop_a])
         self.assertEqual(self.edit(other, locationIds=[str(self.shop_a.id), str(self.shop_b.id)]).status_code, 400)
         self.assertEqual(self.edit(self.owner, name="Hacked").status_code, 404)  # managers only see their staff
+
+    def test_only_the_owner_manages_admins(self):
+        admin = User.objects.create_user(email="a@x.com", password=PASSWORD, name="Admin", role="owner", business=self.biz)
+        admin2 = User.objects.create_user(email="a2@x.com", password=PASSWORD, name="Admin 2", role="owner", business=self.biz)
+        self.assertTrue(self.owner.is_main_owner)
+        self.assertFalse(admin.is_main_owner)
+
+        self.login("a@x.com")
+        me = self.client.get("/api/auth/me/").json()["user"]
+        self.assertFalse(me["isMainOwner"])
+        # An admin runs managers and staff...
+        self.assertEqual(self.edit(self.staff, name="Fine").status_code, 200)
+        # ...but can't touch the owner or other admins, or make new admins.
+        self.assertEqual(self.edit(self.owner, name="Hacked").status_code, 403)
+        self.assertEqual(self.client.delete(f"/api/users/{self.owner.id}/").status_code, 403)
+        self.assertEqual(self.edit(admin2, role="staff", locationIds=[str(self.shop_a.id)]).status_code, 403)
+        self.assertEqual(self.edit(self.staff, role="owner").status_code, 400)
+        new = {"name": "New", "email": "n@x.com", "password": PASSWORD, "role": "owner"}
+        self.assertEqual(self.client.post("/api/users/", new, format="json").status_code, 400)
+
+        self.login("owner@x.com")
+        self.assertEqual(self.edit(admin2, role="manager", locationIds=[str(self.shop_a.id)]).status_code, 200)
+        self.assertEqual(self.client.delete(f"/api/users/{admin.id}/").status_code, 204)

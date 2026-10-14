@@ -52,11 +52,14 @@ class ManagerNeedsPermission(BasePermission):
         return True
 
 
-def creatable_roles(role):
-    """Which roles a user of `role` may create inside their business."""
-    if role == User.Role.OWNER:
-        return [User.Role.OWNER, User.Role.MANAGER, User.Role.STAFF]
-    if role == User.Role.MANAGER:
+def creatable_roles(user):
+    """Which roles `user` may give inside their business. Only the Owner makes admins
+    (more owner-level accounts); admins make managers and staff, managers make staff."""
+    if user.role == User.Role.OWNER:
+        if user.is_main_owner:
+            return [User.Role.OWNER, User.Role.MANAGER, User.Role.STAFF]
+        return [User.Role.MANAGER, User.Role.STAFF]
+    if user.role == User.Role.MANAGER:
         return [User.Role.STAFF]
     return []
 
