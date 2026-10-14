@@ -3,7 +3,7 @@
 import { createContext, use, useMemo } from "react"
 import { canAccess, hasPermission } from "@/lib/auth/roles"
 import type { Business, PermissionId, SessionUser } from "@/lib/types"
-import { useStore } from "@/lib/store"
+import { useLocations } from "@/lib/data/queries"
 
 const SessionContext = createContext<SessionUser | null>(null)
 const BusinessContext = createContext<Business | null>(null)
@@ -55,7 +55,7 @@ export function usePermissions() {
  */
 export function useScope() {
   const user = useSessionUser()
-  const locations = useStore((s) => s.locations)
+  const locations = useLocations()
   return useMemo(() => {
     const isOwner = user.role === "owner"
     const allowed = isOwner ? locations : locations.filter((l) => user.locationIds.includes(l.id))

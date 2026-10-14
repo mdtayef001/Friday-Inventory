@@ -1,41 +1,50 @@
 "use client"
 
-import { useMemo, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import Link from "next/link"
 import { ArrowLeft, Boxes, CalendarClock, DollarSign, PackageX, Pencil, Printer, ShoppingCart, Truck, Warehouse } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { EmptyState, PageBody, PageHeader, Pill, StatCard } from "@/components/common"
-import { usePermissions, useScope } from "@/components/session-provider"
+import { EmptyState, ListSkeleton, PageBody, PageHeader, Pill, QueryError, StatCard } from "@/components/common"
+import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { RentalStatusPill, ShipmentStatusPill, StockPill } from "@/components/status"
 import { SellDialog } from "@/components/sell-dialog"
 import { StockAdjustDialog } from "@/components/stock-adjust-dialog"
+import { ApiError } from "@/lib/api/errors"
+import { qtyAt, useProduct, useRentalSummary, useRentals, useShipments } from "@/lib/data/queries"
 import { formatDate, formatMoney, formatNumber } from "@/lib/format"
 import { isOverdue } from "@/lib/rental"
-import { useStore } from "@/lib/store"
-import { useLookups } from "@/lib/store/hooks"
 
 export function ProductDetailView({ id }: { id: string }) {
   const scope = useScope()
-  const canEdit = usePermissions().can("managerProducts")
-  const product = useStore((s) => s.products.find((p) => p.id === id))
-  const stock = useStore((s) => s.stock)
-  const rentals = useStore((s) => s.rentals)
-  const shipments = useStore((s) => s.shipments)
-  const lookups = useLookups()
+  const { can, module } = usePermissions()
+  const canEdit = can("managerProducts")
+  const showOrders = useSessionUser().role !== "staff" && module("tracking")
+  const showRentals = module("rentals")
+  const { data: product, error, refetch } = useProduct(id)
+  const orders = useShipments({ page: 1, product: id }, { pageSize: 5, enabled: showOrders })
+  const rentals = useRentals({ page: 1, product: id }, { pageSize: 5, enabled: showRentals })
+  const rentalSummary = useRentalSummary({ product: id }, showRentals).data
   const [adjust, setAdjust] = useState<{ locationId?: string; key: number } | null>(null)
   const [selling, setSelling] = useState(false)
   const qrRef = useRef<HTMLDivElement>(null)
 
-  const perLocation = useMemo(
-    () => scope.locations.map((l) => ({ location: l, quantity: stock.find((s) => s.productId === id && s.locationId === l.id)?.quantity ?? 0 })),
-    [scope.locations, stock, id],
-  )
-  const productRentals = rentals.filter((r) => r.productId === id && scope.has(r.locationId)).slice(0, 5)
-  const productShipments = shipments.filter((s) => s.productId === id && scope.has(s.fromLocationId)).slice(0, 5)
-
+  if (error && !(error instanceof ApiError && error.status === 404)) {
+    return (
+      <PageBody>
+        <QueryError error={error} onRetry={() => refetch()} />
+      </PageBody>
+    )
+  }
+  if (!product && !error) {
+    return (
+      <PageBody>
+        <ListSkeleton />
+      </PageBody>
+    )
+  }
   if (!product) {
     return (
       <PageBody>
@@ -53,8 +62,9 @@ export function ProductDetailView({ id }: { id: string }) {
     )
   }
 
-  const total = perLocation.reduce((sum, row) => sum + row.quantity, 0)
-  const rented = rentals.filter((r) => r.productId === id && r.status === "active" && scope.has(r.locationId)).reduce((s, r) => s + r.quantity, 0)
+  const perLocation = scope.locations.map((l) => ({ location: l, quantity: qtyAt(product, l.id) }))
+  const total = product.total ?? 0
+  const rented = rentalSummary?.activeUnits ?? 0
   const code = product.barcode || product.sku
 
   function printLabel() {
@@ -194,6 +204,7 @@ export function ProductDetailView({ id }: { id: string }) {
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
+        {showOrders && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -202,11 +213,11 @@ export function ProductDetailView({ id }: { id: string }) {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {productShipments.length === 0 && <p className="text-sm text-muted-foreground">No orders for this product yet.</p>}
-            {productShipments.map((s) => (
+            {orders.data?.results.length === 0 && <p className="text-sm text-muted-foreground">No orders for this product yet.</p>}
+            {orders.data?.results.map((s) => (
               <div key={s.id} className="flex items-center justify-between gap-3 text-sm">
                 <div className="min-w-0">
-                  <div className="font-medium">{lookups.client.get(s.clientId)?.name ?? "Unknown client"}</div>
+                  <div className="font-medium">{s.client?.name ?? "Unknown client"}</div>
                   <div className="text-xs text-muted-foreground">
                     {s.code} · {s.quantity} {product.unit} · {formatDate(s.createdAt)}
                   </div>
@@ -216,6 +227,8 @@ export function ProductDetailView({ id }: { id: string }) {
             ))}
           </CardContent>
         </Card>
+        )}
+        {showRentals && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -224,11 +237,11 @@ export function ProductDetailView({ id }: { id: string }) {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {productRentals.length === 0 && <p className="text-sm text-muted-foreground">No rentals for this product yet.</p>}
-            {productRentals.map((r) => (
+            {rentals.data?.results.length === 0 && <p className="text-sm text-muted-foreground">No rentals for this product yet.</p>}
+            {rentals.data?.results.map((r) => (
               <div key={r.id} className="flex items-center justify-between gap-3 text-sm">
                 <div className="min-w-0">
-                  <div className="font-medium">{lookups.client.get(r.clientId)?.name ?? "Unknown client"}</div>
+                  <div className="font-medium">{r.client?.name ?? "Unknown client"}</div>
                   <div className="text-xs text-muted-foreground">
                     {r.code} · {r.daysOut ?? r.days ?? "open"} days · {formatMoney(r.total)}
                   </div>
@@ -238,6 +251,7 @@ export function ProductDetailView({ id }: { id: string }) {
             ))}
           </CardContent>
         </Card>
+        )}
       </div>
 
       {selling && <SellDialog productId={id} onClose={() => setSelling(false)} />}

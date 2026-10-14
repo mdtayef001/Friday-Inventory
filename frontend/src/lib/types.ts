@@ -1,5 +1,12 @@
-// Shared domain types. These mirror the shapes the Django REST API will
-// return later, so pages won't need to change when the backend lands.
+// Shared domain types. These mirror the shapes the Django REST API returns.
+
+/** One page of a list. Ask for it with ?page= (and ?page_size=). */
+export interface Page<T> {
+  count: number
+  /** The page actually returned; past the end, the server sends the last one. */
+  page: number
+  results: T[]
+}
 
 /**
  * superadmin: runs the platform (you). Creates businesses and their owners.
@@ -148,6 +155,10 @@ export interface Product {
   rentRates?: RentRates
   createdAt: string
   createdBy: string
+  /** Quantity at each of the user's locations (location id -> quantity), on lists and details. */
+  stock?: Record<string, number>
+  /** Total across the user's locations. */
+  total?: number
 }
 
 export interface StockLevel {
@@ -164,7 +175,18 @@ export interface Client {
   email?: string
   address?: string
   createdAt: string
+  /** Only when the list is asked for ?stats=1, for the clients page. */
+  stats?: {
+    activeRentals: number
+    overdueRentals: number
+    openOrders: number
+    /** Paid, not refunded, at the user's locations. */
+    lifetimeValue: number
+  }
 }
+
+/** The client shown on an order or rental. Null when the client was deleted. */
+export type ClientBrief = Pick<Client, "id" | "name" | "company" | "phone" | "email" | "address">
 
 export type ShipmentStatus =
   | "pending"
@@ -187,10 +209,13 @@ export interface Shipment {
   /** Key to the client's public tracking page, /track/<token>. */
   trackingToken: string
   productId: string
+  productName: string | null
+  productUnit: string | null
   quantity: number
   /** Price per unit agreed when the order was placed. Null on orders from before sales tracking. */
   unitPrice: number | null
   clientId: string
+  client: ClientBrief | null
   fromLocationId: string
   status: ShipmentStatus
   notes?: string
@@ -205,8 +230,11 @@ export interface Rental {
   id: string
   code: string
   productId: string
+  productName: string | null
+  productUnit: string | null
   quantity: number
   clientId: string
+  client: ClientBrief | null
   locationId: string
   startDate: string
   /** Expected days, optional: only for the due date. The price uses the actual days out. */
@@ -231,6 +259,8 @@ export interface Transfer {
   id: string
   code: string
   productId: string
+  productName: string | null
+  productUnit: string | null
   quantity: number
   fromLocationId: string
   toLocationId: string
@@ -244,6 +274,7 @@ export interface Activity {
   id: string
   at: string
   user: string
+  userId: string | null
   action: string
   detail: string
 }
@@ -278,6 +309,7 @@ export interface Sale {
   profit?: number
   locationId: string | null
   clientId: string | null
+  clientName: string | null
   orderId: string | null
   rentalId: string | null
   soldBy: string
@@ -300,6 +332,8 @@ export interface StockRequest {
   id: string
   code: string
   productId: string | null
+  productName: string | null
+  productUnit: string | null
   quantity: number
   toLocationId: string | null
   note: string
@@ -314,3 +348,54 @@ export interface StockRequest {
   transferId: string | null
   fromLocationId: string | null
 }
+
+// ---------- Totals worked out by the server ----------
+
+/** Stock across the user's locations: GET stock/summary/. */
+export interface StockSummary {
+  products: number
+  units: number
+  /** At cost. */
+  value: number
+  /** Products running low or out, by their total. */
+  low: number
+  out: number
+  locations: { locationId: string; units: number; value: number; products: number; low: number }[]
+}
+
+/** Counts for the sidebar: GET overview/?only=badges. */
+export interface Badges {
+  overdueRentals: number
+  openOrders: number
+  waitingRequests: number
+}
+
+/** The dashboard: GET overview/. Sections are left out when the feature is off or not allowed. */
+export interface Overview extends Badges {
+  products: number
+  units: number
+  value: number
+  unitsByLocation: Record<string, number>
+  lowStockCount: number
+  /** Out everywhere first (locationId null), then running low where it's kept. */
+  lowStock: { productId: string; productName: string; locationId: string | null; quantity: number }[]
+  activeRentals?: number
+  overdueList?: Rental[]
+  /** Orders still on their way, by status. */
+  ordersByStatus?: { status: ShipmentStatus; count: number }[]
+  recentActivity?: Activity[]
+}
+
+/** GET rentals/summary/. */
+export interface RentalSummary {
+  active: number
+  activeUnits: number
+  overdue: number
+  /** What the rentals out now have run up so far. */
+  running: number
+  /** Total of returned rentals. */
+  earned: number
+}
+
+/** GET shipments/counts/: orders in each status. */
+export type ShipmentCounts = { status: ShipmentStatus; count: number }[]

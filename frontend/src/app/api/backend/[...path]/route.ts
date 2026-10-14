@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { API_URL } from "@/lib/api/config"
+import { SERVER_TIMEOUT_MS, unreachable } from "@/lib/api/errors"
 import { ACCESS_COOKIE } from "@/lib/auth/session"
 
 // The browser's door to Django: forwards the call with the access token from
@@ -28,9 +29,10 @@ async function forward(req: NextRequest, ctx: RouteContext<"/api/backend/[...pat
     },
     body: hasBody ? await req.text() : undefined,
     cache: "no-store",
-  }).catch(() => null)
+    signal: AbortSignal.timeout(SERVER_TIMEOUT_MS),
+  }).catch((err: unknown) => unreachable(err))
 
-  if (!res) return NextResponse.json({ detail: "Couldn't reach the server. Please try again." }, { status: 502 })
+  if (res instanceof Error) return NextResponse.json({ detail: res.message }, { status: res.status })
   if (res.status === 204) return new NextResponse(null, { status: 204 })
   const disposition = res.headers.get("content-disposition")
   return new NextResponse(await res.text(), {

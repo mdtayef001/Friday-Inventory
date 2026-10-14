@@ -1,17 +1,21 @@
 "use client"
 
 import { useState } from "react"
-import { UserPlus } from "lucide-react"
+import { ChevronsUpDown, UserPlus } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { useStore } from "@/lib/store"
-import type { Client } from "@/lib/types"
-import { useAttempt, Field, SimpleSelect } from "./common"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { actions } from "@/lib/data/actions"
+import { useClients, useDebounced } from "@/lib/data/queries"
+import type { Client, ClientBrief } from "@/lib/types"
+import { cn } from "@/lib/utils"
+import { useAttempt, Field } from "./common"
+
+const { addClient, updateClient } = actions
 
 export function ClientDialog({ client, onClose, onSaved }: { client?: Client; onClose: () => void; onSaved?: (client: Client) => void }) {
-  const addClient = useStore((s) => s.addClient)
-  const updateClient = useStore((s) => s.updateClient)
   const [form, setForm] = useState({
     name: client?.name ?? "",
     company: client?.company ?? "",
@@ -87,23 +91,61 @@ export function ClientDialog({ client, onClose, onSaved }: { client?: Client; on
   )
 }
 
-/** Client dropdown with a button to add a new client on the spot. */
-export function ClientPicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
-  const clients = useStore((s) => s.clients)
+/** Pick a client by typing their name, company, phone or email, or add a new one on the spot. */
+export function ClientPicker({ value, onChange }: { value: ClientBrief | null; onChange: (client: ClientBrief) => void }) {
+  const [open, setOpen] = useState(false)
   const [adding, setAdding] = useState(false)
+  const [search, setSearch] = useState("")
+  const term = useDebounced(search.trim())
+  const { data, isFetching, error } = useClients({ page: 1, search: term }, { pageSize: 20, enabled: open })
+
   return (
-    <div className="flex gap-2">
-      <SimpleSelect
-        value={value}
-        onChange={onChange}
-        options={clients.map((c) => ({ value: c.id, label: c.company ? `${c.name} · ${c.company}` : c.name }))}
-        placeholder="Choose client"
-      />
+    <div className="flex min-w-0 gap-2">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger
+          render={<Button type="button" variant="outline" role="combobox" aria-expanded={open} className="min-w-0 flex-1 justify-between font-normal" />}
+        >
+          <span className={cn("truncate", !value && "text-muted-foreground")}>
+            {value ? (value.company ? `${value.name} · ${value.company}` : value.name) : "Choose client"}
+          </span>
+          <ChevronsUpDown className="opacity-50" />
+        </PopoverTrigger>
+        <PopoverContent className="w-(--anchor-width) min-w-72 p-0" align="start">
+          <Command shouldFilter={false}>
+            <CommandInput value={search} onValueChange={setSearch} placeholder="Search name, company, phone…" />
+            <CommandList>
+              {error ? (
+                <p className="px-2 py-6 text-center text-sm text-destructive">{error.message}</p>
+              ) : (
+                <CommandEmpty>{isFetching || !data ? "Searching…" : "No clients found."}</CommandEmpty>
+              )}
+              {data?.results.map((c) => (
+                <CommandItem
+                  key={c.id}
+                  value={c.id}
+                  onSelect={() => {
+                    onChange(c)
+                    setOpen(false)
+                  }}
+                >
+                  <span className="truncate">{c.name}</span>
+                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">{c.company || c.phone}</span>
+                </CommandItem>
+              ))}
+              {data && data.count > data.results.length && (
+                <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                  Showing {data.results.length} of {data.count}. Type to narrow it down.
+                </p>
+              )}
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
       <Button type="button" variant="outline" onClick={() => setAdding(true)}>
         <UserPlus />
         New
       </Button>
-      {adding && <ClientDialog onClose={() => setAdding(false)} onSaved={(c) => onChange(c.id)} />}
+      {adding && <ClientDialog onClose={() => setAdding(false)} onSaved={onChange} />}
     </div>
   )
 }

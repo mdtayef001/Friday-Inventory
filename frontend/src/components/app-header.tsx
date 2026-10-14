@@ -16,7 +16,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
-import { useStore } from "@/lib/store"
+import { useClients, useDebounced, useProducts } from "@/lib/data/queries"
 import { useScope, useSessionUser } from "./session-provider"
 
 const TITLES: Record<string, string> = {
@@ -85,47 +85,60 @@ export function AppHeader() {
 
 function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const router = useRouter()
-  const products = useStore((s) => s.products)
-  const clients = useStore((s) => s.clients)
   const { locations } = useScope()
+  const [search, setSearch] = useState("")
+  const term = useDebounced(search.trim())
+  // The server searches, so only the best few matches come back.
+  const products = useProducts({ page: 1, search: term }, { pageSize: 8, enabled: open && !!term })
+  const clients = useClients({ page: 1, search: term }, { pageSize: 5, enabled: open && !!term })
+  const q = term.toLowerCase()
+  const places = locations.filter((l) => !q || `${l.name} ${l.address}`.toLowerCase().includes(q))
+  const searching = !!term && (products.isFetching || clients.isFetching)
 
   const go = (href: string) => {
     onOpenChange(false)
+    setSearch("")
     router.push(href)
   }
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange} title="Search" description="Find products, clients and locations">
-      <Command>
-        <CommandInput placeholder="Search by name, SKU, barcode, client…" />
+      <Command shouldFilter={false}>
+        <CommandInput value={search} onValueChange={setSearch} placeholder="Search by name, SKU, barcode, client…" />
         <CommandList>
-          <CommandEmpty>No results found.</CommandEmpty>
-          <CommandGroup heading="Products">
-            {products.map((p) => (
-              <CommandItem key={p.id} value={`${p.name} ${p.sku} ${p.barcode ?? ""}`} onSelect={() => go(`/products/${p.id}`)}>
-                <Package />
-                <span className="truncate">{p.name}</span>
-                <span className="ml-auto font-mono text-xs text-muted-foreground">{p.sku}</span>
-              </CommandItem>
-            ))}
-          </CommandGroup>
-          <CommandGroup heading="Clients">
-            {clients.map((c) => (
-              <CommandItem key={c.id} value={`${c.name} ${c.company ?? ""} ${c.phone ?? ""}`} onSelect={() => go(`/clients?q=${encodeURIComponent(c.name)}`)}>
-                <Users />
-                <span className="truncate">{c.name}</span>
-                {c.company && <span className="ml-auto text-xs text-muted-foreground">{c.company}</span>}
-              </CommandItem>
-            ))}
-          </CommandGroup>
-          <CommandGroup heading="Locations">
-            {locations.map((l) => (
-              <CommandItem key={l.id} value={`${l.name} ${l.address}`} onSelect={() => go(`/locations/${l.id}`)}>
-                <MapPin />
-                {l.name}
-              </CommandItem>
-            ))}
-          </CommandGroup>
+          <CommandEmpty>{searching ? "Searching…" : "No results found."}</CommandEmpty>
+          {term && !!products.data?.results.length && (
+            <CommandGroup heading="Products">
+              {products.data.results.map((p) => (
+                <CommandItem key={p.id} value={`product-${p.id}`} onSelect={() => go(`/products/${p.id}`)}>
+                  <Package />
+                  <span className="truncate">{p.name}</span>
+                  <span className="ml-auto font-mono text-xs text-muted-foreground">{p.sku}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
+          {term && !!clients.data?.results.length && (
+            <CommandGroup heading="Clients">
+              {clients.data.results.map((c) => (
+                <CommandItem key={c.id} value={`client-${c.id}`} onSelect={() => go(`/clients?q=${encodeURIComponent(c.name)}`)}>
+                  <Users />
+                  <span className="truncate">{c.name}</span>
+                  {c.company && <span className="ml-auto text-xs text-muted-foreground">{c.company}</span>}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
+          {places.length > 0 && (
+            <CommandGroup heading="Locations">
+              {places.map((l) => (
+                <CommandItem key={l.id} value={`location-${l.id}`} onSelect={() => go(`/locations/${l.id}`)}>
+                  <MapPin />
+                  {l.name}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
         </CommandList>
       </Command>
     </CommandDialog>

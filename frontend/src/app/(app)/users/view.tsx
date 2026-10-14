@@ -24,7 +24,7 @@ import { initials } from "@/components/user-menu"
 import { creatableRoles, ROLE_LABEL } from "@/lib/auth/roles"
 import { createUser, deleteUser, resetUserPassword, setUserActive, setUserRights, type ActionResult } from "@/lib/auth/user-actions"
 import { formatDate } from "@/lib/format"
-import { useStore } from "@/lib/store"
+import { useLocations } from "@/lib/data/queries"
 import type { ManagedUser, Role, TenantRole } from "@/lib/types"
 
 const ROLE_TONE: Record<Role, PillTone> = { superadmin: "violet", owner: "violet", manager: "blue", staff: "gray" }
@@ -43,7 +43,7 @@ function showResult(result: ActionResult, success: string) {
 export function UsersView({ users }: { users: ManagedUser[] }) {
   const me = useSessionUser()
   const business = useBusiness()
-  const locations = useStore((s) => s.locations)
+  const locations = useLocations()
   const [creating, setCreating] = useState(false)
   const [resetting, setResetting] = useState<ManagedUser | null>(null)
   const [deleting, setDeleting] = useState<ManagedUser | null>(null)

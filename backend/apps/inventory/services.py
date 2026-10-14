@@ -1,4 +1,4 @@
-"""Every stock-changing action lives here, ported from frontend/src/lib/store/index.ts.
+"""Every stock-changing action lives here. The frontend calls them through frontend/src/lib/data/actions.ts.
 
 Each function runs in a transaction and locks the stock rows it touches, so two
 people selling the last item at the same time can't both succeed. Errors are

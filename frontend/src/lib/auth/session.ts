@@ -2,6 +2,7 @@ import "server-only"
 import { jwtVerify } from "jose"
 import { cookies } from "next/headers"
 import { API_URL } from "@/lib/api/config"
+import { SERVER_TIMEOUT_MS } from "@/lib/api/errors"
 import type { Role } from "@/lib/types"
 
 // Login tokens come from Django (SimpleJWT) and live in httpOnly cookies, so
@@ -54,6 +55,7 @@ export async function refreshAccess(refresh: string): Promise<string | null> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh }),
       cache: "no-store",
+      signal: AbortSignal.timeout(SERVER_TIMEOUT_MS),
     })
     if (!res.ok) return null
     const data = (await res.json()) as { access?: string }
@@ -89,6 +91,7 @@ export async function deleteSession() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh }),
       cache: "no-store",
+      signal: AbortSignal.timeout(SERVER_TIMEOUT_MS),
     }).catch(() => undefined)
   }
   jar.delete(ACCESS_COOKIE)

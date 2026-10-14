@@ -35,9 +35,8 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { isOverdue } from "@/lib/rental"
-import { useStore } from "@/lib/store"
-import { useBusiness, usePermissions, useScope, useSessionUser } from "./session-provider"
+import { useBadges } from "@/lib/data/queries"
+import { useBusiness, usePermissions, useSessionUser } from "./session-provider"
 import { UserMenu } from "./user-menu"
 
 const NAV = [
@@ -82,16 +81,15 @@ export function AppSidebar() {
   const user = useSessionUser()
   const pathname = usePathname()
   const { setOpenMobile } = useSidebar()
-  const scope = useScope()
   const business = useBusiness()
   const { canOpen } = usePermissions()
-  const overdue = useStore((s) => s.rentals.filter((r) => scope.has(r.locationId) && isOverdue(r)).length)
-  const openShipments = useStore(
-    (s) => s.shipments.filter((sh) => scope.has(sh.fromLocationId) && ["pending", "processing", "in_delivery"].includes(sh.status)).length,
-  )
-  // Requests waiting for someone else to approve (owners see all of them).
-  const waitingRequests = useStore((s) => s.stockRequests.filter((r) => r.status === "pending" && (user.role === "owner" || r.requestedById !== user.id)).length)
-  const badges: Record<string, number> = { "/rentals": overdue, "/tracking": openShipments, "/transfers": waitingRequests }
+  // Overdue rentals, orders in progress, and requests waiting for someone else to approve.
+  const counts = useBadges()
+  const badges: Record<string, number | undefined> = {
+    "/rentals": counts?.overdueRentals,
+    "/tracking": counts?.openOrders,
+    "/transfers": counts?.waitingRequests,
+  }
 
   return (
     <Sidebar collapsible="icon">

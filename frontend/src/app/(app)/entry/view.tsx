@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { toast } from "sonner"
 import { Camera, CheckCircle2, History, Keyboard, MapPin, Minus, Package, PackagePlus, Plus, SearchX, ShoppingCart, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -10,10 +11,12 @@ import { useAttempt, EmptyState, PageBody, PageHeader, SimpleSelect } from "@/co
 import { ProductForm } from "@/components/product-form"
 import { CameraScanner, CodeInput } from "@/components/scanner"
 import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
+import { request } from "@/lib/api/client"
+import { actions } from "@/lib/data/actions"
+import { qtyAt, useActivity, useProduct, withParams } from "@/lib/data/queries"
 import { timeAgo } from "@/lib/format"
-import { qtyAt, useStore } from "@/lib/store"
 import { SellDialog } from "@/components/sell-dialog"
-import type { Product } from "@/lib/types"
+import type { Page, Product } from "@/lib/types"
 
 type Result = { kind: "found"; product: Product; code: string } | { kind: "new"; code: string } | { kind: "manual" } | null
 
@@ -21,19 +24,21 @@ export function EntryView() {
   const user = useSessionUser()
   const { locations } = useScope()
   const { canCreateProducts, canSell, canAddStock } = usePermissions()
-  const products = useStore((s) => s.products)
-  const activity = useStore((s) => s.activity)
   const [locationId, setLocationId] = useState(locations[0]?.id ?? "")
   const [tab, setTab] = useState("camera")
   const [result, setResult] = useState<Result>(null)
+  const myEntries = useActivity({ page: 1, mine: true, action: ["Stock added", "Product added"] }, { pageSize: 8 }).data?.results ?? []
 
-  const myEntries = activity.filter((a) => a.user === user.name && /Stock added|Product added/.test(a.action)).slice(0, 8)
-
-  function lookup(raw: string) {
+  /** Finds the product with this barcode or SKU. */
+  async function lookup(raw: string) {
     const code = raw.trim()
-    const lower = code.toLowerCase()
-    const product = products.find((p) => p.barcode === code || p.sku.toLowerCase() === lower)
-    setResult(product ? { kind: "found", product, code } : { kind: "new", code })
+    if (!code) return
+    try {
+      const { results } = await request<Page<Product>>(withParams("products/", { code, page: 1, pageSize: 1 }))
+      setResult(results[0] ? { kind: "found", product: results[0], code } : { kind: "new", code })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't look that up.")
+    }
   }
 
   if (locations.length === 0) {
@@ -204,20 +209,20 @@ export function EntryView() {
   )
 }
 
-function FoundProduct({ product, locationId, onDone }: { product: Product; locationId: string; onDone: () => void }) {
+function FoundProduct({ product: found, locationId, onDone }: { product: Product; locationId: string; onDone: () => void }) {
   const { canSell, canAddStock } = usePermissions()
-  const stock = useStore((s) => s.stock)
-  const locationName = useStore((s) => s.locations.find((l) => l.id === locationId)?.name)
-  const adjustStock = useStore((s) => s.adjustStock)
+  const locationName = useScope().locations.find((l) => l.id === locationId)?.name
+  // Kept fresh, so the count updates after adding or selling.
+  const product = useProduct(found.id).data ?? found
   const [quantity, setQuantity] = useState(1)
   const [selling, setSelling] = useState(false)
-  const current = qtyAt(stock, product.id, locationId)
+  const current = qtyAt(product, locationId)
 
   const [run, pending] = useAttempt()
 
   async function add() {
     const ok = await run(
-      () => adjustStock(product.id, locationId, quantity, "Quick entry"),
+      () => actions.adjustStock(product.id, locationId, quantity, "Quick entry"),
       `Added ${quantity} ${product.unit} of ${product.name}`,
     )
     if (ok) onDone()

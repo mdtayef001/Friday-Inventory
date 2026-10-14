@@ -1,51 +1,28 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { Mail, Pencil, Phone, Plus, Search, Trash2, Users } from "lucide-react"
+import { Mail, Pencil, Phone, Plus, Trash2, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { attempt, ConfirmAction, EmptyState, PageBody, PageHeader, Pill } from "@/components/common"
+import { attempt, ConfirmAction, EmptyState, ListSkeleton, PageBody, PageHeader, Pager, Pill, QueryError, SearchInput } from "@/components/common"
 import { ClientDialog } from "@/components/client-dialog"
 import { initials } from "@/components/user-menu"
+import { actions } from "@/lib/data/actions"
+import { PAGE_SIZE, useClients, useDebounced, usePageNumber } from "@/lib/data/queries"
 import { formatMoney } from "@/lib/format"
-import { isOverdue } from "@/lib/rental"
-import { useStore } from "@/lib/store"
 import type { Client } from "@/lib/types"
 
 export function ClientsView() {
   const params = useSearchParams()
-  const clients = useStore((s) => s.clients)
-  const rentals = useStore((s) => s.rentals)
-  const shipments = useStore((s) => s.shipments)
-  const products = useStore((s) => s.products)
-  const deleteClient = useStore((s) => s.deleteClient)
   const [query, setQuery] = useState(params.get("q") ?? "")
   const [editing, setEditing] = useState<Client | "new" | null>(null)
-
-  const summary = useMemo(() => {
-    const price = new Map(products.map((p) => [p.id, p.price]))
-    const map = new Map<string, { rentals: number; overdue: number; orders: number; value: number }>()
-    const get = (id: string) => map.get(id) ?? map.set(id, { rentals: 0, overdue: 0, orders: 0, value: 0 }).get(id)!
-    for (const r of rentals) {
-      const s = get(r.clientId)
-      if (r.status === "active") s.rentals++
-      if (isOverdue(r)) s.overdue++
-      s.value += r.total
-    }
-    for (const sh of shipments) {
-      const s = get(sh.clientId)
-      if (["pending", "processing", "in_delivery"].includes(sh.status)) s.orders++
-      if (sh.status === "delivered") s.value += sh.quantity * (price.get(sh.productId) ?? 0)
-    }
-    return map
-  }, [rentals, shipments, products])
-
-  const q = query.trim().toLowerCase()
-  const rows = clients.filter((c) => !q || [c.name, c.company, c.phone, c.email].some((v) => v?.toLowerCase().includes(q)))
+  const search = useDebounced(query.trim())
+  const [page, setPage] = usePageNumber(search)
+  const { data, error, isPending, isPlaceholderData, refetch } = useClients({ page, search, stats: true })
+  const rows = data?.results ?? []
 
   return (
     <PageBody>
@@ -60,15 +37,16 @@ export function ClientsView() {
         }
       />
 
-      <div className="relative max-w-md">
-        <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name, company, phone, email…" className="h-9 pl-9" />
-      </div>
+      <SearchInput value={query} onChange={setQuery} placeholder="Search name, company, phone, email…" className="max-w-md" />
 
-      {rows.length === 0 ? (
-        <EmptyState icon={Users} title={clients.length ? "No clients match" : "No clients yet"} description="Clients are added here or straight from a new order or rental." />
+      {error && !data ? (
+        <QueryError error={error} onRetry={() => refetch()} />
+      ) : isPending ? (
+        <ListSkeleton />
+      ) : rows.length === 0 ? (
+        <EmptyState icon={Users} title={search ? "No clients match" : "No clients yet"} description="Clients are added here or straight from a new order or rental." />
       ) : (
-        <Card className="py-0">
+        <Card className={isPlaceholderData ? "py-0 opacity-60 transition-opacity" : "py-0"}>
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
@@ -82,7 +60,7 @@ export function ClientsView() {
               </TableHeader>
               <TableBody>
                 {rows.map((c) => {
-                  const s = summary.get(c.id)
+                  const s = c.stats
                   return (
                     <TableRow key={c.id}>
                       <TableCell className="pl-4">
@@ -112,13 +90,13 @@ export function ClientsView() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
-                          {s?.rentals ? <Pill tone="violet">{s.rentals} rental{s.rentals > 1 ? "s" : ""}</Pill> : null}
-                          {s?.overdue ? <Pill tone="red">{s.overdue} overdue</Pill> : null}
-                          {s?.orders ? <Pill tone="blue">{s.orders} order{s.orders > 1 ? "s" : ""}</Pill> : null}
-                          {!s?.rentals && !s?.orders && <span className="text-xs text-muted-foreground">—</span>}
+                          {s?.activeRentals ? <Pill tone="violet">{s.activeRentals} rental{s.activeRentals > 1 ? "s" : ""}</Pill> : null}
+                          {s?.overdueRentals ? <Pill tone="red">{s.overdueRentals} overdue</Pill> : null}
+                          {s?.openOrders ? <Pill tone="blue">{s.openOrders} order{s.openOrders > 1 ? "s" : ""}</Pill> : null}
+                          {!s?.activeRentals && !s?.openOrders && <span className="text-xs text-muted-foreground">—</span>}
                         </div>
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">{formatMoney(s?.value ?? 0)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{formatMoney(s?.lifetimeValue ?? 0)}</TableCell>
                       <TableCell className="pr-4">
                         <div className="flex justify-end gap-1">
                           <Button variant="ghost" size="icon-sm" onClick={() => setEditing(c)} aria-label="Edit">
@@ -134,7 +112,7 @@ export function ClientsView() {
                             description="Past orders and rentals stay in the records. Clients with open rentals or orders can't be deleted."
                             confirmLabel="Delete"
                             destructive
-                            onConfirm={() => attempt(() => deleteClient(c.id), "Client deleted")}
+                            onConfirm={() => attempt(() => actions.deleteClient(c.id), "Client deleted")}
                           />
                         </div>
                       </TableCell>
@@ -146,6 +124,7 @@ export function ClientsView() {
           </div>
         </Card>
       )}
+      {data && <Pager page={data.page} pageSize={PAGE_SIZE} count={data.count} onPage={setPage} busy={isPlaceholderData} />}
 
       {editing && <ClientDialog client={editing === "new" ? undefined : editing} onClose={() => setEditing(null)} />}
     </PageBody>

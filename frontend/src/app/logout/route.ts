@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { API_URL } from "@/lib/api/config"
+import { SERVER_TIMEOUT_MS } from "@/lib/api/errors"
 import { ACCESS_COOKIE, REFRESH_COOKIE } from "@/lib/auth/session"
 
 // Ends the login: blacklists the refresh token in Django and clears both
@@ -13,6 +14,7 @@ export async function GET(req: NextRequest) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh }),
       cache: "no-store",
+      signal: AbortSignal.timeout(SERVER_TIMEOUT_MS),
     }).catch(() => undefined)
   }
   const res = NextResponse.redirect(new URL("/login", req.nextUrl))

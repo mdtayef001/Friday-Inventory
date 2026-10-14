@@ -1,11 +1,15 @@
 "use client"
 
 import { useState } from "react"
-import type { LucideIcon } from "lucide-react"
+import { AlertTriangle, ChevronLeft, ChevronRight, RotateCcw, Search, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
+import { formatNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   AlertDialog,
@@ -277,4 +281,86 @@ export function useAttempt() {
     }
   }
   return [run, pending] as const
+}
+
+/** "1–50 of 230" with previous and next buttons. Hidden when everything fits on one page. */
+export function Pager({
+  page,
+  pageSize,
+  count,
+  onPage,
+  busy,
+}: {
+  page: number
+  pageSize: number
+  count: number
+  onPage: (page: number) => void
+  /** The next page is loading. */
+  busy?: boolean
+}) {
+  if (count <= pageSize) return null
+  const pages = Math.ceil(count / pageSize)
+  const from = (page - 1) * pageSize + 1
+  const to = Math.min(page * pageSize, count)
+  return (
+    <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+      <span className="tabular-nums">
+        {formatNumber(from)}–{formatNumber(to)} of {formatNumber(count)}
+      </span>
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" disabled={page <= 1 || busy} onClick={() => onPage(page - 1)}>
+          <ChevronLeft />
+          Previous
+        </Button>
+        <Button variant="outline" size="sm" disabled={page >= pages || busy} onClick={() => onPage(page + 1)}>
+          Next
+          <ChevronRight />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/** A list that couldn't load, with a way to try again. */
+export function QueryError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed px-6 py-10 text-center">
+      <AlertTriangle className="size-6 text-amber-500" />
+      <p className="max-w-sm text-sm text-muted-foreground">{error instanceof Error ? error.message : "Couldn't load this."}</p>
+      <Button variant="outline" size="sm" onClick={onRetry}>
+        <RotateCcw />
+        Try again
+      </Button>
+    </div>
+  )
+}
+
+/** Placeholder rows while a list loads for the first time. */
+export function ListSkeleton({ rows = 6, className }: { rows?: number; className?: string }) {
+  return (
+    <div className={cn("space-y-2", className)}>
+      {Array.from({ length: rows }, (_, i) => (
+        <Skeleton key={i} className="h-12 rounded-lg" />
+      ))}
+    </div>
+  )
+}
+
+export function SearchInput({
+  value,
+  onChange,
+  placeholder = "Search…",
+  className,
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  className?: string
+}) {
+  return (
+    <div className={cn("relative", className)}>
+      <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+      <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="h-9 pl-9" />
+    </div>
+  )
 }

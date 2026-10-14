@@ -13,9 +13,10 @@ import { Field, SimpleSelect, useAttempt } from "@/components/common"
 import { PaymentPicker, useMobileNumber } from "@/components/payment-picker"
 import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { PAYMENT_METHODS } from "@/lib/business"
+import { actions } from "@/lib/data/actions"
+import { qtyAt, useProduct } from "@/lib/data/queries"
 import { formatMoney } from "@/lib/format"
-import { qtyAt, useStore } from "@/lib/store"
-import type { PaymentMethod, Sale } from "@/lib/types"
+import type { ClientBrief, PaymentMethod, Product, Sale } from "@/lib/types"
 
 /**
  * A walk-in sale: takes the stock and records the money at the price agreed now.
@@ -35,24 +36,39 @@ export function SellDialog({
   onClose: () => void
   onSold?: () => void
 }) {
+  // Loaded fresh, so the stock shown is what's there now.
+  const product = useProduct(productId).data
+  if (!product) return null
+  return <SellForm product={product} initialLocation={initialLocation} initialQuantity={initialQuantity} onClose={onClose} onSold={onSold} />
+}
+
+function SellForm({
+  product,
+  initialLocation,
+  initialQuantity,
+  onClose,
+  onSold,
+}: {
+  product: Product
+  initialLocation?: string
+  initialQuantity: number
+  onClose: () => void
+  onSold?: () => void
+}) {
   const user = useSessionUser()
   const { locations } = useScope()
-  const product = useStore((s) => s.products.find((p) => p.id === productId))
-  const stock = useStore((s) => s.stock)
-  const sell = useStore((s) => s.sell)
   const [run, pending] = useAttempt()
   const showProfit = usePermissions().can("managerProfit")
   const mobileNumber = useMobileNumber()
-  const [locationId, setLocationId] = useState(initialLocation ?? locations.find((l) => qtyAt(stock, productId, l.id) > 0)?.id ?? locations[0]?.id ?? "")
+  const [locationId, setLocationId] = useState(initialLocation ?? locations.find((l) => qtyAt(product, l.id) > 0)?.id ?? locations[0]?.id ?? "")
   const [quantity, setQuantity] = useState(String(initialQuantity))
-  const [price, setPrice] = useState(String(product?.price ?? ""))
+  const [price, setPrice] = useState(String(product.price))
   const [discount, setDiscount] = useState("")
-  const [clientId, setClientId] = useState("")
+  const [client, setClient] = useState<ClientBrief | null>(null)
   const [method, setMethod] = useState<PaymentMethod>("cash")
   const [received, setReceived] = useState(false)
   const [online, setOnline] = useState<Sale | null>(null)
 
-  if (!product) return null
   if (online) {
     return (
       <OnlinePayment
@@ -66,7 +82,7 @@ export function SellDialog({
     )
   }
 
-  const available = qtyAt(stock, product.id, locationId)
+  const available = qtyAt(product, locationId)
   const qty = Number(quantity)
   const unitPrice = Number(price)
   const off = Number(discount) || 0
@@ -89,11 +105,11 @@ export function SellDialog({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!valid || !product) return
+    if (!valid) return
     let sale: Sale | undefined
     const ok = await run(
       async () => {
-        sale = await sell({ productId: product.id, locationId, quantity: qty, unitPrice, discount: off, clientId: clientId || undefined, paymentMethod: method })
+        sale = await actions.sell({ productId: product.id, locationId, quantity: qty, unitPrice, discount: off, clientId: client?.id, paymentMethod: method })
       },
       method === "online" ? undefined : `Sold ${qty} ${product.unit} of ${product.name} for ${formatMoney(total)} (${PAYMENT_METHODS[method].short})`,
     )
@@ -127,7 +143,7 @@ export function SellDialog({
           </Field>
           {canPickClient && (
             <Field label="Client" hint="Optional. Leave empty for a walk-in customer.">
-              <ClientPicker value={clientId} onChange={setClientId} />
+              <ClientPicker value={client} onChange={setClient} />
             </Field>
           )}
           <div className="rounded-xl border bg-muted/30 p-3 text-sm">
@@ -182,8 +198,7 @@ export function SellDialog({
 
 /** Shows the SSLCommerz link as a QR code and checks every few seconds until it's paid, failed or cancelled. */
 function OnlinePayment({ sale: initial, onClose, onPaid }: { sale: Sale; onClose: () => void; onPaid: () => void }) {
-  const checkSale = useStore((s) => s.checkSale)
-  const cancelOnlinePayment = useStore((s) => s.cancelOnlinePayment)
+  const { checkSale, cancelOnlinePayment } = actions
   const [sale, setSale] = useState(initial)
   const [cancelling, setCancelling] = useState(false)
   const url = initial.paymentUrl ?? ""

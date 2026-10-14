@@ -1,13 +1,14 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { Shuffle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
-import { useStore, type ProductInput } from "@/lib/store"
+import { actions, type ProductInput } from "@/lib/data/actions"
+import { useCategories } from "@/lib/data/queries"
 import type { Product } from "@/lib/types"
 import { useAttempt, Field, SimpleSelect } from "./common"
 import { ScanButton } from "./scanner"
@@ -36,10 +37,8 @@ export function ProductForm({
   onCancel?: () => void
 }) {
   const { locations } = useScope()
-  const products = useStore((s) => s.products)
-  const addProduct = useStore((s) => s.addProduct)
-  const updateProduct = useStore((s) => s.updateProduct)
-  const categories = useMemo(() => [...new Set(products.map((p) => p.category))].sort(), [products])
+  const { addProduct, updateProduct } = actions
+  const categories = useCategories()
 
   const [form, setForm] = useState({
     name: product?.name ?? "",

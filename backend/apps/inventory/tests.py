@@ -718,3 +718,119 @@ class PaymentMethodTests(SalesBase):
         self.assertEqual(self.client.post(f"/api/rentals/{rental['id']}/return/", {"paymentMethod": "card"}, format="json").status_code, 400)
         self.client.post(f"/api/rentals/{rental['id']}/return/", {"paymentMethod": "cash"}, format="json")
         self.assertEqual(self.client.get("/api/sales/").json()[0]["paymentMethod"], "cash")
+
+
+class ListingTests(ApiTestCase):
+    """Pages, search and filters, so the app never has to load a whole list."""
+
+    def setUp(self):
+        super().setUp()
+        self.login("owner@a.com")
+        self.client_id = self.client.post("/api/clients/", {"name": "Rahim", "phone": "01711"}, format="json").json()["id"]
+
+    def rent(self, days=None, start=None, location=None):
+        body = {
+            "productId": self.product.id, "quantity": 1, "clientId": self.client_id,
+            "locationId": (location or self.warehouse).id, "startDate": (start or timezone.now()).isoformat(),
+            "plan": "daily", "rate": "100",
+        }
+        if days:
+            body["days"] = days
+        res = self.client.post("/api/rentals/", body, format="json")
+        self.assertEqual(res.status_code, 201, res.content)
+        return res.json()
+
+    def test_pages_only_when_asked_and_clamps_past_the_end(self):
+        for i in range(3):
+            Product.objects.create(business=self.biz, sku=f"P-{i}", name=f"Lamp {i}")
+        self.assertIsInstance(self.client.get("/api/products/").json(), list)
+        page = self.client.get("/api/products/", {"page": 1, "page_size": 2}).json()
+        self.assertEqual((page["count"], page["page"], len(page["results"])), (4, 1, 2))
+        last = self.client.get("/api/products/", {"page": 9, "page_size": 2}).json()
+        self.assertEqual((last["page"], len(last["results"])), (2, 2))
+
+    def test_products_carry_stock_at_the_users_locations(self):
+        StockLevel.objects.create(business=self.biz, product=self.product, location=self.outlet, quantity=3)
+        p = self.client.get(f"/api/products/{self.product.id}/").json()
+        self.assertEqual(p["stock"], {str(self.warehouse.id): 10, str(self.outlet.id): 3})
+        self.assertEqual(p["total"], 13)
+        self.login("staff@a.com")
+        p = self.client.get(f"/api/products/{self.product.id}/").json()
+        self.assertEqual((p["stock"], p["total"]), ({str(self.outlet.id): 3}, 3))
+
+    def test_product_search_and_stock_filters(self):
+        lamp = Product.objects.create(business=self.biz, sku="LMP", name="Desk lamp", category="Lights", low_stock_threshold=5)
+        StockLevel.objects.create(business=self.biz, product=lamp, location=self.outlet, quantity=2)
+        names = lambda **q: [p["name"] for p in self.client.get("/api/products/", q).json()]
+        self.assertEqual(names(search="desk"), ["Desk lamp"])
+        self.assertEqual(names(search="lights"), ["Desk lamp"])
+        self.assertEqual(names(code="lmp"), ["Desk lamp"])
+        self.assertEqual(names(stock="low"), ["Desk lamp"])
+        self.assertEqual(names(stock="in"), ["TV"])
+        self.assertEqual(names(location=self.outlet.id, in_stock="1"), ["Desk lamp"])
+        # The TV has no stock row at the outlet, so the outlet counts as empty.
+        self.assertEqual(sorted(names(attention="1")), ["Desk lamp", "TV"])
+        self.assertEqual(self.client.get("/api/products/categories/").json(), ["Lights"])
+
+    def test_stock_summary(self):
+        Product.objects.filter(pk=self.product.pk).update(cost=50)
+        s = self.client.get("/api/stock/summary/").json()
+        self.assertEqual((s["products"], s["units"], s["value"], s["low"], s["out"]), (1, 10, 500, 0, 0))
+        self.assertEqual(s["locations"][0]["locationId"], str(self.warehouse.id))
+
+    def test_overdue_rentals_and_summary(self):
+        late = self.rent(days=2, start=timezone.now() - timedelta(days=5))
+        self.rent(days=30)
+        self.rent()
+        rows = self.client.get("/api/rentals/", {"overdue": "1"}).json()
+        self.assertEqual([r["id"] for r in rows], [late["id"]])
+        self.assertEqual(rows[0]["client"]["name"], "Rahim")
+        self.assertEqual(rows[0]["productName"], "TV")
+        s = self.client.get("/api/rentals/summary/").json()
+        self.assertEqual((s["active"], s["activeUnits"], s["overdue"]), (3, 3, 1))
+        # Five days and a few seconds is six started days; the others are one day each. All at 100 a day.
+        self.assertEqual(s["running"], 600 + 100 + 100)
+        self.assertEqual(self.client.get("/api/rentals/", {"code": late["code"].lower()}).json()[0]["id"], late["id"])
+        self.assertEqual(len(self.client.get("/api/rentals/", {"code": "123", "status": "active"}).json()), 3)
+
+    def test_client_stats(self):
+        self.rent(days=1, start=timezone.now() - timedelta(days=3))
+        order = {"productId": self.product.id, "quantity": 1, "clientId": self.client_id, "fromLocationId": self.warehouse.id, "unitPrice": 700}
+        self.client.post("/api/shipments/", order, format="json")
+        delivered = self.client.post("/api/shipments/", order, format="json").json()
+        for status_ in ("processing", "in_delivery", "delivered"):
+            self.client.post(f"/api/shipments/{delivered['id']}/status/", {"status": status_}, format="json")
+        stats = self.client.get("/api/clients/", {"stats": "1"}).json()[0]["stats"]
+        self.assertEqual(stats, {"activeRentals": 1, "overdueRentals": 1, "openOrders": 1, "lifetimeValue": 700})
+        self.assertNotIn("stats", self.client.get("/api/clients/").json()[0])
+
+    def test_order_filters_and_counts(self):
+        order = {"productId": self.product.id, "quantity": 1, "clientId": self.client_id, "fromLocationId": self.warehouse.id}
+        first = self.client.post("/api/shipments/", order, format="json").json()
+        self.client.post("/api/shipments/", order, format="json")
+        self.client.post(f"/api/shipments/{first['id']}/status/", {"status": "cancelled"}, format="json")
+        self.assertEqual(len(self.client.get("/api/shipments/", {"status": "open"}).json()), 1)
+        self.assertEqual(len(self.client.get("/api/shipments/", {"search": "rahim"}).json()), 2)
+        counts = {c["status"]: c["count"] for c in self.client.get("/api/shipments/counts/").json()}
+        self.assertEqual((counts["pending"], counts["in_delivery"], counts["cancelled"]), (1, 0, 1))
+        self.assertEqual(self.client.get("/api/shipments/", {"status": "lost"}).status_code, 400)
+
+    def test_overview_and_badges(self):
+        self.rent(days=1, start=timezone.now() - timedelta(days=3))
+        Product.objects.create(business=self.biz, sku="X", name="Empty")
+        o = self.client.get("/api/overview/").json()
+        self.assertEqual((o["products"], o["units"], o["overdueRentals"], o["activeRentals"]), (2, 9, 1, 1))
+        self.assertEqual(o["lowStock"][0]["productName"], "Empty")
+        self.assertEqual(o["unitsByLocation"], {str(self.warehouse.id): 9})
+        self.assertTrue(o["recentActivity"])
+        self.assertEqual([s["status"] for s in o["ordersByStatus"]], ["pending", "processing", "in_delivery"])
+        badges = self.client.get("/api/overview/", {"only": "badges"}).json()
+        self.assertEqual(badges, {"overdueRentals": 1, "openOrders": 0, "waitingRequests": 0})
+
+    def test_staff_see_only_their_own_activity(self):
+        self.login("staff@a.com")
+        self.assertEqual(self.client.get("/api/activity/").status_code, 403)
+        self.client.post("/api/stock/adjust/", {"productId": self.product.id, "locationId": self.outlet.id, "delta": 2}, format="json")
+        mine = self.client.get("/api/activity/", {"mine": "1", "action": ["Stock added", "Product added"]}).json()
+        self.assertEqual([a["action"] for a in mine], ["Stock added"])
+        self.assertEqual(self.client.get("/api/activity/people/").status_code, 403)

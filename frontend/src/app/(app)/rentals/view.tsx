@@ -1,8 +1,8 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { format } from "date-fns"
-import { AlertTriangle, CalendarCheck, CalendarClock, DollarSign, LogIn, LogOut, Search, Undo2 } from "lucide-react"
+import { AlertTriangle, CalendarCheck, CalendarClock, DollarSign, LogIn, LogOut, Undo2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -11,52 +11,54 @@ import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useAttempt, EmptyState, Field, PageBody, PageHeader, SimpleSelect, StatCard } from "@/components/common"
+import {
+  useAttempt,
+  EmptyState,
+  Field,
+  ListSkeleton,
+  PageBody,
+  PageHeader,
+  Pager,
+  QueryError,
+  SearchInput,
+  SimpleSelect,
+  StatCard,
+} from "@/components/common"
 import { ClientPicker } from "@/components/client-dialog"
+import { ProductPicker } from "@/components/product-picker"
 import { usePermissions, useScope } from "@/components/session-provider"
 import { CodeInput, ScanButton } from "@/components/scanner"
 import { PaymentPicker } from "@/components/payment-picker"
 import { PAYMENT_METHODS } from "@/lib/business"
 import { RentalStatusPill } from "@/components/status"
+import { request } from "@/lib/api/client"
+import { actions } from "@/lib/data/actions"
+import { PAGE_SIZE, qtyAt, useDebounced, usePageNumber, useRentalSummary, useRentals, withParams } from "@/lib/data/queries"
 import { formatDate, formatMoney } from "@/lib/format"
 import { countDays, isOverdue, PLAN_LABEL, quoteRental, rentalDueDate, rentalOverdueDays } from "@/lib/rental"
-import { qtyAt, useStore } from "@/lib/store"
-import { useLookups } from "@/lib/store/hooks"
-import type { PaymentMethod, Product, Rental, RentalPlan } from "@/lib/types"
+import type { ClientBrief, Page, PaymentMethod, Product, Rental, RentalPlan } from "@/lib/types"
 
 type Filter = "active" | "overdue" | "returned" | "all"
 
 export function RentalsView() {
   const scope = useScope()
-  const rentals = useStore((s) => s.rentals)
-  const lookups = useLookups()
   const { canSell } = usePermissions()
   const [filter, setFilter] = useState<Filter>("active")
   const [query, setQuery] = useState("")
   const [creating, setCreating] = useState(false)
   const [scanningIn, setScanningIn] = useState(false)
   const [returning, setReturning] = useState<Rental | null>(null)
-
-  const mine = useMemo(() => rentals.filter((r) => scope.has(r.locationId)), [rentals, scope])
-  const stats = useMemo(() => {
-    const active = mine.filter((r) => r.status === "active")
-    return {
-      active: active.length,
-      overdue: active.filter((r) => isOverdue(r)).length,
-      // What the active rentals have run up so far, at today's count of days.
-      expected: active.reduce((s, r) => s + quoteRental(r.plan, r.rate, countDays(r.startDate), r.quantity).total, 0),
-      earned: mine.filter((r) => r.status === "returned").reduce((s, r) => s + r.total, 0),
-    }
-  }, [mine])
-
-  const q = query.trim().toLowerCase()
-  const rows = mine.filter((r) => {
-    if (filter === "active" && r.status !== "active") return false
-    if (filter === "overdue" && !isOverdue(r)) return false
-    if (filter === "returned" && r.status !== "returned") return false
-    if (!q) return true
-    return [r.code, lookups.product.get(r.productId)?.name, lookups.client.get(r.clientId)?.name].some((v) => v?.toLowerCase().includes(q))
+  const search = useDebounced(query.trim())
+  const [page, setPage] = usePageNumber(search, filter)
+  const stats = useRentalSummary().data
+  const { data, error, isPending, isPlaceholderData, refetch } = useRentals({
+    page,
+    search,
+    status: filter === "active" || filter === "returned" ? filter : undefined,
+    overdue: filter === "overdue",
   })
+  const rows = data?.results ?? []
+  const locationName = (id: string) => scope.locations.find((l) => l.id === id)?.name
 
   return (
     <PageBody>
@@ -80,31 +82,38 @@ export function RentalsView() {
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Out on rent" value={stats.active} icon={CalendarClock} />
-        <StatCard label="Overdue" value={stats.overdue} hint={stats.overdue ? "Follow up with these clients" : "All on time"} icon={AlertTriangle} tone={stats.overdue ? "red" : "green"} />
-        <StatCard label="Running total (out now)" value={formatMoney(stats.expected)} icon={DollarSign} tone="violet" />
-        <StatCard label="Earned (returned)" value={formatMoney(stats.earned)} icon={CalendarCheck} tone="green" />
+        <StatCard label="Out on rent" value={stats?.active ?? "–"} icon={CalendarClock} />
+        <StatCard
+          label="Overdue"
+          value={stats?.overdue ?? "–"}
+          hint={stats?.overdue ? "Follow up with these clients" : "All on time"}
+          icon={AlertTriangle}
+          tone={stats?.overdue ? "red" : "green"}
+        />
+        <StatCard label="Running total (out now)" value={stats ? formatMoney(stats.running) : "–"} icon={DollarSign} tone="violet" />
+        <StatCard label="Earned (returned)" value={stats ? formatMoney(stats.earned) : "–"} icon={CalendarCheck} tone="green" />
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)}>
           <TabsList>
             <TabsTrigger value="active">Active</TabsTrigger>
-            <TabsTrigger value="overdue">Overdue{stats.overdue ? ` (${stats.overdue})` : ""}</TabsTrigger>
+            <TabsTrigger value="overdue">Overdue{stats?.overdue ? ` (${stats.overdue})` : ""}</TabsTrigger>
             <TabsTrigger value="returned">Returned</TabsTrigger>
             <TabsTrigger value="all">All</TabsTrigger>
           </TabsList>
         </Tabs>
-        <div className="relative sm:w-72">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search rental, client, product…" className="h-9 pl-9" />
-        </div>
+        <SearchInput value={query} onChange={setQuery} placeholder="Search rental, client, product…" className="sm:w-72" />
       </div>
 
-      {rows.length === 0 ? (
+      {error && !data ? (
+        <QueryError error={error} onRetry={() => refetch()} />
+      ) : isPending ? (
+        <ListSkeleton />
+      ) : rows.length === 0 ? (
         <EmptyState icon={CalendarClock} title="No rentals here" description="Rent out a product to see it in this list." />
       ) : (
-        <Card className="py-0">
+        <Card className={isPlaceholderData ? "py-0 opacity-60 transition-opacity" : "py-0"}>
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
@@ -120,8 +129,7 @@ export function RentalsView() {
               </TableHeader>
               <TableBody>
                 {rows.map((r) => {
-                  const product = lookups.product.get(r.productId)
-                  const client = lookups.client.get(r.clientId)
+                  const client = r.client
                   const overdue = isOverdue(r)
                   const diff = rentalOverdueDays(r)
                   const due = rentalDueDate(r)
@@ -131,10 +139,10 @@ export function RentalsView() {
                       <TableCell className="pl-4">
                         <div className="font-medium">
                           {r.quantity > 1 && `${r.quantity} × `}
-                          {product?.name ?? "Deleted product"}
+                          {r.productName ?? "Deleted product"}
                         </div>
                         <div className="font-mono text-xs text-muted-foreground">
-                          {r.code} · {lookups.location.get(r.locationId)?.name}
+                          {r.code} · {locationName(r.locationId)}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -188,11 +196,11 @@ export function RentalsView() {
           </div>
         </Card>
       )}
+      {data && <Pager page={data.page} pageSize={PAGE_SIZE} count={data.count} onPage={setPage} busy={isPlaceholderData} />}
 
       {creating && <NewRentalDialog onClose={() => setCreating(false)} />}
       {scanningIn && (
         <ScanInDialog
-          rentals={mine.filter((r) => r.status === "active")}
           onClose={() => setScanningIn(false)}
           onFound={(r) => {
             setScanningIn(false)
@@ -207,12 +215,9 @@ export function RentalsView() {
 
 function NewRentalDialog({ onClose }: { onClose: () => void }) {
   const scope = useScope()
-  const products = useStore((s) => s.products)
-  const stock = useStore((s) => s.stock)
-  const createRental = useStore((s) => s.createRental)
   const [locationId, setLocationId] = useState(scope.locations[0]?.id ?? "")
-  const [clientId, setClientId] = useState("")
-  const [productId, setProductId] = useState("")
+  const [client, setClient] = useState<ClientBrief | null>(null)
+  const [product, setProduct] = useState<Product | null>(null)
   const [quantity, setQuantity] = useState("1")
   const [days, setDays] = useState("")
   const [plan, setPlan] = useState<RentalPlan>("daily")
@@ -220,9 +225,8 @@ function NewRentalDialog({ onClose }: { onClose: () => void }) {
   const [deposit, setDeposit] = useState("0")
   const [notes, setNotes] = useState("")
 
-  const rentable = products.filter((p) => p.rentable && qtyAt(stock, p.id, locationId) > 0)
-  const product = products.find((p) => p.id === productId)
-  const available = product ? qtyAt(stock, product.id, locationId) : 0
+  const clientId = client?.id ?? ""
+  const available = qtyAt(product, locationId)
   const plans: RentalPlan[] = [...(["daily", "weekly", "monthly"] as const).filter((p) => product?.rentRates?.[p]), "fixed"]
 
   function choosePlan(next: RentalPlan, p = product) {
@@ -230,10 +234,9 @@ function NewRentalDialog({ onClose }: { onClose: () => void }) {
     setRate(next === "fixed" ? "" : String(p?.rentRates?.[next] ?? ""))
   }
 
-  function chooseProduct(id: string, known?: Product) {
-    setProductId(id)
-    const p = known ?? products.find((x) => x.id === id)
-    const first = (["daily", "weekly", "monthly"] as const).find((k) => p?.rentRates?.[k]) ?? "fixed"
+  function chooseProduct(p: Product) {
+    setProduct(p)
+    const first = (["daily", "weekly", "monthly"] as const).find((k) => p.rentRates?.[k]) ?? "fixed"
     choosePlan(first, p)
   }
 
@@ -245,14 +248,20 @@ function NewRentalDialog({ onClose }: { onClose: () => void }) {
   const valid = clientId && product && Number.isInteger(qty) && qty > 0 && qty <= available && daysOk && rate !== "" && rateNum >= 0 && Number(deposit) >= 0
 
   /** Scanning picks the product (and moves to a shop that has it free). */
-  function scanProduct(code: string) {
-    const p = products.find((x) => x.barcode === code || x.sku.toLowerCase() === code.toLowerCase())
+  async function scanProduct(code: string) {
+    let p: Product | undefined
+    try {
+      p = (await request<Page<Product>>(withParams("products/", { code, page: 1, pageSize: 1 }))).results[0]
+    } catch (err) {
+      return toast.error(err instanceof Error ? err.message : "Couldn't look that up.")
+    }
     if (!p) return toast.error(`No product uses ${code}.`)
     if (!p.rentable) return toast.error(`${p.name} isn't set up for rent.`)
-    const here = qtyAt(stock, p.id, locationId) > 0 ? locationId : scope.locations.find((l) => qtyAt(stock, p.id, l.id) > 0)?.id
+    const found = p
+    const here = qtyAt(found, locationId) > 0 ? locationId : scope.locations.find((l) => qtyAt(found, l.id) > 0)?.id
     if (!here) return toast.error(`No ${p.name} free at your shops.`)
     setLocationId(here)
-    chooseProduct(p.id, p)
+    chooseProduct(p)
   }
 
   const [run, pending] = useAttempt()
@@ -262,7 +271,7 @@ function NewRentalDialog({ onClose }: { onClose: () => void }) {
     if (!valid || !product) return
     const ok = await run(
       () =>
-        createRental(
+        actions.createRental(
           {
             productId: product.id,
             quantity: qty,
@@ -293,25 +302,27 @@ function NewRentalDialog({ onClose }: { onClose: () => void }) {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Rented to" className="sm:col-span-2">
-              <ClientPicker value={clientId} onChange={setClientId} />
+              <ClientPicker value={client} onChange={setClient} />
             </Field>
             <Field label="From location">
               <SimpleSelect
                 value={locationId}
                 onChange={(v) => {
                   setLocationId(v)
-                  setProductId("")
+                  setProduct(null)
                 }}
                 options={scope.locations.map((l) => ({ value: l.id, label: l.name }))}
               />
             </Field>
-            <Field label="Product" hint={rentable.length === 0 ? "No rentable products in stock here." : undefined}>
-              <div className="flex gap-2">
-                <SimpleSelect
-                  value={productId}
-                  onChange={(id) => chooseProduct(id)}
-                  options={rentable.map((p) => ({ value: p.id, label: `${p.name} (${qtyAt(stock, p.id, locationId)} free)` }))}
+            <Field label="Product" hint="Rentable products free at this location.">
+              <div className="flex min-w-0 gap-2">
+                <ProductPicker
+                  value={product}
+                  onChange={chooseProduct}
+                  params={{ location: locationId, inStock: true, rentable: true }}
+                  describe={(p) => `${qtyAt(p, locationId)} free`}
                   placeholder="Choose or scan"
+                  disabled={!locationId}
                 />
                 <ScanButton onScan={scanProduct} />
               </div>
@@ -378,20 +389,23 @@ function NewRentalDialog({ onClose }: { onClose: () => void }) {
 }
 
 /** Scan or type the item (or the rental code) to find what's coming back. */
-function ScanInDialog({ rentals, onClose, onFound }: { rentals: Rental[]; onClose: () => void; onFound: (r: Rental) => void }) {
-  const products = useStore((s) => s.products)
-  const lookups = useLookups()
+function ScanInDialog({ onClose, onFound }: { onClose: () => void; onFound: (r: Rental) => void }) {
   const [matches, setMatches] = useState<Rental[] | null>(null)
 
-  function find(code: string) {
-    const c = code.trim().toLowerCase()
-    const byCode = rentals.find((r) => r.code.toLowerCase() === c)
-    if (byCode) return onFound(byCode)
-    const product = products.find((p) => p.barcode === code.trim() || p.sku.toLowerCase() === c)
-    const found = product ? rentals.filter((r) => r.productId === product.id) : []
+  /** The rental code, or the item's barcode or SKU, among the rentals out now. */
+  async function find(code: string) {
+    let found: Rental[]
+    try {
+      found = (await request<Page<Rental>>(withParams("rentals/", { code: code.trim(), status: "active", page: 1, pageSize: 50 }))).results
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't look that up.")
+      return
+    }
+    const exact = found.find((r) => r.code.toLowerCase() === code.trim().toLowerCase())
+    if (exact) return onFound(exact)
     if (found.length === 1) return onFound(found[0])
     if (found.length === 0) {
-      toast.error(product ? `No ${product.name} is out on rent.` : `Nothing matches ${code}.`)
+      toast.error(`Nothing out on rent matches ${code}.`)
       return
     }
     setMatches(found)
@@ -410,7 +424,7 @@ function ScanInDialog({ rentals, onClose, onFound }: { rentals: Rental[]; onClos
             {matches.map((r) => (
               <Button key={r.id} variant="outline" className="h-auto justify-between py-2" onClick={() => onFound(r)}>
                 <span className="text-left">
-                  <span className="block font-medium">{lookups.client.get(r.clientId)?.name ?? "Unknown client"}</span>
+                  <span className="block font-medium">{r.client?.name ?? "Unknown client"}</span>
                   <span className="block text-xs text-muted-foreground">
                     {r.code} · out since {formatDate(r.startDate)}
                   </span>
@@ -432,8 +446,7 @@ function ScanInDialog({ rentals, onClose, onFound }: { rentals: Rental[]; onClos
 
 /** Scan in: counts the days out, takes off holidays (per-day plan), shows what to collect, puts it back in stock. */
 function ReturnRentalDialog({ rental: r, onClose }: { rental: Rental; onClose: () => void }) {
-  const lookups = useLookups()
-  const returnRental = useStore((s) => s.returnRental)
+  const { returnRental } = actions
   const [run, pending] = useAttempt()
   const [holidays, setHolidays] = useState("")
   const [method, setMethod] = useState<PaymentMethod>("cash")
@@ -442,7 +455,6 @@ function ReturnRentalDialog({ rental: r, onClose }: { rental: Rental; onClose: (
   const holidaysOk = Number.isInteger(off) && off >= 0 && off < daysOut
   const quote = quoteRental(r.plan, r.rate, daysOut, r.quantity, off)
   const due = quote.total - r.deposit
-  const product = lookups.product.get(r.productId)
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -461,7 +473,7 @@ function ReturnRentalDialog({ rental: r, onClose }: { rental: Rental; onClose: (
           <DialogHeader>
             <DialogTitle>Scan in · {r.code}</DialogTitle>
             <DialogDescription>
-              {r.quantity} × {product?.name ?? "Deleted product"} from {lookups.client.get(r.clientId)?.name ?? "unknown client"}
+              {r.quantity} × {r.productName ?? "Deleted product"} from {r.client?.name ?? "unknown client"}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-2 rounded-xl border p-3 text-sm">

@@ -4,7 +4,7 @@ import { Copy, Link2, Mail, MessageCircle } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { useBusiness, usePermissions } from "@/components/session-provider"
-import type { Client, Shipment } from "@/lib/types"
+import type { ClientBrief, Shipment } from "@/lib/types"
 
 /** The client's public tracking page for an order. */
 export function trackingUrl(shipment: Pick<Shipment, "trackingToken">) {
@@ -28,7 +28,7 @@ function whatsappNumber(phone?: string) {
 }
 
 /** Copy / WhatsApp / email the client their order's tracking link. */
-export function TrackingLinkShare({ shipment, client }: { shipment: Shipment; client?: Client }) {
+export function TrackingLinkShare({ shipment, client }: { shipment: Shipment; client?: ClientBrief }) {
   const business = useBusiness()
   const { module } = usePermissions()
   if (!module("trackingLinks") || !shipment.trackingToken) return null

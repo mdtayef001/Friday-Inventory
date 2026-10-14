@@ -37,6 +37,11 @@ class ProductSerializer(serializers.ModelSerializer):
         rates = {plan: getattr(product, f"rent_{plan}") for plan in self.PLANS}
         rates = {k: float(v) for k, v in rates.items() if v is not None}
         data["rent_rates"] = rates if product.rentable and rates else None
+        # Quantity at each of the user's locations (location id -> quantity), when the view loaded it.
+        rows = getattr(product, "scoped_stock", None)
+        if rows is not None:
+            data["stock"] = {str(r.location_id): r.quantity for r in rows}
+            data["total"] = sum(r.quantity for r in rows)
         return data
 
     def validate_rent_rates(self, rates):
@@ -99,6 +104,25 @@ class ClientSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "company", "phone", "email", "address", "created_at"]
         read_only_fields = ["created_at"]
 
+    STATS = ("active_rentals", "overdue_rentals", "open_orders", "lifetime_value")
+
+    def to_representation(self, client):
+        data = super().to_representation(client)
+        if hasattr(client, "active_rentals"):
+            data["stats"] = {key: getattr(client, key) or 0 for key in self.STATS}
+            data["stats"]["lifetime_value"] = float(data["stats"]["lifetime_value"])
+        return data
+
+
+class ClientBriefSerializer(serializers.ModelSerializer):
+    """The client on an order or rental, so lists don't need every client loaded."""
+
+    id = IdField()
+
+    class Meta:
+        model = Client
+        fields = ["id", "name", "company", "phone", "email", "address"]
+
 
 class ShipmentEventSerializer(serializers.ModelSerializer):
     by = serializers.CharField(source="by.name", read_only=True, default="")
@@ -114,12 +138,15 @@ class ShipmentSerializer(serializers.ModelSerializer):
     client_id = tenant_field(Client, source="client")
     from_location_id = tenant_field(Location, source="from_location")
     history = ShipmentEventSerializer(many=True, read_only=True)
+    product_name = serializers.CharField(source="product.name", read_only=True, default=None)
+    product_unit = serializers.CharField(source="product.unit", read_only=True, default=None)
+    client = ClientBriefSerializer(read_only=True)
 
     class Meta:
         model = Shipment
         fields = [
-            "id", "code", "tracking_token", "product_id", "quantity", "unit_price", "client_id", "from_location_id",
-            "status", "notes", "created_at", "history",
+            "id", "code", "tracking_token", "product_id", "product_name", "product_unit", "quantity", "unit_price",
+            "client_id", "client", "from_location_id", "status", "notes", "created_at", "history",
         ]
         extra_kwargs = {"unit_price": {"required": False, "min_value": 0}}
         read_only_fields = ["code", "tracking_token", "status", "created_at"]
@@ -135,12 +162,16 @@ class RentalSerializer(serializers.ModelSerializer):
     product_id = tenant_field(Product, source="product")
     client_id = tenant_field(Client, source="client")
     location_id = tenant_field(Location, source="location")
+    product_name = serializers.CharField(source="product.name", read_only=True, default=None)
+    product_unit = serializers.CharField(source="product.unit", read_only=True, default=None)
+    client = ClientBriefSerializer(read_only=True)
 
     class Meta:
         model = Rental
         fields = [
-            "id", "code", "product_id", "quantity", "client_id", "location_id", "start_date", "days", "plan",
-            "rate", "deposit", "total", "status", "returned_at", "days_out", "holidays", "notes", "created_at",
+            "id", "code", "product_id", "product_name", "product_unit", "quantity", "client_id", "client",
+            "location_id", "start_date", "days", "plan", "rate", "deposit", "total", "status", "returned_at",
+            "days_out", "holidays", "notes", "created_at",
         ]
         read_only_fields = ["code", "total", "status", "returned_at", "days_out", "holidays", "created_at"]
         extra_kwargs = {"days": {"required": False, "allow_null": True}}
@@ -152,12 +183,14 @@ class TransferSerializer(serializers.ModelSerializer):
     from_location_id = tenant_field(Location, source="from_location")
     to_location_id = tenant_field(Location, source="to_location")
     created_by = serializers.CharField(source="created_by.name", read_only=True, default="")
+    product_name = serializers.CharField(source="product.name", read_only=True, default=None)
+    product_unit = serializers.CharField(source="product.unit", read_only=True, default=None)
 
     class Meta:
         model = Transfer
         fields = [
-            "id", "code", "product_id", "quantity", "from_location_id", "to_location_id", "status",
-            "created_at", "created_by", "received_at",
+            "id", "code", "product_id", "product_name", "product_unit", "quantity", "from_location_id",
+            "to_location_id", "status", "created_at", "created_by", "received_at",
         ]
         read_only_fields = ["code", "status", "created_at", "received_at"]
 
@@ -165,10 +198,11 @@ class TransferSerializer(serializers.ModelSerializer):
 class ActivitySerializer(serializers.ModelSerializer):
     id = IdField()
     user = serializers.CharField(source="user.name", read_only=True, default="")
+    user_id = IdField()
 
     class Meta:
         model = Activity
-        fields = ["id", "at", "user", "action", "detail"]
+        fields = ["id", "at", "user", "user_id", "action", "detail"]
 
 
 class PublicTrackingSerializer(serializers.ModelSerializer):
@@ -209,6 +243,7 @@ class SaleSerializer(serializers.ModelSerializer):
     rental_id = IdField()
     sold_by = serializers.CharField(source="sold_by.name", read_only=True, default="")
     sold_by_id = IdField()
+    client_name = serializers.CharField(source="client.name", read_only=True, default=None)
     revenue = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
     cost = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
     profit = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
@@ -219,7 +254,7 @@ class SaleSerializer(serializers.ModelSerializer):
         model = Sale
         fields = [
             "id", "channel", "product_id", "product_name", "quantity", "unit_price", "unit_cost", "discount",
-            "revenue", "cost", "profit", "location_id", "client_id", "order_id", "rental_id", "sold_by",
+            "revenue", "cost", "profit", "location_id", "client_id", "client_name", "order_id", "rental_id", "sold_by",
             "sold_by_id", "sold_at", "refunded_at", "payment_method", "payment_status", "gateway_method",
         ]
 
@@ -252,6 +287,8 @@ class RentalReturnSerializer(serializers.Serializer):
 class StockRequestSerializer(serializers.ModelSerializer):
     id = IdField()
     product_id = tenant_field(Product, source="product")
+    product_name = serializers.CharField(source="product.name", read_only=True, default=None)
+    product_unit = serializers.CharField(source="product.unit", read_only=True, default=None)
     to_location_id = tenant_field(Location, source="to_location")
     requested_by = serializers.CharField(source="requested_by.name", read_only=True, default="")
     requested_by_id = IdField()
@@ -264,7 +301,8 @@ class StockRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = StockRequest
         fields = [
-            "id", "code", "product_id", "quantity", "to_location_id", "note", "status", "stage", "requested_by",
+            "id", "code", "product_id", "product_name", "product_unit", "quantity", "to_location_id", "note", "status",
+            "stage", "requested_by",
             "requested_by_id", "created_at", "decided_by", "decided_at", "decision_note", "transfer_id", "from_location_id",
         ]
         read_only_fields = ["code", "status", "created_at", "decided_at", "decision_note"]

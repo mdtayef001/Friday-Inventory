@@ -7,25 +7,39 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { attempt, useAttempt, ConfirmAction, EmptyState, Field, PageBody, PageHeader, Pill, SimpleSelect, type PillTone } from "@/components/common"
+import {
+  attempt,
+  useAttempt,
+  ConfirmAction,
+  EmptyState,
+  Field,
+  ListSkeleton,
+  PageBody,
+  PageHeader,
+  Pager,
+  Pill,
+  QueryError,
+  SimpleSelect,
+  type PillTone,
+} from "@/components/common"
+import { ProductPicker } from "@/components/product-picker"
 import { useScope, useSessionUser } from "@/components/session-provider"
 import { RequestStockDialog } from "@/components/stock-request-dialog"
 import { TransferStatusPill } from "@/components/status"
+import { actions } from "@/lib/data/actions"
+import { PAGE_SIZE, qtyAt, useLocations, usePageNumber, useProduct, useStockRequests, useTransfers } from "@/lib/data/queries"
 import { formatDateTime, timeAgo } from "@/lib/format"
-import type { StockRequest } from "@/lib/types"
-import { qtyAt, useStore } from "@/lib/store"
-import { useLookups } from "@/lib/store/hooks"
+import type { Product, StockRequest } from "@/lib/types"
 
 export function TransfersView() {
   const scope = useScope()
-  const transfers = useStore((s) => s.transfers)
-  const receiveTransfer = useStore((s) => s.receiveTransfer)
-  const cancelTransfer = useStore((s) => s.cancelTransfer)
-  const lookups = useLookups()
+  const locations = useLocations()
+  const locationName = (id: string) => locations.find((l) => l.id === id)?.name
   const [creating, setCreating] = useState(false)
   const [requesting, setRequesting] = useState(false)
-
-  const rows = transfers.filter((t) => scope.has(t.fromLocationId) || scope.has(t.toLocationId))
+  const [page, setPage] = usePageNumber()
+  const { data, error, isPending, isPlaceholderData, refetch } = useTransfers({ page })
+  const rows = data?.results ?? []
 
   return (
     <PageBody>
@@ -49,10 +63,14 @@ export function TransfersView() {
       <StockRequests />
       {requesting && <RequestStockDialog onClose={() => setRequesting(false)} />}
 
-      {rows.length === 0 ? (
+      {error && !data ? (
+        <QueryError error={error} onRetry={() => refetch()} />
+      ) : isPending ? (
+        <ListSkeleton />
+      ) : rows.length === 0 ? (
         <EmptyState icon={ArrowLeftRight} title="No transfers yet" description="Send stock from one location to another to see it here." />
       ) : (
-        <Card className="py-0">
+        <Card className={isPlaceholderData ? "py-0 opacity-60 transition-opacity" : "py-0"}>
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
@@ -67,21 +85,20 @@ export function TransfersView() {
               </TableHeader>
               <TableBody>
                 {rows.map((t) => {
-                  const product = lookups.product.get(t.productId)
                   return (
                     <TableRow key={t.id}>
                       <TableCell className="pl-4 font-mono text-xs">{t.code}</TableCell>
                       <TableCell>
-                        <div className="font-medium">{product?.name ?? "Deleted product"}</div>
+                        <div className="font-medium">{t.productName ?? "Deleted product"}</div>
                         <div className="text-xs text-muted-foreground">
-                          {t.quantity} {product?.unit}
+                          {t.quantity} {t.productUnit}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1.5 text-sm whitespace-nowrap">
-                          {lookups.location.get(t.fromLocationId)?.name ?? "—"}
+                          {locationName(t.fromLocationId) ?? "—"}
                           <ArrowRight className="size-3.5 text-muted-foreground" />
-                          {lookups.location.get(t.toLocationId)?.name ?? "—"}
+                          {locationName(t.toLocationId) ?? "—"}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -95,7 +112,7 @@ export function TransfersView() {
                         {t.status === "in_transit" && (
                           <div className="flex justify-end gap-1">
                             {scope.has(t.toLocationId) && (
-                              <Button size="sm" onClick={() => attempt(() => receiveTransfer(t.id), "Transfer received")}>
+                              <Button size="sm" onClick={() => attempt(() => actions.receiveTransfer(t.id), "Transfer received")}>
                                 <Check />
                                 Receive
                               </Button>
@@ -111,7 +128,7 @@ export function TransfersView() {
                                 description="The stock goes back to the location it was sent from."
                                 confirmLabel="Cancel transfer"
                                 destructive
-                                onConfirm={() => attempt(() => cancelTransfer(t.id), "Transfer cancelled")}
+                                onConfirm={() => attempt(() => actions.cancelTransfer(t.id), "Transfer cancelled")}
                               />
                             )}
                           </div>
@@ -125,6 +142,7 @@ export function TransfersView() {
           </div>
         </Card>
       )}
+      {data && <Pager page={data.page} pageSize={PAGE_SIZE} count={data.count} onPage={setPage} busy={isPlaceholderData} />}
 
       {creating && <NewTransferDialog onClose={() => setCreating(false)} />}
     </PageBody>
@@ -133,17 +151,14 @@ export function TransfersView() {
 
 function NewTransferDialog({ onClose }: { onClose: () => void }) {
   const scope = useScope()
-  const allLocations = useStore((s) => s.locations)
-  const products = useStore((s) => s.products)
-  const stock = useStore((s) => s.stock)
-  const createTransfer = useStore((s) => s.createTransfer)
+  const allLocations = useLocations()
   const [from, setFrom] = useState(scope.locations[0]?.id ?? "")
   const [to, setTo] = useState("")
-  const [productId, setProductId] = useState("")
+  const [product, setProduct] = useState<Product | null>(null)
   const [quantity, setQuantity] = useState("1")
 
-  const available = productId && from ? qtyAt(stock, productId, from) : 0
-  const productsHere = products.filter((p) => qtyAt(stock, p.id, from) > 0)
+  const productId = product?.id ?? ""
+  const available = qtyAt(product, from)
   const qty = Number(quantity)
   const valid = from && to && from !== to && productId && Number.isInteger(qty) && qty > 0 && qty <= available
 
@@ -152,7 +167,7 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (!valid) return
-    const ok = await run(() => createTransfer({ productId, quantity: qty, fromLocationId: from, toLocationId: to }), "Transfer sent")
+    const ok = await run(() => actions.createTransfer({ productId, quantity: qty, fromLocationId: from, toLocationId: to }), "Transfer sent")
     if (ok) onClose()
   }
 
@@ -170,7 +185,7 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
                 value={from}
                 onChange={(v) => {
                   setFrom(v)
-                  setProductId("")
+                  setProduct(null)
                 }}
                 options={scope.locations.map((l) => ({ value: l.id, label: l.name }))}
               />
@@ -184,12 +199,13 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
               />
             </Field>
           </div>
-          <Field label="Product" hint={productsHere.length === 0 ? "Nothing in stock at this location." : undefined}>
-            <SimpleSelect
-              value={productId}
-              onChange={setProductId}
-              options={productsHere.map((p) => ({ value: p.id, label: `${p.name} (${qtyAt(stock, p.id, from)} ${p.unit})` }))}
-              placeholder="Choose product"
+          <Field label="Product" hint="Only products with stock at this location.">
+            <ProductPicker
+              value={product}
+              onChange={setProduct}
+              params={{ location: from, inStock: true }}
+              describe={(p) => `${qtyAt(p, from)} ${p.unit}`}
+              disabled={!from}
             />
           </Field>
           <Field label="Quantity" htmlFor="tr-qty" hint={productId ? `${available} available` : undefined}>
@@ -227,16 +243,16 @@ function useCanDecide() {
 /** Requests from shops: waiting ones first, then the most recent 15 handled ones. */
 function StockRequests() {
   const me = useSessionUser()
-  const requests = useStore((s) => s.stockRequests)
-  const cancelRequest = useStore((s) => s.cancelRequest)
-  const lookups = useLookups()
+  const locations = useLocations()
+  const locationName = (id: string) => locations.find((l) => l.id === id)?.name
   const canDecide = useCanDecide()
   const [approving, setApproving] = useState<StockRequest | null>(null)
   const [declining, setDeclining] = useState<StockRequest | null>(null)
+  const pending = useStockRequests({ page: 1, status: "pending" }, { pageSize: 100 }).data
+  const handled = useStockRequests({ page: 1, status: "handled" }, { pageSize: 15 }).data
 
-  const waiting = requests.filter((r) => r.status === "pending")
-  const handled = requests.filter((r) => r.status !== "pending").slice(0, 15)
-  const rows = [...waiting, ...handled]
+  const waiting = pending?.results ?? []
+  const rows = [...waiting, ...(handled?.results ?? [])]
   if (rows.length === 0) return null
 
   return (
@@ -245,7 +261,7 @@ function StockRequests() {
         <CardTitle className="flex items-center gap-2">
           <Inbox className="size-4" />
           Stock requests
-          {waiting.length > 0 && <Pill tone="amber">{waiting.length} waiting</Pill>}
+          {waiting.length > 0 && <Pill tone="amber">{pending?.count} waiting</Pill>}
         </CardTitle>
         <CardDescription>Shops asking for stock. Approving one sends a transfer from the location you pick.</CardDescription>
       </CardHeader>
@@ -263,24 +279,23 @@ function StockRequests() {
             </TableHeader>
             <TableBody>
               {rows.map((r) => {
-                const product = r.productId ? lookups.product.get(r.productId) : undefined
                 const mine = r.requestedById === me.id
                 return (
                   <TableRow key={r.id}>
                     <TableCell className="pl-4">
                       <div className="font-medium">
-                        {r.quantity} × {product?.name ?? "Deleted product"}
+                        {r.quantity} × {r.productName ?? "Deleted product"}
                       </div>
                       <div className="font-mono text-xs text-muted-foreground">{r.code}</div>
                     </TableCell>
-                    <TableCell className="text-sm whitespace-nowrap">{(r.toLocationId && lookups.location.get(r.toLocationId)?.name) || "—"}</TableCell>
+                    <TableCell className="text-sm whitespace-nowrap">{(r.toLocationId && locationName(r.toLocationId)) || "—"}</TableCell>
                     <TableCell className="max-w-56 text-sm">
                       {r.requestedBy || "—"} · {timeAgo(r.createdAt)}
                       {r.note && <div className="truncate text-xs text-muted-foreground">“{r.note}”</div>}
                     </TableCell>
                     <TableCell className="text-sm">
                       <Pill tone={STAGE[r.stage].tone}>{STAGE[r.stage].label}</Pill>
-                      {r.fromLocationId && <div className="mt-1 text-xs text-muted-foreground">from {lookups.location.get(r.fromLocationId)?.name}</div>}
+                      {r.fromLocationId && <div className="mt-1 text-xs text-muted-foreground">from {locationName(r.fromLocationId)}</div>}
                       {r.status === "declined" && r.decisionNote && <div className="mt-1 text-xs text-muted-foreground">“{r.decisionNote}”</div>}
                     </TableCell>
                     <TableCell className="pr-4 text-right">
@@ -307,7 +322,7 @@ function StockRequests() {
                               title="Cancel this request?"
                               description="Nothing has been sent yet."
                               confirmLabel="Cancel request"
-                              onConfirm={() => attempt(() => cancelRequest(r.id), "Request cancelled")}
+                              onConfirm={() => attempt(() => actions.cancelRequest(r.id), "Request cancelled")}
                             />
                           )}
                         </div>
@@ -329,22 +344,22 @@ function StockRequests() {
 /** Pick where it ships from (a location you run that has it) and how many to send. */
 function ApproveRequestDialog({ request: r, onClose }: { request: StockRequest; onClose: () => void }) {
   const scope = useScope()
-  const stock = useStore((s) => s.stock)
-  const approveRequest = useStore((s) => s.approveRequest)
-  const lookups = useLookups()
+  const locations = useLocations()
   const [run, pending] = useAttempt()
-  const product = r.productId ? lookups.product.get(r.productId) : undefined
-  const sources = scope.locations.filter((l) => l.id !== r.toLocationId && r.productId && qtyAt(stock, r.productId, l.id) > 0)
-  const [from, setFrom] = useState((sources.find((l) => l.type === "warehouse") ?? sources[0])?.id ?? "")
+  // Loaded fresh, for its stock at each of your locations right now.
+  const { data: product, isPending: loading } = useProduct(r.productId)
+  const sources = scope.locations.filter((l) => l.id !== r.toLocationId && qtyAt(product, l.id) > 0)
+  const [picked, setFrom] = useState("")
+  const from = picked || ((sources.find((l) => l.type === "warehouse") ?? sources[0])?.id ?? "")
   const [quantity, setQuantity] = useState(String(r.quantity))
-  const available = r.productId && from ? qtyAt(stock, r.productId, from) : 0
+  const available = qtyAt(product, from)
   const qty = Number(quantity)
   const valid = !!from && Number.isInteger(qty) && qty > 0 && qty <= available
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (!valid) return
-    const ok = await run(() => approveRequest(r.id, { fromLocationId: from, quantity: qty }), `Sent ${qty} × ${product?.name}. The shop receives it when it arrives.`)
+    const ok = await run(() => actions.approveRequest(r.id, { fromLocationId: from, quantity: qty }), `Sent ${qty} × ${r.productName}. The shop receives it when it arrives.`)
     if (ok) onClose()
   }
 
@@ -355,10 +370,12 @@ function ApproveRequestDialog({ request: r, onClose }: { request: StockRequest; 
           <DialogHeader>
             <DialogTitle>Approve request</DialogTitle>
             <DialogDescription>
-              {r.quantity} × {product?.name} for {r.toLocationId && lookups.location.get(r.toLocationId)?.name}
+              {r.quantity} × {r.productName} for {r.toLocationId && locations.find((l) => l.id === r.toLocationId)?.name}
             </DialogDescription>
           </DialogHeader>
-          {sources.length === 0 ? (
+          {loading && r.productId ? (
+            <ListSkeleton rows={1} />
+          ) : sources.length === 0 ? (
             <p className="text-sm text-destructive">None of your locations has this product in stock to send.</p>
           ) : (
             <div className="grid grid-cols-2 gap-4">
@@ -387,7 +404,7 @@ function ApproveRequestDialog({ request: r, onClose }: { request: StockRequest; 
 }
 
 function DeclineRequestDialog({ request: r, onClose }: { request: StockRequest; onClose: () => void }) {
-  const declineRequest = useStore((s) => s.declineRequest)
+  const { declineRequest } = actions
   const [run, pending] = useAttempt()
   const [note, setNote] = useState("")
 

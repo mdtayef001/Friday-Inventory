@@ -156,8 +156,8 @@ REST_FRAMEWORK = {
         # Business settings keys are already camelCase; leave them alone.
         "ignore_fields": ("settings",),
     },
-    # The frontend loads a business's whole dataset at once, so lists aren't paginated.
-    "DEFAULT_PAGINATION_CLASS": None,
+    # Lists come in pages when the caller asks with ?page= (see apps.api.Pagination).
+    "DEFAULT_PAGINATION_CLASS": "apps.api.Pagination",
     # Money as JSON numbers, like the frontend's types.
     "COERCE_DECIMAL_TO_STRING": False,
     "DEFAULT_THROTTLE_RATES": {

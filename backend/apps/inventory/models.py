@@ -111,6 +111,8 @@ class Shipment(TenantModel):
 
     # Statuses after which the goods are back on the shelf.
     RESTOCKED = (Status.RETURNED, Status.CANCELLED)
+    # Still on its way to the client.
+    OPEN = (Status.PENDING, Status.PROCESSING, Status.IN_DELIVERY)
     # The order is finished; its tracking link stops working this long after.
     CLOSED = (Status.DELIVERED, Status.RETURNED, Status.CANCELLED)
     TRACKING_LINK_DAYS = 30
@@ -169,6 +171,8 @@ class Rental(TenantModel):
     # Expected length, optional: only for the due date and overdue reminders.
     # The price is worked out from the actual days out when the rental comes back.
     days = models.PositiveIntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
+    # start_date + days, kept so overdue rentals can be found in the database.
+    due_at = models.DateTimeField(null=True, blank=True, db_index=True)
     # Set at return. Holidays only reduce the per-day plan.
     days_out = models.PositiveIntegerField(null=True, blank=True)
     holidays = models.PositiveIntegerField(default=0)
@@ -184,6 +188,18 @@ class Rental(TenantModel):
 
     class Meta:
         ordering = ["-created_at"]
+
+    def save(self, *args, **kwargs):
+        self.due_at = self.due_date
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = {*kwargs["update_fields"], "due_at"}
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def overdue_q(cls):
+        """Active and due before today (local time), the same as isOverdue() in the frontend."""
+        today = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
+        return models.Q(status=cls.Status.ACTIVE, due_at__lt=today)
 
     @classmethod
     def quote(cls, plan, rate, days, quantity, holidays=0):

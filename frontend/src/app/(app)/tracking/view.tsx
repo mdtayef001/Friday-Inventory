@@ -1,7 +1,7 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { Ban, Check, ChevronRight, Plus, Search, Truck, Undo2 } from "lucide-react"
+import { useState } from "react"
+import { Ban, Check, ChevronRight, Plus, Truck, Undo2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -9,15 +9,29 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { attempt, useAttempt, ConfirmAction, EmptyState, Field, PageBody, PageHeader, SimpleSelect } from "@/components/common"
+import {
+  attempt,
+  useAttempt,
+  ConfirmAction,
+  EmptyState,
+  Field,
+  ListSkeleton,
+  PageBody,
+  PageHeader,
+  Pager,
+  QueryError,
+  SearchInput,
+  SimpleSelect,
+} from "@/components/common"
 import { ClientPicker } from "@/components/client-dialog"
+import { ProductPicker } from "@/components/product-picker"
 import { usePermissions, useScope } from "@/components/session-provider"
 import { SHIPMENT_FLOW, SHIPMENT_STATUS, ShipmentStatusPill } from "@/components/status"
 import { TrackingLinkShare, copyTrackingLink } from "@/components/tracking-link"
+import { actions } from "@/lib/data/actions"
+import { PAGE_SIZE, qtyAt, useDebounced, usePageNumber, useShipment, useShipmentCounts, useShipments } from "@/lib/data/queries"
 import { formatDateTime, formatMoney, timeAgo } from "@/lib/format"
-import { qtyAt, useStore } from "@/lib/store"
-import { useLookups } from "@/lib/store/hooks"
-import type { Shipment, ShipmentStatus } from "@/lib/types"
+import type { ClientBrief, Product, Shipment, ShipmentStatus } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const FILTERS: { value: "all" | ShipmentStatus; label: string }[] = [
@@ -38,28 +52,19 @@ const NEXT_LABEL: Partial<Record<ShipmentStatus, string>> = {
 
 export function TrackingView() {
   const scope = useScope()
-  const shipments = useStore((s) => s.shipments)
-  const lookups = useLookups()
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["value"]>("all")
   const [query, setQuery] = useState("")
   const [creating, setCreating] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
-
-  const mine = useMemo(() => shipments.filter((s) => scope.has(s.fromLocationId)), [shipments, scope])
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { all: mine.length }
-    for (const s of mine) c[s.status] = (c[s.status] ?? 0) + 1
-    return c
-  }, [mine])
-
-  const q = query.trim().toLowerCase()
-  const rows = mine.filter((s) => {
-    if (filter !== "all" && s.status !== filter) return false
-    if (!q) return true
-    const hay = [s.code, lookups.product.get(s.productId)?.name, lookups.client.get(s.clientId)?.name, lookups.client.get(s.clientId)?.company]
-    return hay.some((v) => v?.toLowerCase().includes(q))
-  })
-  const open = mine.find((s) => s.id === openId)
+  const search = useDebounced(query.trim())
+  const [page, setPage] = usePageNumber(search, filter)
+  const counts = useShipmentCounts().data
+  const countOf = (value: (typeof FILTERS)[number]["value"]) =>
+    counts?.reduce((sum, c) => sum + (value === "all" || c.status === value ? c.count : 0), 0)
+  const { data, error, isPending, isPlaceholderData, refetch } = useShipments({ page, search, status: filter === "all" ? undefined : filter })
+  const rows = data?.results ?? []
+  // Kept fresh on its own, so it stays open while the list changes page or filter.
+  const open = useShipment(openId, rows.find((s) => s.id === openId)).data
 
   return (
     <PageBody>
@@ -86,23 +91,23 @@ export function TrackingView() {
               )}
             >
               {f.label}
-              <span className={cn("text-xs tabular-nums", filter === f.value ? "opacity-80" : "text-muted-foreground")}>{counts[f.value] ?? 0}</span>
+              <span className={cn("text-xs tabular-nums", filter === f.value ? "opacity-80" : "text-muted-foreground")}>{countOf(f.value) ?? ""}</span>
             </button>
           ))}
         </div>
-        <div className="relative lg:w-72">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search order, client, product…" className="h-9 pl-9" />
-        </div>
+        <SearchInput value={query} onChange={setQuery} placeholder="Search order, client, product…" className="lg:w-72" />
       </div>
 
-      {rows.length === 0 ? (
+      {error && !data ? (
+        <QueryError error={error} onRetry={() => refetch()} />
+      ) : isPending ? (
+        <ListSkeleton />
+      ) : rows.length === 0 ? (
         <EmptyState icon={Truck} title="No orders here" description="Create an order to send products to a client and track it." />
       ) : (
-        <div className="grid gap-3">
+        <div className={isPlaceholderData ? "grid gap-3 opacity-60 transition-opacity" : "grid gap-3"}>
           {rows.map((s) => {
-            const product = lookups.product.get(s.productId)
-            const client = lookups.client.get(s.clientId)
+            const client = s.client
             return (
               <Card key={s.id} className="cursor-pointer py-4 transition-shadow hover:shadow-md" onClick={() => setOpenId(s.id)}>
                 <CardContent className="grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
@@ -113,11 +118,11 @@ export function TrackingView() {
                       <span className="text-xs text-muted-foreground">updated {timeAgo(s.history[s.history.length - 1].at)}</span>
                     </div>
                     <p className="truncate font-medium">
-                      {s.quantity} × {product?.name ?? "Deleted product"}
+                      {s.quantity} × {s.productName ?? "Deleted product"}
                     </p>
                     <p className="truncate text-sm text-muted-foreground">
                       To {client?.name ?? "Unknown client"}
-                      {client?.company ? ` · ${client.company}` : ""} · from {lookups.location.get(s.fromLocationId)?.name}
+                      {client?.company ? ` · ${client.company}` : ""} · from {scope.locations.find((l) => l.id === s.fromLocationId)?.name}
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
@@ -130,8 +135,9 @@ export function TrackingView() {
           })}
         </div>
       )}
+      {data && <Pager page={data.page} pageSize={PAGE_SIZE} count={data.count} onPage={setPage} busy={isPlaceholderData} />}
 
-      <Sheet open={!!open} onOpenChange={(o) => !o && setOpenId(null)}>
+      <Sheet open={!!openId && !!open} onOpenChange={(o) => !o && setOpenId(null)}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-md">{open && <ShipmentDetail shipment={open} />}</SheetContent>
       </Sheet>
 
@@ -164,11 +170,11 @@ function Progress({ status }: { status: ShipmentStatus }) {
 }
 
 function ShipmentDetail({ shipment: s }: { shipment: Shipment }) {
-  const lookups = useLookups()
-  const setStatus = useStore((st) => st.setShipmentStatus)
+  const scope = useScope()
+  const setStatus = actions.setShipmentStatus
   const [note, setNote] = useState("")
-  const product = lookups.product.get(s.productId)
-  const client = lookups.client.get(s.clientId)
+  const client = s.client
+  const from = scope.locations.find((l) => l.id === s.fromLocationId)?.name
   const next = SHIPMENT_FLOW[SHIPMENT_FLOW.indexOf(s.status) + 1]
   const closed = s.status === "returned" || s.status === "cancelled"
 
@@ -186,16 +192,16 @@ function ShipmentDetail({ shipment: s }: { shipment: Shipment }) {
       </SheetHeader>
       <div className="space-y-6 px-4 pb-6">
         <div className="grid gap-3 rounded-xl border p-4 text-sm">
-          <Row label="Product" value={`${s.quantity} × ${product?.name ?? "Deleted product"}`} />
+          <Row label="Product" value={`${s.quantity} × ${s.productName ?? "Deleted product"}`} />
           {s.unitPrice !== null && <Row label="Price" value={`${formatMoney(s.unitPrice)} each · ${formatMoney(s.unitPrice * s.quantity)}`} />}
           <Row label="Client" value={client ? `${client.name}${client.company ? ` (${client.company})` : ""}` : "Unknown"} />
           {client?.phone && <Row label="Phone" value={client.phone} />}
           {client?.address && <Row label="Deliver to" value={client.address} />}
-          <Row label="Ships from" value={lookups.location.get(s.fromLocationId)?.name ?? "—"} />
+          <Row label="Ships from" value={from ?? "—"} />
           {s.notes && <Row label="Notes" value={s.notes} />}
         </div>
 
-        <TrackingLinkShare shipment={s} client={client} />
+        <TrackingLinkShare shipment={s} client={client ?? undefined} />
 
         {!closed && (
           <div className="space-y-3">
@@ -216,7 +222,7 @@ function ShipmentDetail({ shipment: s }: { shipment: Shipment }) {
                     </Button>
                   }
                   title="Mark as returned?"
-                  description={`${s.quantity} ${product?.unit ?? ""} will be added back to ${lookups.location.get(s.fromLocationId)?.name}.`}
+                  description={`${s.quantity} ${s.productUnit ?? ""} will be added back to ${from}.`}
                   confirmLabel="Mark returned"
                   onConfirm={() => move("returned", "Marked as returned and restocked")}
                 />
@@ -271,26 +277,25 @@ function Row({ label, value }: { label: string; value: string }) {
 
 function NewOrderDialog({ onClose }: { onClose: () => void }) {
   const scope = useScope()
-  const products = useStore((s) => s.products)
-  const stock = useStore((s) => s.stock)
-  const createShipment = useStore((s) => s.createShipment)
   const [run, pending] = useAttempt()
   const links = usePermissions().module("trackingLinks")
   const [from, setFrom] = useState(scope.locations[0]?.id ?? "")
-  const [clientId, setClientId] = useState("")
-  const [productId, setProductId] = useState("")
+  const [client, setClient] = useState<ClientBrief | null>(null)
+  const [product, setProduct] = useState<Product | null>(null)
   const [quantity, setQuantity] = useState("1")
   const [price, setPrice] = useState("")
   const [notes, setNotes] = useState("")
 
-  const available = productId ? qtyAt(stock, productId, from) : 0
+  const clientId = client?.id ?? ""
+  const productId = product?.id ?? ""
+  const available = qtyAt(product, from)
   const qty = Number(quantity)
   const unitPrice = Number(price)
   const valid = from && clientId && productId && Number.isInteger(qty) && qty > 0 && qty <= available && price !== "" && unitPrice >= 0
 
-  const chooseProduct = (id: string) => {
-    setProductId(id)
-    setPrice(String(products.find((p) => p.id === id)?.price ?? ""))
+  const chooseProduct = (p: Product) => {
+    setProduct(p)
+    setPrice(String(p.price))
   }
 
   async function submit(e: React.FormEvent) {
@@ -298,7 +303,7 @@ function NewOrderDialog({ onClose }: { onClose: () => void }) {
     if (!valid) return
     let created: Shipment | undefined
     const ok = await run(async () => {
-      created = await createShipment({ productId, quantity: qty, unitPrice, clientId, fromLocationId: from, notes: notes.trim() || undefined })
+      created = await actions.createShipment({ productId, quantity: qty, unitPrice, clientId, fromLocationId: from, notes: notes.trim() || undefined })
     })
     if (!ok || !created) return
     const order = created
@@ -317,25 +322,26 @@ function NewOrderDialog({ onClose }: { onClose: () => void }) {
             <DialogDescription>Stock is reserved as soon as the order is created.</DialogDescription>
           </DialogHeader>
           <Field label="Client">
-            <ClientPicker value={clientId} onChange={setClientId} />
+            <ClientPicker value={client} onChange={setClient} />
           </Field>
           <Field label="Ship from">
             <SimpleSelect
               value={from}
               onChange={(v) => {
                 setFrom(v)
-                setProductId("")
+                setProduct(null)
               }}
               options={scope.locations.map((l) => ({ value: l.id, label: l.name }))}
             />
           </Field>
           <div className="grid gap-4 sm:grid-cols-[1fr_7rem]">
             <Field label="Product">
-              <SimpleSelect
-                value={productId}
+              <ProductPicker
+                value={product}
                 onChange={chooseProduct}
-                options={products.filter((p) => qtyAt(stock, p.id, from) > 0).map((p) => ({ value: p.id, label: `${p.name} (${qtyAt(stock, p.id, from)})` }))}
-                placeholder="Choose product"
+                params={{ location: from, inStock: true }}
+                describe={(p) => `${qtyAt(p, from)} ${p.unit}`}
+                disabled={!from}
               />
             </Field>
             <Field label="Quantity" htmlFor="ord-qty" hint={productId ? `${available} available` : undefined}>

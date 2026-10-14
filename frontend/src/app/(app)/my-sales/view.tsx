@@ -1,16 +1,16 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useMemo } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { startOfDay, startOfMonth } from "date-fns"
 import { CalendarDays, HandCoins, Package, Receipt, Sun } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { EmptyState, PageBody, PageHeader, Pill, StatCard } from "@/components/common"
-import { useSessionUser } from "@/components/session-provider"
-import { request } from "@/lib/api/client"
+import { EmptyState, PageBody, PageHeader, Pager, Pill, StatCard } from "@/components/common"
+import { useScope, useSessionUser } from "@/components/session-provider"
+import { apiQuery, PAGE_SIZE, usePage, usePageNumber } from "@/lib/data/queries"
 import { formatDateTime, formatMoney, formatNumber } from "@/lib/format"
-import { useLookups } from "@/lib/store/hooks"
 import type { Sale } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { PaymentCell } from "../sales/view"
@@ -26,27 +26,18 @@ const CHANNEL_LABEL = { store: "In store", order: "Order", rental: "Rental" } as
 /** The logged-in person's own selling: today, this month, and every sale this month. Prices only. */
 export function MySalesView() {
   const user = useSessionUser()
-  const lookups = useLookups()
-  const [data, setData] = useState<{ today: Totals; month: Totals; sales: Sale[] } | null>(null)
-  const [error, setError] = useState("")
-
-  useEffect(() => {
-    let cancelled = false
+  const { locations } = useScope()
+  const [page, setPage] = usePageNumber()
+  // Worked out once per visit, so the queries keep the same keys.
+  const since = useMemo(() => {
     const now = new Date()
-    const since = (d: Date) => `mine=1&from=${encodeURIComponent(d.toISOString())}`
-    Promise.all([
-      request<Totals>(`sales/summary/?${since(startOfDay(now))}`),
-      request<Totals>(`sales/summary/?${since(startOfMonth(now))}`),
-      request<Sale[]>(`sales/?${since(startOfMonth(now))}`),
-    ]).then(
-      ([today, month, sales]) => !cancelled && setData({ today, month, sales }),
-      (err: unknown) => !cancelled && setError(err instanceof Error ? err.message : "Couldn't load your sales."),
-    )
-    return () => {
-      cancelled = true
-    }
+    return { today: startOfDay(now).toISOString(), month: startOfMonth(now).toISOString() }
   }, [])
-
+  const today = useQuery(apiQuery<Totals>("sales/summary/", { mine: true, from: since.today })).data
+  const month = useQuery(apiQuery<Totals>("sales/summary/", { mine: true, from: since.month })).data
+  const salesQuery = usePage<Sale>("sales/", { mine: true, from: since.month, page })
+  const error = salesQuery.error?.message ?? ""
+  const data = today && month && salesQuery.data ? { today, month, sales: salesQuery.data.results } : null
   const line = (t: Totals) => `${formatNumber(t.count)} sale${t.count === 1 ? "" : "s"} · ${formatNumber(t.unitsSold)} unit${t.unitsSold === 1 ? "" : "s"}`
 
   return (
@@ -120,12 +111,17 @@ export function MySalesView() {
                       <TableCell className="text-sm whitespace-nowrap">
                         <PaymentCell sale={s} />
                       </TableCell>
-                      <TableCell className="text-sm whitespace-nowrap">{(s.locationId && lookups.location.get(s.locationId)?.name) || "—"}</TableCell>
+                      <TableCell className="text-sm whitespace-nowrap">{(s.locationId && locations.find((l) => l.id === s.locationId)?.name) || "—"}</TableCell>
                       <TableCell className="pr-4 text-sm">{CHANNEL_LABEL[s.channel]}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
+            </div>
+          )}
+          {salesQuery.data && (
+            <div className="px-4 pt-4">
+              <Pager page={salesQuery.data.page} pageSize={PAGE_SIZE} count={salesQuery.data.count} onPage={setPage} busy={salesQuery.isPlaceholderData} />
             </div>
           )}
         </CardContent>

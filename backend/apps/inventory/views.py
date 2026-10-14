@@ -3,8 +3,10 @@ from datetime import timedelta
 import csv
 from decimal import Decimal
 
-from django.db.models import Count, DecimalField, ExpressionWrapper, F, Max, Min, Q, Sum
-from django.db.models.functions import TruncDay, TruncMonth
+from django.db.models import (
+    Count, DecimalField, Exists, ExpressionWrapper, F, IntegerField, Max, Min, OuterRef, Prefetch, Q, Subquery, Sum, Value,
+)
+from django.db.models.functions import Coalesce, TruncDay, TruncMonth
 from django.http import HttpResponse
 from django.utils.dateparse import parse_datetime
 from django.utils import timezone
@@ -17,6 +19,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.models import User
 from apps.accounts.permissions import TEAM, IsTenantMember, ManagerNeedsPermission, allowed_location_ids
+from apps.api import Pagination
 
 from . import services
 from .models import Activity, Client, Location, Product, Rental, Sale, Shipment, StockLevel, StockRequest, Transfer
@@ -42,14 +45,50 @@ from .serializers import (
 )
 
 
+def product_totals(user):
+    """The business's products, each annotated with `scoped_total`: its stock across the user's locations."""
+    allowed = allowed_location_ids(user)
+    here = Q() if allowed is None else Q(stock__location_id__in=allowed)
+    return Product.objects.filter(business=user.business).annotate(scoped_total=Coalesce(Sum("stock__quantity", filter=here), 0))
+
+
 class TenantViewSet(viewsets.GenericViewSet):
     """Scopes every query to the user's business. Defaults to owners and managers."""
 
     permission_classes = [IsTenantMember, ManagerNeedsPermission]
+    pagination_class = Pagination
     model = None
+    # Fields ?search= looks in, ignoring case.
+    search_fields = ()
 
     def get_queryset(self):
         return self.model.objects.filter(business=self.request.user.business)
+
+    def search(self, qs):
+        term = self.request.query_params.get("search", "").strip()
+        if not term or not self.search_fields:
+            return qs
+        query = Q()
+        for field in self.search_fields:
+            query |= Q(**{f"{field}__icontains": term})
+        return qs.filter(query)
+
+    def id_param(self, name):
+        """A numeric id from the query string, or None when it isn't given."""
+        value = self.request.query_params.get(name)
+        if not value:
+            return None
+        if not value.isdigit():
+            raise ValidationError({name: "Unknown id."})
+        return int(value)
+
+    def filter_by_ids(self, qs, **fields):
+        """?<param>=<id> for each param -> field pair, e.g. product="product_id"."""
+        for param, field in fields.items():
+            value = self.id_param(param)
+            if value is not None:
+                qs = qs.filter(**{field: value})
+        return qs
 
     def check_location(self, *locations):
         """Managers and staff can only touch stock at their own locations."""
@@ -76,6 +115,8 @@ class LocationViewSet(TenantViewSet, viewsets.ModelViewSet):
     serializer_class = LocationSerializer
     allowed_roles = TEAM
     manager_permission = "managerLocations"
+    # A handful per business, and every page needs their names.
+    pagination_class = None
 
     # Everyone sees every location's name (transfers and lookups need them);
     # stock and edits stay limited to the user's own locations.
@@ -105,20 +146,83 @@ class LocationViewSet(TenantViewSet, viewsets.ModelViewSet):
 
 
 class ProductViewSet(TenantViewSet, viewsets.ModelViewSet):
+    """Products, each with its stock at the user's locations (`stock` and `total`).
+
+    List filters: ?search=, ?code= (exact barcode or SKU, for scanners), ?category=,
+    ?rentable=1, ?location=<id> (kept there; add &in_stock=1 for some left there),
+    ?stock=in|low|out (by the total at the user's locations), ?attention=1 (low or
+    empty at one of the user's locations) and ?ordering=name.
+    """
+
     model = Product
     allowed_roles = TEAM
     manager_permission = "managerProducts"
+    search_fields = ("name", "sku", "barcode", "category")
 
     def get_serializer_class(self):
         return ProductCreateSerializer if self.action == "create" else ProductSerializer
 
     def get_queryset(self):
-        qs = super().get_queryset().select_related("created_by")
-        # Fast lookup for the scanner on the entry page: ?code=<barcode or sku>
-        code = self.request.query_params.get("code")
+        allowed = allowed_location_ids(self.request.user)
+        rows = StockLevel.objects.all() if allowed is None else StockLevel.objects.filter(location_id__in=allowed)
+        return (
+            super()
+            .get_queryset()
+            .select_related("created_by")
+            .prefetch_related(Prefetch("stock", queryset=rows, to_attr="scoped_stock"))
+        )
+
+    def filter_queryset(self, qs):
+        params = self.request.query_params
+        allowed = allowed_location_ids(self.request.user)
+        qs = self.search(qs)
+        code = params.get("code", "").strip()
         if code:
             qs = qs.filter(Q(barcode=code) | Q(sku__iexact=code))
+        if params.get("category"):
+            qs = qs.filter(category=params["category"])
+        if params.get("rentable") == "1":
+            qs = qs.filter(rentable=True)
+
+        location = self.id_param("location")
+        if location is not None:
+            if allowed is not None and location not in allowed:
+                return qs.none()
+            rows = StockLevel.objects.filter(product=OuterRef("pk"), location_id=location)
+            if params.get("in_stock") == "1":
+                rows = rows.filter(quantity__gt=0)
+            qs = qs.filter(Exists(rows))
+
+        here = Q() if allowed is None else Q(stock__location_id__in=allowed)
+        level = params.get("stock")
+        if level in ("in", "low", "out"):
+            qs = qs.annotate(scoped_total=Coalesce(Sum("stock__quantity", filter=here), 0))
+            if level == "out":
+                qs = qs.filter(scoped_total=0)
+            elif level == "low":
+                qs = qs.filter(scoped_total__gt=0, scoped_total__lte=F("low_stock_threshold"))
+            else:
+                qs = qs.filter(scoped_total__gt=F("low_stock_threshold"))
+        if params.get("attention") == "1":
+            # A location with no stock row counts as empty, so: fewer healthy rows than locations.
+            locations = Location.objects.filter(business=self.request.user.business).count() if allowed is None else len(allowed)
+            healthy = Count("stock", filter=here & Q(stock__quantity__gt=F("low_stock_threshold")))
+            qs = qs.annotate(healthy=healthy).filter(healthy__lt=locations)
+        if params.get("ordering") == "name":
+            qs = qs.order_by("name")
         return qs
+
+    @action(detail=False)
+    def categories(self, request):
+        """Every category in use, for filters and the product form."""
+        names = (
+            Product.objects.filter(business=request.user.business)
+            .exclude(category="")
+            .values_list("category", flat=True)
+            .distinct()
+            .order_by("category")
+        )
+        return Response(list(names))
 
     def check_permissions(self, request):
         super().check_permissions(request)
@@ -156,6 +260,41 @@ class StockViewSet(TenantViewSet, mixins.ListModelMixin):
     def get_queryset(self):
         return self.scope_to_locations(super().get_queryset(), "location_id")
 
+    @action(detail=False)
+    def summary(self, request):
+        """Units, value (at cost) and low or empty products across the user's locations, and per location."""
+        rows = self.get_queryset()
+        value = ExpressionWrapper(F("quantity") * F("product__cost"), output_field=DecimalField(max_digits=18, decimal_places=2))
+        totals = rows.aggregate(units=Sum("quantity"), value=Sum(value))
+        per_location = (
+            rows.values("location_id")
+            .annotate(
+                units=Sum("quantity"),
+                value=Sum(value),
+                products=Count("id", filter=Q(quantity__gt=0)),
+                low=Count("id", filter=Q(quantity__lte=F("product__low_stock_threshold"))),
+            )
+            .order_by()
+        )
+        products = product_totals(request.user)
+        return Response({
+            "products": products.count(),
+            "units": totals["units"] or 0,
+            "value": float(totals["value"] or 0),
+            "low": products.filter(scoped_total__gt=0, scoped_total__lte=F("low_stock_threshold")).count(),
+            "out": products.filter(scoped_total=0).count(),
+            "locations": [
+                {
+                    "location_id": str(r["location_id"]),
+                    "units": r["units"] or 0,
+                    "value": float(r["value"] or 0),
+                    "products": r["products"],
+                    "low": r["low"],
+                }
+                for r in per_location
+            ],
+        })
+
     @action(detail=False, methods=["post"])
     def adjust(self, request):
         if not request.user.may_add_stock:
@@ -175,11 +314,45 @@ class ClientViewSet(TenantViewSet, viewsets.ModelViewSet):
     model = Client
     serializer_class = ClientSerializer
     allowed_roles = TEAM
+    search_fields = ("name", "company", "phone", "email")
 
     def check_permissions(self, request):
         super().check_permissions(request)
         if request.user.role == User.Role.STAFF and self.action not in ("list", "retrieve", "create"):
             raise PermissionDenied()
+
+    def filter_queryset(self, qs):
+        qs = self.search(qs)
+        if self.request.query_params.get("stats") == "1":
+            qs = self.with_stats(qs)
+        return qs
+
+    def with_stats(self, qs):
+        """Open rentals and orders, and what each client has paid, at the user's locations."""
+        allowed = allowed_location_ids(self.request.user)
+
+        def scoped(rows, field):
+            return rows if allowed is None else rows.filter(**{f"{field}__in": allowed})
+
+        def count(rows):
+            return Coalesce(Subquery(rows.values("client").annotate(n=Count("id")).values("n"), output_field=IntegerField()), 0)
+
+        rentals = scoped(Rental.objects.filter(client=OuterRef("pk"), status=Rental.Status.ACTIVE), "location_id")
+        orders = scoped(Shipment.objects.filter(client=OuterRef("pk"), status__in=Shipment.OPEN), "from_location_id")
+        revenue, _ = SaleViewSet.money_expressions()
+        paid = scoped(
+            Sale.objects.filter(client=OuterRef("pk"), refunded_at__isnull=True, payment_status=Sale.PaymentStatus.PAID),
+            "location_id",
+        )
+        money = DecimalField(max_digits=16, decimal_places=2)
+        return qs.annotate(
+            active_rentals=count(rentals),
+            overdue_rentals=count(rentals.filter(Rental.overdue_q())),
+            open_orders=count(orders),
+            lifetime_value=Coalesce(
+                Subquery(paid.values("client").annotate(v=Sum(revenue)).values("v"), output_field=money), Value(0, output_field=money)
+            ),
+        )
 
     def perform_create(self, serializer):
         client = serializer.save(business=self.request.user.business)
@@ -196,13 +369,36 @@ class ClientViewSet(TenantViewSet, viewsets.ModelViewSet):
 
 
 class ShipmentViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin):
+    """Orders. List filters: ?search=, ?status=<status> or open, ?product=, ?client=, ?location=."""
+
     model = Shipment
     serializer_class = ShipmentSerializer
     module = "tracking"
+    search_fields = ("code", "product__name", "client__name", "client__company")
 
     def get_queryset(self):
-        qs = super().get_queryset().prefetch_related("history__by")
+        qs = super().get_queryset().select_related("product", "client").prefetch_related("history__by")
         return self.scope_to_locations(qs, "from_location_id")
+
+    def filter_queryset(self, qs):
+        qs = self.filter_by_ids(self.search(qs), product="product_id", client="client_id", location="from_location_id")
+        status_ = self.request.query_params.get("status")
+        if status_ == "open":
+            qs = qs.filter(status__in=Shipment.OPEN)
+        elif status_:
+            if status_ not in Shipment.Status.values:
+                raise ValidationError({"status": "Unknown status."})
+            qs = qs.filter(status=status_)
+        return qs
+
+    @action(detail=False)
+    def counts(self, request):
+        """How many orders are in each status, for the filter chips. Takes ?location=.
+        A list, since the camelCase renderer would rename keys like "in_delivery"."""
+        qs = self.filter_by_ids(super().get_queryset(), location="from_location_id")
+        qs = self.scope_to_locations(qs, "from_location_id")
+        counts = dict(qs.values_list("status").annotate(n=Count("id")).order_by())
+        return Response([{"status": s, "count": counts.get(s, 0)} for s in Shipment.Status.values])
 
     def perform_create(self, serializer):
         data = serializer.validated_data
@@ -224,9 +420,46 @@ class RentalViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMi
     serializer_class = RentalSerializer
     module = "rentals"
     allowed_roles = TEAM
+    search_fields = ("code", "product__name", "client__name")
 
     def get_queryset(self):
-        return self.scope_to_locations(super().get_queryset(), "location_id")
+        qs = super().get_queryset().select_related("product", "client")
+        return self.scope_to_locations(qs, "location_id")
+
+    def filter_queryset(self, qs):
+        """?search=, ?status=active|returned, ?overdue=1, ?product=, ?client=, ?location=, and
+        ?code= for scanning in: a rental code, or the barcode or SKU of the item."""
+        params = self.request.query_params
+        qs = self.filter_by_ids(self.search(qs), product="product_id", client="client_id", location="location_id")
+        if params.get("status"):
+            if params["status"] not in Rental.Status.values:
+                raise ValidationError({"status": "Unknown status."})
+            qs = qs.filter(status=params["status"])
+        if params.get("overdue") == "1":
+            qs = qs.filter(Rental.overdue_q())
+        code = params.get("code", "").strip()
+        if code:
+            qs = qs.filter(Q(code__iexact=code) | Q(product__barcode=code) | Q(product__sku__iexact=code))
+        return qs
+
+    @action(detail=False)
+    def summary(self, request):
+        """Counts and money for the rentals page. Takes ?product= and ?location=."""
+        qs = self.filter_by_ids(self.get_queryset(), product="product_id", location="location_id")
+        active = qs.filter(status=Rental.Status.ACTIVE)
+        now = timezone.now()
+        # What the rentals out now have run up so far, at today's count of days.
+        running = sum(
+            Rental.quote(r.plan, r.rate, Rental.count_days(r.start_date, now), r.quantity)
+            for r in active.select_related(None).only("plan", "rate", "start_date", "quantity")
+        )
+        return Response({
+            "active": active.count(),
+            "active_units": active.aggregate(n=Sum("quantity"))["n"] or 0,
+            "overdue": active.filter(Rental.overdue_q()).count(),
+            "running": float(running),
+            "earned": float(qs.filter(status=Rental.Status.RETURNED).aggregate(t=Sum("total"))["t"] or 0),
+        })
 
     def check_permissions(self, request):
         super().check_permissions(request)
@@ -255,10 +488,24 @@ class TransferViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModel
     model = Transfer
     serializer_class = TransferSerializer
     module = "transfers"
+    search_fields = ("code", "product__name")
 
     def get_queryset(self):
-        qs = super().get_queryset().select_related("created_by")
+        qs = super().get_queryset().select_related("created_by", "product")
         return self.scope_to_locations(qs, "from_location_id", "to_location_id")
+
+    def filter_queryset(self, qs):
+        """?search=, ?status=, ?product=, ?to=<location>, and ?location= for either end."""
+        qs = self.filter_by_ids(self.search(qs), product="product_id", to="to_location_id")
+        location = self.id_param("location")
+        if location is not None:
+            qs = qs.filter(Q(from_location_id=location) | Q(to_location_id=location))
+        status_ = self.request.query_params.get("status")
+        if status_:
+            if status_ not in Transfer.Status.values:
+                raise ValidationError({"status": "Unknown status."})
+            qs = qs.filter(status=status_)
+        return qs
 
     def perform_create(self, serializer):
         data = serializer.validated_data
@@ -281,21 +528,143 @@ class TransferViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModel
 
 
 class ActivityViewSet(TenantViewSet, mixins.ListModelMixin):
+    """The activity log, newest first. Owners, and managers the owner allows, see
+    everyone's; anyone can see their own with ?mine=1.
+
+    List filters: ?search=, ?user=<id>, ?mine=1 and ?action= (repeat it for several).
+    """
+
     model = Activity
     serializer_class = ActivitySerializer
+    allowed_roles = TEAM
+    search_fields = ("action", "detail")
+    # Without ?page=, the most recent entries.
+    LIST_LIMIT = 500
 
     def get_queryset(self):
         return super().get_queryset().select_related("user")
 
+    def mine_only(self):
+        return self.request.query_params.get("mine") == "1"
+
+    def filter_queryset(self, qs):
+        qs = self.filter_by_ids(self.search(qs), user="user_id")
+        if self.mine_only():
+            qs = qs.filter(user=self.request.user)
+        actions = self.request.query_params.getlist("action")
+        if actions:
+            qs = qs.filter(action__in=actions)
+        return qs
+
     def list(self, request):
-        # The most recent 500 entries, like the frontend's log.
-        return Response(self.get_serializer(self.get_queryset()[:500], many=True).data)
+        qs = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            return self.get_paginated_response(self.get_serializer(page, many=True).data)
+        return Response(self.get_serializer(qs[: self.LIST_LIMIT], many=True).data)
+
+    @action(detail=False)
+    def people(self, request):
+        """Everyone who appears in the log, for the person filter."""
+        rows = self.get_queryset().filter(user__isnull=False).values_list("user_id", "user__name").distinct().order_by("user__name")
+        return Response([{"id": str(uid), "name": name} for uid, name in rows])
 
     def check_permissions(self, request):
         super().check_permissions(request)
         user = request.user
+        if self.action == "list" and self.mine_only():
+            return
+        if user.role == User.Role.STAFF:
+            raise PermissionDenied()
         if user.role == User.Role.MANAGER and not user.business.permission_on("managerActivity"):
             raise PermissionDenied()
+
+
+class OverviewView(APIView):
+    """The dashboard in one call: stock totals, what's running low, open orders,
+    overdue rentals, waiting stock requests and recent activity, all limited to
+    the user's locations and the features they can use.
+
+    ?only=badges returns just the counts the sidebar shows.
+    """
+
+    permission_classes = [IsTenantMember]
+    allowed_roles = TEAM
+    LIST_LENGTH = 6
+
+    def get(self, request):
+        user = request.user
+        business = user.business
+        allowed = allowed_location_ids(user)
+        lead = user.role != User.Role.STAFF
+
+        def scoped(qs, field):
+            return qs if allowed is None else qs.filter(**{f"{field}__in": allowed})
+
+        rentals_on = business.module_on("rentals")
+        tracking_on = lead and business.module_on("tracking")
+        transfers_on = lead and business.module_on("transfers")
+        rentals = scoped(Rental.objects.filter(business=business), "location_id")
+        overdue = rentals.filter(Rental.overdue_q())
+        shipments = scoped(Shipment.objects.filter(business=business), "from_location_id")
+
+        data = {
+            "overdue_rentals": overdue.count() if rentals_on else 0,
+            "open_orders": shipments.filter(status__in=Shipment.OPEN).count() if tracking_on else 0,
+            "waiting_requests": self.waiting_requests(user) if transfers_on else 0,
+        }
+        if request.query_params.get("only") == "badges":
+            return Response(data)
+
+        stock = scoped(StockLevel.objects.filter(business=business), "location_id")
+        value = ExpressionWrapper(F("quantity") * F("product__cost"), output_field=DecimalField(max_digits=18, decimal_places=2))
+        totals = stock.aggregate(units=Sum("quantity"), value=Sum(value))
+        per_location = dict(stock.values_list("location_id").annotate(units=Sum("quantity")).order_by())
+        data.update(
+            products=Product.objects.filter(business=business).count(),
+            units=totals["units"] or 0,
+            value=float(totals["value"] or 0),
+            units_by_location={str(k): v for k, v in per_location.items()},
+            **self.low_stock(user, stock),
+        )
+        if rentals_on:
+            data["active_rentals"] = rentals.filter(status=Rental.Status.ACTIVE).count()
+            data["overdue_list"] = RentalSerializer(
+                overdue.select_related("product", "client").order_by("due_at")[: self.LIST_LENGTH], many=True,
+                context={"request": request},
+            ).data
+        if tracking_on:
+            counts = dict(shipments.filter(status__in=Shipment.OPEN).values_list("status").annotate(n=Count("id")).order_by())
+            # A list, since the camelCase renderer would rename keys like "in_delivery".
+            data["orders_by_status"] = [{"status": s, "count": counts.get(s, 0)} for s in Shipment.OPEN]
+        if user.role == User.Role.OWNER or (user.role == User.Role.MANAGER and business.permission_on("managerActivity")):
+            recent = Activity.objects.filter(business=business).select_related("user")[: self.LIST_LENGTH]
+            data["recent_activity"] = ActivitySerializer(recent, many=True).data
+        return Response(data)
+
+    def low_stock(self, user, stock):
+        """Products with none left anywhere the user works, then products running low where they're kept.
+        A shop that never carries an item isn't "out" of it."""
+        out = product_totals(user).filter(scoped_total=0)
+        running_low = stock.filter(quantity__gt=0, quantity__lte=F("product__low_stock_threshold"))
+        rows = [
+            {"product_id": str(p.id), "product_name": p.name, "location_id": None, "quantity": 0}
+            for p in out.order_by("name")[: self.LIST_LENGTH]
+        ]
+        if len(rows) < self.LIST_LENGTH:
+            rows += [
+                {"product_id": str(r.product_id), "product_name": r.product.name, "location_id": str(r.location_id), "quantity": r.quantity}
+                for r in running_low.select_related("product").order_by("quantity", "product__name")[: self.LIST_LENGTH - len(rows)]
+            ]
+        return {"low_stock_count": out.count() + running_low.count(), "low_stock": rows}
+
+    @staticmethod
+    def waiting_requests(user):
+        """Requests waiting for someone other than the person who asked (owners see all of them)."""
+        waiting = StockRequest.objects.filter(business=user.business, status=StockRequest.Status.PENDING)
+        if user.role != User.Role.OWNER:
+            waiting = waiting.exclude(requested_by=user)
+        return waiting.count()
 
 
 class PublicTrackingView(APIView):
@@ -354,7 +723,7 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixi
     LIST_LIMIT = 500
 
     def get_queryset(self):
-        qs = super().get_queryset().select_related("sold_by")
+        qs = super().get_queryset().select_related("sold_by", "client")
         if self.request.user.role == User.Role.STAFF:
             qs = qs.filter(sold_by=self.request.user)
         return self.scope_to_locations(qs, "location_id")
@@ -399,9 +768,13 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixi
         return qs
 
     def list(self, request):
-        """The newest sales matching the filters (up to 500; the summary has the full totals)."""
-        sales = self.filtered()[: self.LIST_LIMIT]
-        return Response(self.get_serializer(sales, many=True).data)
+        """The newest sales matching the filters, by page with ?page=, otherwise up to 500.
+        The summary has the full totals."""
+        qs = self.filtered()
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            return self.get_paginated_response(self.get_serializer(page, many=True).data)
+        return Response(self.get_serializer(qs[: self.LIST_LIMIT], many=True).data)
 
     @action(detail=False)
     def summary(self, request):
@@ -592,11 +965,20 @@ class StockRequestViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateMod
     module = "transfers"
 
     def get_queryset(self):
-        qs = super().get_queryset().select_related("requested_by", "decided_by", "transfer")
+        qs = super().get_queryset().select_related("requested_by", "decided_by", "transfer", "product")
         allowed = allowed_location_ids(self.request.user)
         if allowed is None:
             return qs
         return qs.filter(Q(to_location_id__in=allowed) | Q(status=StockRequest.Status.PENDING) | Q(transfer__from_location_id__in=allowed))
+
+    def filter_queryset(self, qs):
+        """?status=pending, or ?status=handled for everything else."""
+        status_ = self.request.query_params.get("status")
+        if status_ == "pending":
+            qs = qs.filter(status=StockRequest.Status.PENDING)
+        elif status_ == "handled":
+            qs = qs.exclude(status=StockRequest.Status.PENDING)
+        return qs
 
     def perform_create(self, serializer):
         data = serializer.validated_data

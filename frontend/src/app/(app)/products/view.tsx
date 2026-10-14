@@ -1,12 +1,11 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { CalendarClock, MoreHorizontal, Package, Pencil, Plus, Search, Trash2 } from "lucide-react"
+import { CalendarClock, MoreHorizontal, Package, Pencil, Plus, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   DropdownMenu,
@@ -15,12 +14,25 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { attempt, ConfirmAction, EmptyState, PageBody, PageHeader, Pill, SimpleSelect } from "@/components/common"
+import {
+  attempt,
+  ConfirmAction,
+  EmptyState,
+  ListSkeleton,
+  PageBody,
+  PageHeader,
+  Pager,
+  Pill,
+  QueryError,
+  SearchInput,
+  SimpleSelect,
+} from "@/components/common"
 import { usePermissions } from "@/components/session-provider"
 import { StockPill } from "@/components/status"
+import { actions } from "@/lib/data/actions"
+import { PAGE_SIZE, useCategories, useDebounced, usePageNumber, useProducts, useStockSummary } from "@/lib/data/queries"
 import { formatMoney, formatNumber } from "@/lib/format"
-import { useStore } from "@/lib/store"
-import { useScopedTotals } from "@/lib/store/hooks"
+import type { Product } from "@/lib/types"
 
 const STOCK_FILTERS = [
   { value: "all", label: "All stock levels" },
@@ -31,37 +43,30 @@ const STOCK_FILTERS = [
 
 export function ProductsView() {
   const router = useRouter()
-  const products = useStore((s) => s.products)
-  const deleteProduct = useStore((s) => s.deleteProduct)
-  const totals = useScopedTotals()
   const [query, setQuery] = useState("")
   const [category, setCategory] = useState("all")
   const [stockFilter, setStockFilter] = useState("all")
-  const [deleting, setDeleting] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<Product | null>(null)
+  const search = useDebounced(query.trim())
+  const [page, setPage] = usePageNumber(search, category, stockFilter)
 
-  const categories = useMemo(() => [...new Set(products.map((p) => p.category))].sort(), [products])
-
-  const rows = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return products.filter((p) => {
-      const qty = totals.get(p.id) ?? 0
-      if (q && ![p.name, p.sku, p.barcode ?? "", p.category].some((v) => v.toLowerCase().includes(q))) return false
-      if (category !== "all" && p.category !== category) return false
-      if (stockFilter === "out" && qty > 0) return false
-      if (stockFilter === "low" && (qty === 0 || qty > p.lowStockThreshold)) return false
-      if (stockFilter === "in" && qty <= p.lowStockThreshold) return false
-      return true
-    })
-  }, [products, totals, query, category, stockFilter])
-
-  const toDelete = products.find((p) => p.id === deleting)
+  const categories = useCategories()
+  const total = useStockSummary().data?.products
+  const { data, error, isPending, isPlaceholderData, refetch } = useProducts({
+    page,
+    search,
+    category: category === "all" ? undefined : category,
+    stock: stockFilter === "all" ? undefined : stockFilter,
+  })
+  const rows = data?.results ?? []
+  const filtered = !!search || category !== "all" || stockFilter !== "all"
   const canEdit = usePermissions().can("managerProducts")
 
   return (
     <PageBody>
       <PageHeader
         title="Products"
-        description={`${products.length} products in your catalogue`}
+        description={total === undefined ? "Your catalogue" : `${formatNumber(total)} products in your catalogue`}
         actions={
           canEdit && (
             <Button render={<Link href="/products/new" />} nativeButton={false}>
@@ -73,10 +78,7 @@ export function ProductsView() {
       />
 
       <div className="flex flex-col gap-2 md:flex-row">
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name, SKU, barcode…" className="h-9 pl-9" />
-        </div>
+        <SearchInput value={query} onChange={setQuery} placeholder="Search name, SKU, barcode…" className="flex-1" />
         <SimpleSelect
           value={category}
           onChange={setCategory}
@@ -86,13 +88,17 @@ export function ProductsView() {
         <SimpleSelect value={stockFilter} onChange={setStockFilter} options={STOCK_FILTERS} className="h-9! md:w-44" />
       </div>
 
-      {rows.length === 0 ? (
+      {error && !data ? (
+        <QueryError error={error} onRetry={() => refetch()} />
+      ) : isPending ? (
+        <ListSkeleton />
+      ) : rows.length === 0 ? (
         <EmptyState
           icon={Package}
-          title={products.length === 0 ? "No products yet" : "No products match your filters"}
-          description={products.length === 0 ? "Add your first product, or scan its barcode from Quick Entry." : "Try a different search or clear the filters."}
+          title={filtered ? "No products match your filters" : "No products yet"}
+          description={filtered ? "Try a different search or clear the filters." : "Add your first product, or scan its barcode from Quick Entry."}
           action={
-            products.length === 0 &&
+            !filtered &&
             canEdit && (
               <Button render={<Link href="/products/new" />} nativeButton={false}>
                 <Plus />
@@ -102,7 +108,7 @@ export function ProductsView() {
           }
         />
       ) : (
-        <Card className="py-0">
+        <Card className={isPlaceholderData ? "py-0 opacity-60 transition-opacity" : "py-0"}>
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
@@ -117,7 +123,7 @@ export function ProductsView() {
               </TableHeader>
               <TableBody>
                 {rows.map((p) => {
-                  const qty = totals.get(p.id) ?? 0
+                  const qty = p.total ?? 0
                   return (
                     <TableRow key={p.id} className="cursor-pointer" onClick={() => router.push(`/products/${p.id}`)}>
                       <TableCell className="pl-4">
@@ -164,7 +170,7 @@ export function ProductsView() {
                                   Edit
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem variant="destructive" onClick={() => setDeleting(p.id)}>
+                                <DropdownMenuItem variant="destructive" onClick={() => setDeleting(p)}>
                                   <Trash2 />
                                   Delete
                                 </DropdownMenuItem>
@@ -181,12 +187,13 @@ export function ProductsView() {
           </div>
         </Card>
       )}
+      {data && <Pager page={data.page} pageSize={PAGE_SIZE} count={data.count} onPage={setPage} busy={isPlaceholderData} />}
 
-      {toDelete && (
+      {deleting && (
         <DeleteProductDialog
-          name={toDelete.name}
+          name={deleting.name}
           onClose={() => setDeleting(null)}
-          onConfirm={() => attempt(() => deleteProduct(toDelete.id), "Product deleted")}
+          onConfirm={() => attempt(() => actions.deleteProduct(deleting.id), "Product deleted")}
         />
       )}
     </PageBody>

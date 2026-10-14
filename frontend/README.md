@@ -92,7 +92,11 @@ transaction id must match), so a faked callback can't unlock a business.
 - **Pages and server actions** call Django from the Next.js server (`src/lib/api/server.ts`). The DAL asks
   `/api/auth/me/` on every request, so disabling a user or suspending a business takes effect at once.
 - **The browser** calls Django through `/api/backend/...` (`src/app/api/backend/`), which adds the token from the
-  cookie. The inventory store (`src/lib/store/`) loads everything the user can see and sends each change there.
+  cookie, with a 15 second limit on the wait for Django.
+- **Data in the browser** (`src/lib/data/`) uses TanStack Query. Lists come a page at a time (`?page=`), and the
+  server does the searching, filtering and totals, so a business with thousands of products loads as fast as one
+  with ten. After a change, `actions.ts` refreshes only the lists that change touched: lists on screen refetch now,
+  others when they're next shown.
 
 ## Where things live
 
@@ -106,6 +110,6 @@ transaction id must match), so a faked callback can't unlock a business.
 | `src/app/(platform)/` | Super admin console |
 | `src/lib/billing/` | Start-payment action and payment queries |
 | `src/app/api/payments/sslcommerz/` | SSLCommerz success / fail / cancel / IPN callbacks, forwarded to Django |
-| `src/lib/store/` | Inventory data loaded from the API, and every change (Zustand) |
+| `src/lib/data/` | Inventory reads (`queries.ts`, TanStack Query) and every change (`actions.ts`) |
 | `src/lib/types.ts` | Data shapes; the Django serializers return exactly these |
 | `src/app/(app)/*` | One folder per page: `page.tsx` checks the role, `view.tsx` is the UI |

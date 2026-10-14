@@ -1,24 +1,24 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import Link from "next/link"
 import { AlertTriangle, ArrowRight, Boxes, CalendarClock, DollarSign, Package, Truck } from "lucide-react"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
-import { PageBody, PageHeader, Pill, StatCard } from "@/components/common"
+import { PageBody, PageHeader, Pill, QueryError, StatCard } from "@/components/common"
 import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { SHIPMENT_STATUS } from "@/components/status"
 import { RequestStockDialog } from "@/components/stock-request-dialog"
+import { Skeleton } from "@/components/ui/skeleton"
+import { useOverview } from "@/lib/data/queries"
 import { formatMoney, formatNumber, timeAgo } from "@/lib/format"
-import { isOverdue, rentalOverdueDays } from "@/lib/rental"
-import { qtyAt, useStore } from "@/lib/store"
-import { useLookups } from "@/lib/store/hooks"
+import { rentalOverdueDays } from "@/lib/rental"
 import type { ShipmentStatus } from "@/lib/types"
 
 const chartConfig = { units: { label: "Units", color: "var(--chart-1)" } } satisfies ChartConfig
-const OPEN: ShipmentStatus[] = ["pending", "processing", "in_delivery"]
+const OPEN = ["pending", "processing", "in_delivery"] as const satisfies ShipmentStatus[]
 
 export function DashboardView() {
   const user = useSessionUser()
@@ -29,74 +29,70 @@ export function DashboardView() {
   const canRequest = module("transfers") && canOpen("/transfers")
   const showOrders = module("tracking")
   const showRentals = module("rentals")
-  const products = useStore((s) => s.products)
-  const stock = useStore((s) => s.stock)
-  const rentals = useStore((s) => s.rentals)
-  const shipments = useStore((s) => s.shipments)
-  const activity = useStore((s) => s.activity)
-  const lookups = useLookups()
-
-  const data = useMemo(() => {
-    const scopedStock = stock.filter((s) => scope.has(s.locationId))
-    const units = scopedStock.reduce((sum, s) => sum + s.quantity, 0)
-    const value = scopedStock.reduce((sum, s) => sum + s.quantity * (lookups.product.get(s.productId)?.cost ?? 0), 0)
-
-    // Running low where a product is actually kept, plus products with none left anywhere.
-    // A shop that never carries an item isn't "out" of it.
-    const runningLow = scope.locations.flatMap((l) =>
-      products
-        .map((p) => ({ product: p, location: l.name, locationId: l.id, quantity: qtyAt(stock, p.id, l.id) }))
-        .filter((r) => r.quantity > 0 && r.quantity <= r.product.lowStockThreshold),
-    )
-    const outEverywhere = products
-      .filter((p) => scope.locations.every((l) => qtyAt(stock, p.id, l.id) === 0))
-      .map((p) => ({ product: p, location: "All locations", locationId: undefined as string | undefined, quantity: 0 }))
-    const lowStock = [...outEverywhere, ...runningLow.sort((a, b) => a.quantity - b.quantity)]
-
-    const myRentals = rentals.filter((r) => scope.has(r.locationId))
-    const active = myRentals.filter((r) => r.status === "active")
-    const overdue = active.filter((r) => isOverdue(r)).sort((a, b) => (rentalOverdueDays(b) ?? 0) - (rentalOverdueDays(a) ?? 0))
-
-    const myShipments = shipments.filter((s) => scope.has(s.fromLocationId))
-    const byStatus = OPEN.map((status) => ({ status, count: myShipments.filter((s) => s.status === status).length }))
-
-    const chart = scope.locations.map((l) => ({
-      name: l.name,
-      units: scopedStock.filter((s) => s.locationId === l.id).reduce((sum, s) => sum + s.quantity, 0),
-    }))
-
-    return { units, value, lowStock, active, overdue, byStatus, openOrders: byStatus.reduce((s, b) => s + b.count, 0), chart }
-  }, [stock, products, rentals, shipments, scope, lookups])
-
+  const { data: overview, error, refetch } = useOverview()
   const hour = new Date().getHours()
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"
+  const locationName = new Map(scope.locations.map((l) => [l.id, l.name]))
+
+  const header = (
+    <PageHeader
+      title={`${greeting}, ${user.name.split(" ")[0]}`}
+      description={
+        scope.isOwner
+          ? "Here's what's happening across all your locations."
+          : `Here's what's happening at ${scope.locations.map((l) => l.name).join(" & ")}.`
+      }
+    />
+  )
+  if (!overview) {
+    return (
+      <PageBody>
+        {header}
+        {error ? (
+          <QueryError error={error} onRetry={() => refetch()} />
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 4 }, (_, i) => (
+              <Skeleton key={i} className="h-28 rounded-xl" />
+            ))}
+          </div>
+        )}
+      </PageBody>
+    )
+  }
+
+  const byStatus = OPEN.map((status) => ({ status, count: overview.ordersByStatus?.find((o) => o.status === status)?.count ?? 0 }))
+  const data = {
+    lowStock: overview.lowStock,
+    overdue: overview.overdueList ?? [],
+    byStatus,
+    openOrders: byStatus.reduce((sum, b) => sum + b.count, 0),
+    chart: scope.locations.map((l) => ({ name: l.name, units: overview.unitsByLocation[l.id] ?? 0 })),
+  }
 
   return (
     <PageBody>
-      <PageHeader
-        title={`${greeting}, ${user.name.split(" ")[0]}`}
-        description={
-          scope.isOwner
-            ? "Here's what's happening across all your locations."
-            : `Here's what's happening at ${scope.locations.map((l) => l.name).join(" & ")}.`
-        }
-      />
+      {header}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Products" value={formatNumber(products.length)} hint={`${formatNumber(data.units)} units in stock`} icon={Package} />
-        <StatCard label="Stock value (cost)" value={formatMoney(data.value)} icon={DollarSign} tone="green" />
+        <StatCard label="Products" value={formatNumber(overview.products)} hint={`${formatNumber(overview.units)} units in stock`} icon={Package} />
+        <StatCard label="Stock value (cost)" value={formatMoney(overview.value)} icon={DollarSign} tone="green" />
         {showOrders && (
           <StatCard label="Open orders" value={data.openOrders} hint={`${data.byStatus[2].count} out for delivery`} icon={Truck} tone="violet" />
         )}
         {showRentals && (
           <StatCard
             label="Active rentals"
-            value={data.active.length}
+            value={overview.activeRentals ?? 0}
             hint={
-              data.overdue.length ? <span className="font-medium text-red-600 dark:text-red-400">{data.overdue.length} overdue</span> : "None overdue"
+              overview.overdueRentals ? (
+                <span className="font-medium text-red-600 dark:text-red-400">{overview.overdueRentals} overdue</span>
+              ) : (
+                "None overdue"
+              )
             }
             icon={CalendarClock}
-            tone={data.overdue.length ? "red" : "amber"}
+            tone={overview.overdueRentals ? "red" : "amber"}
           />
         )}
       </div>
@@ -156,19 +152,19 @@ export function DashboardView() {
               <AlertTriangle className="size-4 text-amber-500" />
               Low stock
             </CardTitle>
-            <CardDescription>{data.lowStock.length} item(s) need restocking</CardDescription>
+            <CardDescription>{overview.lowStockCount} item(s) need restocking</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {data.lowStock.slice(0, 6).map(({ product, location, locationId, quantity }) => (
-              <div key={product.id + location} className="flex items-center justify-between gap-3 text-sm">
-                <Link href={`/products/${product.id}`} className="min-w-0 rounded-lg hover:underline">
-                  <span className="block truncate font-medium">{product.name}</span>
-                  <span className="block truncate text-xs text-muted-foreground">{location}</span>
+            {data.lowStock.map(({ productId, productName, locationId, quantity }) => (
+              <div key={`${productId}-${locationId}`} className="flex items-center justify-between gap-3 text-sm">
+                <Link href={`/products/${productId}`} className="min-w-0 rounded-lg hover:underline">
+                  <span className="block truncate font-medium">{productName}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{locationId ? locationName.get(locationId) : "All locations"}</span>
                 </Link>
                 <span className="flex shrink-0 items-center gap-2">
                   {quantity === 0 ? <Pill tone="red">Out</Pill> : <Pill tone="amber">{quantity} left</Pill>}
                   {canRequest && (
-                    <Button size="xs" variant="outline" onClick={() => setRequesting({ productId: product.id, locationId })}>
+                    <Button size="xs" variant="outline" onClick={() => setRequesting({ productId, locationId: locationId ?? undefined })}>
                       Request
                     </Button>
                   )}
@@ -176,9 +172,9 @@ export function DashboardView() {
               </div>
             ))}
             {data.lowStock.length === 0 && <p className="text-sm text-muted-foreground">Everything is well stocked.</p>}
-            {data.lowStock.length > 6 && (
+            {overview.lowStockCount > data.lowStock.length && (
               <Button variant="outline" size="sm" className="w-full" render={<Link href="/inventory" />} nativeButton={false}>
-                See all {data.lowStock.length}
+                See all {overview.lowStockCount}
               </Button>
             )}
           </CardContent>
@@ -194,13 +190,13 @@ export function DashboardView() {
               <CardDescription>Items that should be back by now</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {data.overdue.slice(0, 6).map((r) => {
-                const client = lookups.client.get(r.clientId)
+              {data.overdue.map((r) => {
+                const client = r.client
                 const days = rentalOverdueDays(r) ?? 0
                 return (
                   <Link key={r.id} href="/rentals" className="flex items-center justify-between gap-3 text-sm hover:underline">
                     <span className="min-w-0">
-                      <span className="block truncate font-medium">{lookups.product.get(r.productId)?.name}</span>
+                      <span className="block truncate font-medium">{r.productName ?? "Deleted product"}</span>
                       <span className="block truncate text-xs text-muted-foreground">
                         {client?.name}
                         {client?.phone ? ` · ${client.phone}` : ""}
@@ -231,7 +227,7 @@ export function DashboardView() {
             )}
           </CardHeader>
           <CardContent className="space-y-3">
-            {activity.slice(0, 6).map((a) => (
+            {(overview.recentActivity ?? []).map((a) => (
               <div key={a.id} className="text-sm">
                 <div className="flex justify-between gap-2">
                   <span className="font-medium">{a.action}</span>

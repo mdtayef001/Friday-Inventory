@@ -16,6 +16,7 @@ router.register("sales", views.SaleViewSet, basename="sale")
 router.register("stock-requests", views.StockRequestViewSet, basename="stock-request")
 
 urlpatterns = [
+    path("overview/", views.OverviewView.as_view()),
     path("track/<str:token>/", views.PublicTrackingView.as_view()),
     path("sale-payments/<str:result>/", views.SalePaymentResultView.as_view()),
     *router.urls,

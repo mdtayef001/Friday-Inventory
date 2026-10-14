@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import Link from "next/link"
 import { MapPin, Pencil, Phone, Plus, Store, Trash2, Warehouse } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -9,40 +9,24 @@ import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { attempt, useAttempt, ConfirmAction, EmptyState, Field, PageBody, PageHeader, Pill, SimpleSelect } from "@/components/common"
 import { usePermissions, useScope } from "@/components/session-provider"
+import { actions } from "@/lib/data/actions"
+import { useStockSummary } from "@/lib/data/queries"
 import { formatMoney, formatNumber } from "@/lib/format"
-import { useStore } from "@/lib/store"
 import type { Location, LocationType } from "@/lib/types"
 
 export function LocationsView() {
   const scope = useScope()
-  const stock = useStore((s) => s.stock)
-  const products = useStore((s) => s.products)
-  const deleteLocation = useStore((s) => s.deleteLocation)
   const [editing, setEditing] = useState<Location | "new" | null>(null)
   // Owners add and delete locations; managers may edit their own if the owner allows it.
   const canEdit = usePermissions().can("managerLocations")
-
-  const stats = useMemo(() => {
-    const product = new Map(products.map((p) => [p.id, p]))
-    const map = new Map<string, { units: number; value: number; skus: number; low: number }>()
-    for (const row of stock) {
-      const p = product.get(row.productId)
-      if (!p) continue
-      const s = map.get(row.locationId) ?? { units: 0, value: 0, skus: 0, low: 0 }
-      s.units += row.quantity
-      s.value += row.quantity * p.cost
-      s.skus += 1
-      if (row.quantity <= p.lowStockThreshold) s.low += 1
-      map.set(row.locationId, s)
-    }
-    return map
-  }, [stock, products])
+  const summary = useStockSummary().data
+  const stats = new Map(summary?.locations.map((l) => [l.locationId, l]))
 
   const warehouses = scope.locations.filter((l) => l.type === "warehouse")
   const outlets = scope.locations.filter((l) => l.type === "outlet")
 
   const renderCard = (l: Location) => {
-    const s = stats.get(l.id) ?? { units: 0, value: 0, skus: 0, low: 0 }
+    const s = stats.get(l.id) ?? { units: 0, value: 0, products: 0, low: 0 }
     const Icon = l.type === "warehouse" ? Warehouse : Store
     return (
       <Card key={l.id} className="transition-shadow hover:shadow-md">
@@ -75,7 +59,7 @@ export function LocationsView() {
         </CardHeader>
         <CardContent className="grid grid-cols-3 gap-2 text-center">
           <div className="rounded-lg bg-muted/50 p-2">
-            <p className="text-lg font-semibold tabular-nums">{formatNumber(s.skus)}</p>
+            <p className="text-lg font-semibold tabular-nums">{formatNumber(s.products)}</p>
             <p className="text-xs text-muted-foreground">Products</p>
           </div>
           <div className="rounded-lg bg-muted/50 p-2">
@@ -108,7 +92,7 @@ export function LocationsView() {
                 description="You can only delete a location after its stock has been moved or removed."
                 confirmLabel="Delete"
                 destructive
-                onConfirm={() => attempt(() => deleteLocation(l.id), "Location deleted")}
+                onConfirm={() => attempt(() => actions.deleteLocation(l.id), "Location deleted")}
               />
             </>
           )}
@@ -153,8 +137,7 @@ export function LocationsView() {
 }
 
 function LocationDialog({ location, onClose }: { location?: Location; onClose: () => void }) {
-  const addLocation = useStore((s) => s.addLocation)
-  const updateLocation = useStore((s) => s.updateLocation)
+  const { addLocation, updateLocation } = actions
   const [name, setName] = useState(location?.name ?? "")
   const [type, setType] = useState<LocationType>(location?.type ?? "outlet")
   const [address, setAddress] = useState(location?.address ?? "")

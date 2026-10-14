@@ -1,22 +1,22 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
+import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { endOfDay, format, startOfDay, startOfMonth, subDays, subMonths } from "date-fns"
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
-import { CalendarClock, DollarSign, Download, Package, Percent, Receipt, ShoppingCart, Store, Trophy, TrendingUp, Truck } from "lucide-react"
+import { CalendarClock, DollarSign, Download, Package, Percent, Receipt, ShoppingCart, Store, Trophy, TrendingUp, Truck, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { EmptyState, PageBody, PageHeader, Pill, SimpleSelect, StatCard, type PillTone } from "@/components/common"
+import { EmptyState, PageBody, PageHeader, Pager, Pill, SimpleSelect, StatCard, type PillTone } from "@/components/common"
+import { ProductPicker } from "@/components/product-picker"
 import { usePermissions, useScope } from "@/components/session-provider"
-import { request } from "@/lib/api/client"
+import { apiQuery, PAGE_SIZE, usePage, usePageNumber, withParams } from "@/lib/data/queries"
 import { formatDateTime, formatMoney, formatNumber } from "@/lib/format"
-import { useStore } from "@/lib/store"
-import { useLookups } from "@/lib/store/hooks"
-import type { PaymentMethod, Sale, SaleChannel } from "@/lib/types"
+import type { PaymentMethod, Product, Sale, SaleChannel } from "@/lib/types"
 import { PAYMENT_METHODS } from "@/lib/business"
 import { cn } from "@/lib/utils"
 
@@ -99,8 +99,7 @@ function range(period: Period, customFrom: string, customTo: string): { from?: D
 
 export function SalesView() {
   const scope = useScope()
-  const products = useStore((s) => s.products)
-  const lookups = useLookups()
+  const locationName = (id: string) => scope.locations.find((l) => l.id === id)?.name
   // Owners always; managers when the owner allows it. Django sends profit only then, too.
   const showProfit = usePermissions().can("managerProfit")
   const [topSort, setTopSort] = useState<TopSort>("revenue")
@@ -109,44 +108,32 @@ export function SalesView() {
   const [customFrom, setCustomFrom] = useState("")
   const [customTo, setCustomTo] = useState("")
   const [location, setLocation] = useState("all")
-  const [product, setProduct] = useState("all")
+  const [product, setProduct] = useState<Product | null>(null)
   const [seller, setSeller] = useState("all")
   const [channel, setChannel] = useState<"all" | SaleChannel>("all")
   const [method, setMethod] = useState<"all" | PaymentMethod | "none">("all")
-  const [data, setData] = useState<{ key: string; summary: Summary; sales: Sale[] } | null>(null)
-  const [error, setError] = useState("")
 
-  const query = useMemo(() => {
+  const params = useMemo(() => {
     const { from, to } = range(period, customFrom, customTo)
-    const q = new URLSearchParams()
-    if (from) q.set("from", from.toISOString())
-    if (to) q.set("to", to.toISOString())
-    if (location !== "all") q.set("location", location)
-    if (product !== "all") q.set("product", product)
-    if (seller !== "all") q.set("seller", seller)
-    if (channel !== "all") q.set("channel", channel)
-    if (method !== "all") q.set("method", method)
-    return q.toString()
+    return {
+      from: from?.toISOString(),
+      to: to?.toISOString(),
+      location: location === "all" ? undefined : location,
+      product: product?.id,
+      seller: seller === "all" ? undefined : seller,
+      channel: channel === "all" ? undefined : channel,
+      method: method === "all" ? undefined : method,
+    }
   }, [period, customFrom, customTo, location, product, seller, channel, method])
 
-  useEffect(() => {
-    let cancelled = false
-    Promise.all([request<Summary>(`sales/summary/?${query}`), request<Sale[]>(`sales/?${query}`)]).then(
-      ([summary, sales]) => {
-        if (cancelled) return
-        setData({ key: query, summary, sales })
-        setError("")
-      },
-      (err: unknown) => !cancelled && setError(err instanceof Error ? err.message : "Couldn't load sales."),
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [query])
-
-  const loading = data?.key !== query
-  const summary = data?.summary
-  const sales = data?.sales ?? []
+  const summaryQuery = useQuery({ ...apiQuery<Summary>("sales/summary/", params), placeholderData: keepPreviousData })
+  const [page, setPage] = usePageNumber(params)
+  const salesQuery = usePage<Sale>("sales/", { ...params, page })
+  const summary = summaryQuery.data
+  const list = salesQuery.data
+  const sales = list?.results ?? []
+  const loading = summaryQuery.isPlaceholderData || salesQuery.isPlaceholderData
+  const error = summaryQuery.error ?? salesQuery.error
   const top = useMemo(
     () => [...(summary?.topProducts ?? [])].sort((a, b) => (b[topSort] ?? 0) - (a[topSort] ?? 0)).slice(0, 10),
     [summary, topSort],
@@ -159,7 +146,7 @@ export function SalesView() {
         title="Sales"
         description={showProfit ? "What you sold, what it earned and what you kept." : "What your shops sold."}
         actions={
-          <Button variant="outline" render={<a href={`/api/backend/sales/export/?${query}`} download />} nativeButton={false}>
+          <Button variant="outline" render={<a href={`/api/backend/${withParams("sales/export/", params)}`} download />} nativeButton={false}>
             <Download />
             Export CSV
           </Button>
@@ -180,12 +167,14 @@ export function SalesView() {
           onChange={setLocation}
           options={[{ value: "all", label: scope.isOwner ? "All locations" : "All my shops" }, ...scope.locations.map((l) => ({ value: l.id, label: l.name }))]}
         />
-        <SimpleSelect
-          className="w-52"
-          value={product}
-          onChange={setProduct}
-          options={[{ value: "all", label: "All products" }, ...products.map((p) => ({ value: p.id, label: p.name }))]}
-        />
+        <div className="flex w-52 gap-1">
+          <ProductPicker value={product} onChange={setProduct} placeholder="All products" />
+          {product && (
+            <Button variant="ghost" size="icon" onClick={() => setProduct(null)} aria-label="Show all products">
+              <X />
+            </Button>
+          )}
+        </div>
         <SimpleSelect
           className="w-40"
           value={channel}
@@ -210,7 +199,7 @@ export function SalesView() {
         />
       </div>
 
-      {error && <p className="text-sm font-medium text-destructive">{error}</p>}
+      {error && <p className="text-sm font-medium text-destructive">{error.message}</p>}
 
       <div className={cn("grid gap-4 sm:grid-cols-2", showProfit ? "xl:grid-cols-4" : "xl:grid-cols-2")}>
         {!summary ? (
@@ -362,18 +351,16 @@ export function SalesView() {
         </Card>
       )}
 
-      <Card className={cn(loading && data && "opacity-60 transition-opacity")}>
+      <Card className={cn(loading && "opacity-60 transition-opacity")}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Receipt className="size-4" />
             Sales
           </CardTitle>
-          <CardDescription>
-            {sales.length >= 500 ? "The newest 500 sales. Narrow the dates to see older ones; the totals above include everything." : "Newest first. Refunded sales are greyed out and not counted."}
-          </CardDescription>
+          <CardDescription>Newest first. Refunded sales are greyed out and not counted.</CardDescription>
         </CardHeader>
-        <CardContent className="px-0">
-          {!data ? (
+        <CardContent className="space-y-4 px-0">
+          {!list ? (
             <div className="space-y-2 px-4">
               {Array.from({ length: 5 }, (_, i) => (
                 <Skeleton key={i} className="h-10" />
@@ -422,13 +409,18 @@ export function SalesView() {
                       <TableCell className="text-sm whitespace-nowrap">
                         <PaymentCell sale={s} />
                       </TableCell>
-                      <TableCell className="text-sm whitespace-nowrap">{(s.locationId && lookups.location.get(s.locationId)?.name) || "—"}</TableCell>
-                      <TableCell className="text-sm whitespace-nowrap">{(s.clientId && lookups.client.get(s.clientId)?.name) || "Walk-in"}</TableCell>
+                      <TableCell className="text-sm whitespace-nowrap">{(s.locationId && locationName(s.locationId)) || "—"}</TableCell>
+                      <TableCell className="text-sm whitespace-nowrap">{s.clientName || "Walk-in"}</TableCell>
                       <TableCell className="pr-4 text-sm whitespace-nowrap">{s.soldBy || "—"}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
+            </div>
+          )}
+          {list && (
+            <div className="px-4">
+              <Pager page={list.page} pageSize={PAGE_SIZE} count={list.count} onPage={setPage} busy={salesQuery.isPlaceholderData} />
             </div>
           )}
         </CardContent>

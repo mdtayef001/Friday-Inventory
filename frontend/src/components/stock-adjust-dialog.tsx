@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { qtyAt, useStore } from "@/lib/store"
+import { actions } from "@/lib/data/actions"
+import { qtyAt, useProduct } from "@/lib/data/queries"
 import { useAttempt, Field, SimpleSelect } from "./common"
 import { useScope } from "./session-provider"
 
@@ -28,9 +29,8 @@ export function StockAdjustDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const { locations } = useScope()
-  const product = useStore((s) => s.products.find((p) => p.id === productId))
-  const stock = useStore((s) => s.stock)
-  const adjustStock = useStore((s) => s.adjustStock)
+  // Loaded fresh, so the current count is right even if someone else just changed it.
+  const product = useProduct(productId).data
   const [mode, setMode] = useState<"add" | "remove">("add")
   const [locationId, setLocationId] = useState(initialLocation ?? locations[0]?.id ?? "")
   const [quantity, setQuantity] = useState("1")
@@ -38,7 +38,7 @@ export function StockAdjustDialog({
   const [run, pending] = useAttempt()
 
   if (!product) return null
-  const current = qtyAt(stock, productId, locationId)
+  const current = qtyAt(product, locationId)
   const qty = Number(quantity)
   const valid = Number.isInteger(qty) && qty > 0 && !!locationId && (mode === "add" || qty <= current)
 
@@ -46,7 +46,7 @@ export function StockAdjustDialog({
     e.preventDefault()
     if (!valid || !product) return
     const ok = await run(
-      () => adjustStock(productId, locationId, mode === "add" ? qty : -qty, reason),
+      () => actions.adjustStock(productId, locationId, mode === "add" ? qty : -qty, reason),
       mode === "add" ? `Added ${qty} ${product.unit}` : `Removed ${qty} ${product.unit}`,
     )
     if (ok) {

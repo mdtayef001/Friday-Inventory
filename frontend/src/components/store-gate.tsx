@@ -3,22 +3,34 @@
 import { useEffect, useState } from "react"
 import { AlertTriangle, RotateCcw } from "lucide-react"
 import { setCurrency } from "@/lib/format"
-import { loadTenant } from "@/lib/store"
+import { locationsQuery } from "@/lib/data/queries"
+import { getQueryClient } from "@/lib/data/query-client"
 import type { Business, SessionUser } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 
-/** Loads the business's data from the API before rendering data-driven pages. */
+let loadedFor = ""
+
+/**
+ * Loads the business's locations before rendering the app: nearly every page
+ * needs their names. Everything else loads page by page as it's shown.
+ */
 export function StoreGate({ user, business, children }: { user: SessionUser; business: Business; children: React.ReactNode }) {
   const [state, setState] = useState<{ key: string; error?: string } | null>(null)
   const [attempt, setAttempt] = useState(0)
-  // Reload when the user, business or its switches change (e.g. after saving settings).
+  // Start fresh when the user, business or its switches change (e.g. after saving settings).
   const key = `${user.id}:${business.id}:${JSON.stringify(business.settings)}:${attempt}`
 
   useEffect(() => {
     let cancelled = false
     setCurrency(business.settings.currency)
-    loadTenant(user, business).then(
+    const client = getQueryClient()
+    if (loadedFor !== key) {
+      // Nothing cached for another person, or from before the owner changed what's allowed.
+      client.clear()
+      loadedFor = key
+    }
+    client.fetchQuery(locationsQuery).then(
       () => !cancelled && setState({ key }),
       (err: unknown) => !cancelled && setState({ key, error: err instanceof Error ? err.message : "Couldn't load your data." }),
     )
