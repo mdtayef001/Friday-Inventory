@@ -834,3 +834,17 @@ class ListingTests(ApiTestCase):
         mine = self.client.get("/api/activity/", {"mine": "1", "action": ["Stock added", "Product added"]}).json()
         self.assertEqual([a["action"] for a in mine], ["Stock added"])
         self.assertEqual(self.client.get("/api/activity/people/").status_code, 403)
+
+    def test_stock_request_filters(self):
+        self.biz.settings["modules"]["transfers"] = True
+        self.biz.save()
+        ask = {"productId": self.product.id, "quantity": 2, "toLocationId": self.outlet.id}
+        first = self.client.post("/api/stock-requests/", {**ask, "note": "for the weekend"}, format="json").json()
+        self.client.post("/api/stock-requests/", ask, format="json")
+        self.client.post(f"/api/stock-requests/{first['id']}/decline/", {}, format="json")
+        rows = self.client.get("/api/stock-requests/").json()
+        self.assertEqual([r["status"] for r in rows], ["pending", "declined"])  # waiting first
+        self.assertEqual(len(self.client.get("/api/stock-requests/", {"status": "declined"}).json()), 1)
+        self.assertEqual(len(self.client.get("/api/stock-requests/", {"search": "weekend"}).json()), 1)
+        self.assertEqual(len(self.client.get("/api/stock-requests/", {"location": self.warehouse.id}).json()), 0)
+        self.assertEqual(self.client.get("/api/stock-requests/", {"status": "lost"}).status_code, 400)

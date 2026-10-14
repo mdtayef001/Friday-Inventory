@@ -1,12 +1,14 @@
 "use client"
 
 import { useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { ArrowLeftRight, ArrowRight, Check, Inbox, PackagePlus, Plus, Send, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   attempt,
   useAttempt,
@@ -19,6 +21,7 @@ import {
   Pager,
   Pill,
   QueryError,
+  SearchInput,
   SimpleSelect,
   type PillTone,
 } from "@/components/common"
@@ -27,19 +30,19 @@ import { useScope, useSessionUser } from "@/components/session-provider"
 import { RequestStockDialog } from "@/components/stock-request-dialog"
 import { TransferStatusPill } from "@/components/status"
 import { actions } from "@/lib/data/actions"
-import { qtyAt, useLocations, usePaging, useProduct, useStockRequests, useTransfers } from "@/lib/data/queries"
+import { qtyAt, useDebounced, useLocations, usePaging, useProduct, useStockRequests, useTransfers } from "@/lib/data/queries"
 import { formatDateTime, timeAgo } from "@/lib/format"
-import type { Product, StockRequest } from "@/lib/types"
+import type { Product, StockRequest, StockRequestStatus, TransferStatus } from "@/lib/types"
+
+type Tab = "transfers" | "requests"
 
 export function TransfersView() {
   const scope = useScope()
-  const locations = useLocations()
-  const locationName = (id: string) => locations.find((l) => l.id === id)?.name
+  // ?tab=requests opens the stock requests, e.g. from a link.
+  const [tab, setTab] = useState<Tab>(useSearchParams().get("tab") === "requests" ? "requests" : "transfers")
   const [creating, setCreating] = useState(false)
   const [requesting, setRequesting] = useState(false)
-  const paging = usePaging()
-  const { data, error, isPending, isPlaceholderData, refetch } = useTransfers({ page: paging.page }, { pageSize: paging.pageSize })
-  const rows = data?.results ?? []
+  const waiting = useStockRequests({ page: 1, status: "pending" }, { pageSize: 1 }).data?.count ?? 0
 
   return (
     <PageBody>
@@ -60,15 +63,80 @@ export function TransfersView() {
         }
       />
 
-      <StockRequests />
+      <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
+        <TabsList>
+          <TabsTrigger value="transfers">
+            <ArrowLeftRight />
+            Transfers
+          </TabsTrigger>
+          <TabsTrigger value="requests">
+            <Inbox />
+            Stock requests
+            {waiting > 0 && <Pill tone="amber">{waiting} waiting</Pill>}
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {tab === "transfers" ? <TransferList /> : <StockRequests />}
+
       {requesting && <RequestStockDialog onClose={() => setRequesting(false)} />}
+      {creating && <NewTransferDialog onClose={() => setCreating(false)} />}
+    </PageBody>
+  )
+}
+
+const TRANSFER_FILTERS: { value: "all" | TransferStatus; label: string }[] = [
+  { value: "all", label: "Any status" },
+  { value: "in_transit", label: "In transit" },
+  { value: "received", label: "Received" },
+  { value: "cancelled", label: "Cancelled" },
+]
+
+/** Every transfer to or from the user's locations, newest first. */
+function TransferList() {
+  const scope = useScope()
+  const locations = useLocations()
+  const locationName = (id: string) => locations.find((l) => l.id === id)?.name
+  const [query, setQuery] = useState("")
+  const [status, setStatus] = useState<(typeof TRANSFER_FILTERS)[number]["value"]>("all")
+  const [location, setLocation] = useState("all")
+  const search = useDebounced(query.trim())
+  const paging = usePaging(search, status, location)
+  const { data, error, isPending, isPlaceholderData, refetch } = useTransfers(
+    {
+      page: paging.page,
+      search,
+      status: status === "all" ? undefined : status,
+      location: location === "all" ? undefined : location,
+    },
+    { pageSize: paging.pageSize },
+  )
+  const rows = data?.results ?? []
+  const filtered = !!search || status !== "all" || location !== "all"
+
+  return (
+    <>
+      <div className="flex flex-col gap-2 md:flex-row">
+        <SearchInput value={query} onChange={setQuery} placeholder="Search reference or product…" className="flex-1" />
+        <SimpleSelect value={status} onChange={(v) => setStatus(v as typeof status)} options={TRANSFER_FILTERS} className="h-9! md:w-44" />
+        <SimpleSelect
+          value={location}
+          onChange={setLocation}
+          options={[{ value: "all", label: "Any location" }, ...scope.locations.map((l) => ({ value: l.id, label: `To or from ${l.name}` }))]}
+          className="h-9! md:w-56"
+        />
+      </div>
 
       {error && !data ? (
         <QueryError error={error} onRetry={() => refetch()} />
       ) : isPending ? (
         <ListSkeleton />
       ) : rows.length === 0 ? (
-        <EmptyState icon={ArrowLeftRight} title="No transfers yet" description="Send stock from one location to another to see it here." />
+        <EmptyState
+          icon={ArrowLeftRight}
+          title={filtered ? "No transfers match your filters" : "No transfers yet"}
+          description={filtered ? "Try a different search or clear the filters." : "Send stock from one location to another to see it here."}
+        />
       ) : (
         <Card className={isPlaceholderData ? "py-0 opacity-60 transition-opacity" : "py-0"}>
           <div className="overflow-x-auto">
@@ -143,9 +211,7 @@ export function TransfersView() {
         </Card>
       )}
       {data && <Pager page={data.page} pageSize={paging.pageSize} count={data.count} onPage={paging.setPage} onPageSize={paging.setPageSize} busy={isPlaceholderData} />}
-
-      {creating && <NewTransferDialog onClose={() => setCreating(false)} />}
-    </PageBody>
+    </>
   )
 }
 
@@ -240,7 +306,15 @@ function useCanDecide() {
   return (r: StockRequest) => me.role === "owner" || (me.role === "manager" && r.requestedById !== me.id)
 }
 
-/** Requests from shops: waiting ones first, then the most recent 15 handled ones. */
+const REQUEST_FILTERS: { value: "all" | StockRequestStatus; label: string }[] = [
+  { value: "all", label: "Any status" },
+  { value: "pending", label: "Waiting" },
+  { value: "approved", label: "Sent" },
+  { value: "declined", label: "Declined" },
+  { value: "cancelled", label: "Cancelled" },
+]
+
+/** Requests from shops, waiting ones first. */
 function StockRequests() {
   const me = useSessionUser()
   const locations = useLocations()
@@ -248,96 +322,147 @@ function StockRequests() {
   const canDecide = useCanDecide()
   const [approving, setApproving] = useState<StockRequest | null>(null)
   const [declining, setDeclining] = useState<StockRequest | null>(null)
-  const pending = useStockRequests({ page: 1, status: "pending" }, { pageSize: 100 }).data
-  const handled = useStockRequests({ page: 1, status: "handled" }, { pageSize: 15 }).data
+  const [query, setQuery] = useState("")
+  const [status, setStatus] = useState<(typeof REQUEST_FILTERS)[number]["value"]>("all")
+  const [location, setLocation] = useState("all")
+  const search = useDebounced(query.trim())
+  const paging = usePaging(search, status, location)
+  const { data, error, isPending, isPlaceholderData, refetch } = useStockRequests(
+    {
+      page: paging.page,
+      search,
+      status: status === "all" ? undefined : status,
+      location: location === "all" ? undefined : location,
+    },
+    { pageSize: paging.pageSize },
+  )
+  const rows = data?.results ?? []
+  const filtered = !!search || status !== "all" || location !== "all"
 
-  const waiting = pending?.results ?? []
-  const rows = [...waiting, ...(handled?.results ?? [])]
-  if (rows.length === 0) return null
+  const filters = (
+    <div className="flex flex-col gap-2 md:flex-row">
+      <SearchInput value={query} onChange={setQuery} placeholder="Search reference, product or note…" className="flex-1" />
+      <SimpleSelect value={status} onChange={(v) => setStatus(v as typeof status)} options={REQUEST_FILTERS} className="h-9! md:w-44" />
+      <SimpleSelect
+        value={location}
+        onChange={setLocation}
+        options={[{ value: "all", label: "Any shop" }, ...locations.map((l) => ({ value: l.id, label: `For ${l.name}` }))]}
+        className="h-9! md:w-56"
+      />
+    </div>
+  )
+
+  if (error && !data) {
+    return (
+      <>
+        {filters}
+        <QueryError error={error} onRetry={() => refetch()} />
+      </>
+    )
+  }
+  if (isPending) {
+    return (
+      <>
+        {filters}
+        <ListSkeleton />
+      </>
+    )
+  }
+  if (rows.length === 0) {
+    return (
+      <>
+        {filters}
+        <EmptyState
+          icon={Inbox}
+          title={filtered ? "No requests match your filters" : "No stock requests yet"}
+          description={filtered ? "Try a different search or clear the filters." : "Shops ask for stock with Request stock. Their requests show up here."}
+        />
+      </>
+    )
+  }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Inbox className="size-4" />
-          Stock requests
-          {waiting.length > 0 && <Pill tone="amber">{pending?.count} waiting</Pill>}
-        </CardTitle>
-        <CardDescription>Shops asking for stock. Approving one sends a transfer from the location you pick.</CardDescription>
-      </CardHeader>
-      <CardContent className="px-0">
-        <div className="overflow-x-auto">
-          <Table scroll>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="pl-4">Request</TableHead>
-                <TableHead>For</TableHead>
-                <TableHead>Asked by</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="pr-4 text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((r) => {
-                const mine = r.requestedById === me.id
-                return (
-                  <TableRow key={r.id}>
-                    <TableCell className="pl-4">
-                      <div className="font-medium">
-                        {r.quantity} × {r.productName ?? "Deleted product"}
-                      </div>
-                      <div className="font-mono text-xs text-muted-foreground">{r.code}</div>
-                    </TableCell>
-                    <TableCell className="text-sm whitespace-nowrap">{(r.toLocationId && locationName(r.toLocationId)) || "—"}</TableCell>
-                    <TableCell className="max-w-56 text-sm">
-                      {r.requestedBy || "—"} · {timeAgo(r.createdAt)}
-                      {r.note && <div className="truncate text-xs text-muted-foreground">“{r.note}”</div>}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      <Pill tone={STAGE[r.stage].tone}>{STAGE[r.stage].label}</Pill>
-                      {r.fromLocationId && <div className="mt-1 text-xs text-muted-foreground">from {locationName(r.fromLocationId)}</div>}
-                      {r.status === "declined" && r.decisionNote && <div className="mt-1 text-xs text-muted-foreground">“{r.decisionNote}”</div>}
-                    </TableCell>
-                    <TableCell className="pr-4 text-right">
-                      {r.status === "pending" && (
-                        <div className="flex justify-end gap-1">
-                          {canDecide(r) && (
-                            <>
-                              <Button size="sm" onClick={() => setApproving(r)}>
-                                <Send />
-                                Approve
-                              </Button>
-                              <Button size="sm" variant="ghost" onClick={() => setDeclining(r)}>
-                                Decline
-                              </Button>
-                            </>
-                          )}
-                          {(mine || me.role === "owner") && !canDecide(r) && (
-                            <ConfirmAction
-                              trigger={
-                                <Button size="sm" variant="ghost">
-                                  Cancel
-                                </Button>
-                              }
-                              title="Cancel this request?"
-                              description="Nothing has been sent yet."
-                              confirmLabel="Cancel request"
-                              onConfirm={() => attempt(() => actions.cancelRequest(r.id), "Request cancelled")}
-                            />
-                          )}
+    <>
+      {filters}
+      <Card className={isPlaceholderData ? "opacity-60 transition-opacity" : undefined}>
+        <CardHeader>
+          <CardDescription>Shops asking for stock. Approving one sends a transfer from the location you pick.</CardDescription>
+        </CardHeader>
+        <CardContent className="px-0">
+          <div className="overflow-x-auto">
+            <Table scroll>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="pl-4">Request</TableHead>
+                  <TableHead>For</TableHead>
+                  <TableHead>Asked by</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="pr-4 text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((r) => {
+                  const mine = r.requestedById === me.id
+                  return (
+                    <TableRow key={r.id}>
+                      <TableCell className="pl-4">
+                        <div className="font-medium">
+                          {r.quantity} × {r.productName ?? "Deleted product"}
                         </div>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      </CardContent>
-      {approving && <ApproveRequestDialog request={approving} onClose={() => setApproving(null)} />}
-      {declining && <DeclineRequestDialog request={declining} onClose={() => setDeclining(null)} />}
-    </Card>
+                        <div className="font-mono text-xs text-muted-foreground">{r.code}</div>
+                      </TableCell>
+                      <TableCell className="text-sm whitespace-nowrap">{(r.toLocationId && locationName(r.toLocationId)) || "—"}</TableCell>
+                      <TableCell className="max-w-56 text-sm">
+                        {r.requestedBy || "—"} · {timeAgo(r.createdAt)}
+                        {r.note && <div className="truncate text-xs text-muted-foreground">“{r.note}”</div>}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        <Pill tone={STAGE[r.stage].tone}>{STAGE[r.stage].label}</Pill>
+                        {r.fromLocationId && <div className="mt-1 text-xs text-muted-foreground">from {locationName(r.fromLocationId)}</div>}
+                        {r.status === "declined" && r.decisionNote && <div className="mt-1 text-xs text-muted-foreground">“{r.decisionNote}”</div>}
+                      </TableCell>
+                      <TableCell className="pr-4 text-right">
+                        {r.status === "pending" && (
+                          <div className="flex justify-end gap-1">
+                            {canDecide(r) && (
+                              <>
+                                <Button size="sm" onClick={() => setApproving(r)}>
+                                  <Send />
+                                  Approve
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => setDeclining(r)}>
+                                  Decline
+                                </Button>
+                              </>
+                            )}
+                            {(mine || me.role === "owner") && !canDecide(r) && (
+                              <ConfirmAction
+                                trigger={
+                                  <Button size="sm" variant="ghost">
+                                    Cancel
+                                  </Button>
+                                }
+                                title="Cancel this request?"
+                                description="Nothing has been sent yet."
+                                confirmLabel="Cancel request"
+                                onConfirm={() => attempt(() => actions.cancelRequest(r.id), "Request cancelled")}
+                              />
+                            )}
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+        {approving && <ApproveRequestDialog request={approving} onClose={() => setApproving(null)} />}
+        {declining && <DeclineRequestDialog request={declining} onClose={() => setDeclining(null)} />}
+      </Card>
+      {data && <Pager page={data.page} pageSize={paging.pageSize} count={data.count} onPage={paging.setPage} onPageSize={paging.setPageSize} busy={isPlaceholderData} />}
+    </>
   )
 }
 

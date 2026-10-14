@@ -4,7 +4,8 @@ import csv
 from decimal import Decimal
 
 from django.db.models import (
-    Count, DecimalField, Exists, ExpressionWrapper, F, IntegerField, Max, Min, OuterRef, Prefetch, Q, Subquery, Sum, Value,
+    Case, Count, DecimalField, Exists, ExpressionWrapper, F, IntegerField, Max, Min, OuterRef, Prefetch, Q, Subquery, Sum, Value,
+    When,
 )
 from django.db.models.functions import Coalesce, TruncDay, TruncMonth
 from django.http import HttpResponse
@@ -971,14 +972,21 @@ class StockRequestViewSet(TenantViewSet, mixins.ListModelMixin, mixins.CreateMod
             return qs
         return qs.filter(Q(to_location_id__in=allowed) | Q(status=StockRequest.Status.PENDING) | Q(transfer__from_location_id__in=allowed))
 
+    search_fields = ("code", "product__name", "note")
+
     def filter_queryset(self, qs):
-        """?status=pending, or ?status=handled for everything else."""
+        """?search=, ?location=<the shop it's for>, and ?status=pending|approved|declined|cancelled,
+        or ?status=handled for everything but waiting. Waiting requests come first."""
+        qs = self.filter_by_ids(self.search(qs), location="to_location_id")
         status_ = self.request.query_params.get("status")
-        if status_ == "pending":
-            qs = qs.filter(status=StockRequest.Status.PENDING)
-        elif status_ == "handled":
+        if status_ == "handled":
             qs = qs.exclude(status=StockRequest.Status.PENDING)
-        return qs
+        elif status_:
+            if status_ not in StockRequest.Status.values:
+                raise ValidationError({"status": "Unknown status."})
+            qs = qs.filter(status=status_)
+        waiting_first = Case(When(status=StockRequest.Status.PENDING, then=Value(0)), default=Value(1))
+        return qs.order_by(waiting_first, "-created_at")
 
     def perform_create(self, serializer):
         data = serializer.validated_data
