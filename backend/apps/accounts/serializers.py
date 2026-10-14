@@ -158,17 +158,25 @@ class ManagedUserSerializer(serializers.ModelSerializer):
         if any(loc.business_id != actor.business_id for loc in locations):
             raise serializers.ValidationError("Unknown location.")
         if actor.role == User.Role.MANAGER:
-            own = set(actor.locations.values_list("id", flat=True))
-            if any(loc.id not in own for loc in locations):
+            # Their own locations, plus any the person already works at (kept when a manager edits them).
+            allowed = set(actor.locations.values_list("id", flat=True))
+            if self.instance:
+                allowed |= set(self.instance.locations.values_list("id", flat=True))
+            if any(loc.id not in allowed for loc in locations):
                 raise serializers.ValidationError("You can only assign your own locations.")
         return locations
 
     def validate(self, attrs):
-        if self.instance is None:
-            if not attrs.get("password"):
-                raise serializers.ValidationError({"password": "A password is required for new users."})
-            if attrs.get("role") != User.Role.OWNER and not attrs.get("locations"):
-                raise serializers.ValidationError({"location_ids": "Assign at least one location."})
+        if self.instance is None and not attrs.get("password"):
+            raise serializers.ValidationError({"password": "A password is required for new users."})
+        # Everyone but owners works somewhere: check the role and locations they'll end up with.
+        role = attrs.get("role", self.instance.role if self.instance else None)
+        if "locations" in attrs:
+            has_locations = bool(attrs["locations"])
+        else:
+            has_locations = bool(self.instance and self.instance.locations.exists())
+        if role != User.Role.OWNER and not has_locations:
+            raise serializers.ValidationError({"location_ids": "Assign at least one location."})
         if attrs.get("password"):
             validate_password(attrs["password"], self.instance)
         return attrs
@@ -189,7 +197,10 @@ class ManagedUserSerializer(serializers.ModelSerializer):
         if password:
             user.set_password(password)
         user.save()
-        if locations is not None:
+        if user.role == User.Role.OWNER:
+            # Owners see every location.
+            user.locations.clear()
+        elif locations is not None:
             user.locations.set(locations)
         return user
 

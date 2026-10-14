@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useTransition } from "react"
-import { KeyRound, Loader2, MoreHorizontal, Power, ShieldCheck, Trash2, UserPlus } from "lucide-react"
+import { KeyRound, Loader2, MoreHorizontal, Pencil, Power, ShieldCheck, Trash2, UserPlus } from "lucide-react"
 import { toast } from "sonner"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -22,7 +22,7 @@ import { ConfirmAction, Field, PageBody, PageHeader, Pill, SimpleSelect, type Pi
 import { useBusiness, useScope, useSessionUser } from "@/components/session-provider"
 import { initials } from "@/components/user-menu"
 import { creatableRoles, ROLE_LABEL } from "@/lib/auth/roles"
-import { createUser, deleteUser, resetUserPassword, setUserActive, setUserRights, type ActionResult } from "@/lib/auth/user-actions"
+import { createUser, deleteUser, resetUserPassword, setUserActive, setUserRights, updateUser, type ActionResult } from "@/lib/auth/user-actions"
 import { formatDate } from "@/lib/format"
 import { useLocations } from "@/lib/data/queries"
 import type { ManagedUser, Role, TenantRole } from "@/lib/types"
@@ -45,6 +45,7 @@ export function UsersView({ users }: { users: ManagedUser[] }) {
   const business = useBusiness()
   const locations = useLocations()
   const [creating, setCreating] = useState(false)
+  const [editing, setEditing] = useState<ManagedUser | null>(null)
   const [resetting, setResetting] = useState<ManagedUser | null>(null)
   const [deleting, setDeleting] = useState<ManagedUser | null>(null)
   const [, startTransition] = useTransition()
@@ -143,6 +144,10 @@ export function UsersView({ users }: { users: ManagedUser[] }) {
                             <MoreHorizontal />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuItem onClick={() => setEditing(u)}>
+                              <Pencil />
+                              Edit
+                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => setResetting(u)}>
                               <KeyRound />
                               Reset password
@@ -182,14 +187,15 @@ export function UsersView({ users }: { users: ManagedUser[] }) {
         </p>
       </div>
 
-      {creating && <CreateUserDialog onClose={() => setCreating(false)} />}
+      {creating && <UserDialog onClose={() => setCreating(false)} />}
+      {editing && <UserDialog key={editing.id} user={editing} onClose={() => setEditing(null)} />}
       {resetting && <ResetPasswordDialog user={resetting} onClose={() => setResetting(null)} />}
       {deleting && (
         <ConfirmAction
           defaultOpen
           onOpenChange={(open) => !open && setDeleting(null)}
           title={`Delete ${deleting.name}'s account?`}
-          description="They won't be able to log in again. Their past activity stays in the log."
+          description="They can't log in again. Their sales, orders and other records stay, but without their name, which shows as blank. To keep their name on past work, disable their login instead."
           confirmLabel="Delete account"
           destructive
           onConfirm={async () => showResult(await deleteUser(deleting.id), "Account deleted")}
@@ -199,16 +205,23 @@ export function UsersView({ users }: { users: ManagedUser[] }) {
   )
 }
 
-function CreateUserDialog({ onClose }: { onClose: () => void }) {
+/** Create an account, or edit one (name, email, role, locations, staff rights). The password is changed separately. */
+function UserDialog({ user, onClose }: { user?: ManagedUser; onClose: () => void }) {
   const me = useSessionUser()
   const scope = useScope()
   const roles = creatableRoles(me.role)
   const [pending, startTransition] = useTransition()
-  const [role, setRole] = useState<TenantRole>(roles.includes("staff") ? "staff" : roles[0])
-  const [name, setName] = useState("")
-  const [email, setEmail] = useState("")
+  const [role, setRole] = useState<TenantRole>(user ? (user.role as TenantRole) : roles.includes("staff") ? "staff" : roles[0])
+  const [name, setName] = useState(user?.name ?? "")
+  const [email, setEmail] = useState(user?.email ?? "")
   const [password, setPassword] = useState("")
-  const [locationIds, setLocationIds] = useState<string[]>(scope.locations.length === 1 ? [scope.locations[0].id] : [])
+  // Only the locations this person may hand out are shown; others they work at are kept as they are.
+  const [locationIds, setLocationIds] = useState<string[]>(
+    user ? user.locationIds.filter((id) => scope.has(id)) : scope.locations.length === 1 ? [scope.locations[0].id] : [],
+  )
+  const kept = user ? user.locationIds.filter((id) => !scope.has(id)) : []
+  const [canSell, setCanSell] = useState(user?.canSell ?? true)
+  const [canAddStock, setCanAddStock] = useState(user?.canAddStock ?? true)
   const [error, setError] = useState("")
 
   const toggle = (id: string, on: boolean) => setLocationIds((ids) => (on ? [...ids, id] : ids.filter((x) => x !== id)))
@@ -222,9 +235,12 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
     e.preventDefault()
     setError("")
     startTransition(async () => {
-      const result = await createUser({ name, email, password, role, locationIds: role === "owner" ? [] : locationIds })
+      const where = role === "owner" ? [] : [...kept, ...locationIds]
+      const result = user
+        ? await updateUser(user.id, { name, email, role, locationIds: where, ...(role === "staff" && { canSell, canAddStock }) })
+        : await createUser({ name, email, password, role, locationIds: where })
       if (result.ok) {
-        toast.success(`Account created for ${name}`)
+        toast.success(user ? `${name} updated` : `Account created for ${name}`)
         onClose()
       } else setError(result.error)
     })
@@ -235,8 +251,12 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
       <DialogContent className="sm:max-w-lg">
         <form onSubmit={submit} className="grid gap-4">
           <DialogHeader>
-            <DialogTitle>{me.role === "owner" ? "Create account" : "Add staff member"}</DialogTitle>
-            <DialogDescription>They log in on the normal login page with this email and password.</DialogDescription>
+            <DialogTitle>{user ? `Edit ${user.name}` : me.role === "owner" ? "Create account" : "Add staff member"}</DialogTitle>
+            <DialogDescription>
+              {user
+                ? "Changes apply the next time they open a page. Their password stays the same; use Reset password to change it."
+                : "They log in on the normal login page with this email and password."}
+            </DialogDescription>
           </DialogHeader>
           {roles.length > 1 && (
             <Field label="Role" hint={ROLE_HELP[role]}>
@@ -251,14 +271,16 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
               <Input id="u-email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} />
             </Field>
           </div>
-          <Field label="Password" htmlFor="u-pass" hint="At least 8 characters.">
-            <div className="flex gap-2">
-              <Input id="u-pass" type="text" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} className="font-mono" />
-              <Button type="button" variant="outline" onClick={generate}>
-                Generate
-              </Button>
-            </div>
-          </Field>
+          {!user && (
+            <Field label="Password" htmlFor="u-pass" hint="At least 8 characters.">
+              <div className="flex gap-2">
+                <Input id="u-pass" type="text" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} className="font-mono" />
+                <Button type="button" variant="outline" onClick={generate}>
+                  Generate
+                </Button>
+              </div>
+            </Field>
+          )}
           {role !== "owner" && (
             <Field label="Works at">
               <div className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">
@@ -269,6 +291,23 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
                   </label>
                 ))}
               </div>
+              {kept.length > 0 && (
+                <p className="text-xs text-muted-foreground">Also works at {kept.length} location(s) you don&apos;t run. Those stay as they are.</p>
+              )}
+            </Field>
+          )}
+          {user && role === "staff" && (
+            <Field label="Can do">
+              <div className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch size="sm" checked={canSell} onCheckedChange={setCanSell} />
+                  Sell
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch size="sm" checked={canAddStock} onCheckedChange={setCanAddStock} />
+                  Add stock
+                </label>
+              </div>
             </Field>
           )}
           {error && <p className="text-sm font-medium text-destructive">{error}</p>}
@@ -278,7 +317,7 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
             </Button>
             <Button type="submit" disabled={pending}>
               {pending && <Loader2 className="animate-spin" />}
-              Create account
+              {user ? "Save changes" : "Create account"}
             </Button>
           </DialogFooter>
         </form>

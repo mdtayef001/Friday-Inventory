@@ -6,6 +6,8 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
 
+from apps.inventory.models import Location
+
 from .models import Business, User
 
 PASSWORD = "a-long-test-password-1"
@@ -99,3 +101,61 @@ class CronCleanupTests(APITestCase):
         res = self.client.get("/api/cron/cleanup/", HTTP_AUTHORIZATION="Bearer a-cron-secret")
         self.assertEqual(res.status_code, 204)
         self.assertEqual(list(OutstandingToken.objects.values_list("jti", flat=True)), ["new"])
+
+
+class EditAccountTests(APITestCase):
+    """Changing someone's role, locations, name or email without recreating the account."""
+
+    def setUp(self):
+        cache.clear()
+        self.biz = Business.objects.create(name="Shop")
+        self.owner = User.objects.create_user(email="owner@x.com", password=PASSWORD, name="Owner", role="owner", business=self.biz)
+        self.shop_a = Location.objects.create(business=self.biz, name="A", type="outlet")
+        self.shop_b = Location.objects.create(business=self.biz, name="B", type="outlet")
+        self.manager = User.objects.create_user(email="m@x.com", password=PASSWORD, name="Manager", role="manager", business=self.biz)
+        self.manager.locations.set([self.shop_a])
+        self.staff = User.objects.create_user(email="s@x.com", password=PASSWORD, name="Staff", role="staff", business=self.biz)
+        self.staff.locations.set([self.shop_a, self.shop_b])
+
+    def login(self, email):
+        res = self.client.post("/api/auth/login/", {"email": email, "password": PASSWORD}, format="json")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.json()['access']}")
+
+    def edit(self, user, **body):
+        return self.client.patch(f"/api/users/{user.id}/", body, format="json")
+
+    def test_owner_promotes_staff_and_moves_them(self):
+        self.login("owner@x.com")
+        res = self.edit(self.staff, name="Sam Staff", email="SAM@x.com", role="manager", locationIds=[str(self.shop_b.id)])
+        self.assertEqual(res.status_code, 200, res.content)
+        self.staff.refresh_from_db()
+        self.assertEqual((self.staff.name, self.staff.email, self.staff.role), ("Sam Staff", "sam@x.com", "manager"))
+        self.assertEqual(list(self.staff.locations.all()), [self.shop_b])
+
+    def test_owner_promotes_to_owner_and_locations_are_dropped(self):
+        self.login("owner@x.com")
+        self.assertEqual(self.edit(self.manager, role="owner").status_code, 200)
+        self.assertFalse(self.manager.locations.exists())
+
+    def test_everyone_but_owners_needs_a_location(self):
+        self.login("owner@x.com")
+        self.assertEqual(self.edit(self.staff, locationIds=[]).status_code, 400)
+        owner2 = User.objects.create_user(email="o2@x.com", password=PASSWORD, name="O2", role="owner", business=self.biz)
+        self.assertEqual(self.edit(owner2, role="staff").status_code, 400)  # a demoted owner needs somewhere to work
+        self.assertEqual(self.edit(owner2, role="staff", locationIds=[str(self.shop_a.id)]).status_code, 200)
+
+    def test_email_must_stay_unique(self):
+        self.login("owner@x.com")
+        self.assertEqual(self.edit(self.staff, email="m@x.com").status_code, 400)
+
+    def test_manager_edits_staff_but_cannot_promote_or_hand_out_other_shops(self):
+        self.biz.settings["permissions"]["managerUsers"] = True
+        self.biz.save()
+        self.login("m@x.com")
+        self.assertEqual(self.edit(self.staff, role="manager").status_code, 400)
+        # Keeping shop B, which the staff member already works at, is fine; adding it to someone new isn't.
+        self.assertEqual(self.edit(self.staff, name="Renamed", locationIds=[str(self.shop_a.id), str(self.shop_b.id)]).status_code, 200)
+        other = User.objects.create_user(email="s2@x.com", password=PASSWORD, name="S2", role="staff", business=self.biz)
+        other.locations.set([self.shop_a])
+        self.assertEqual(self.edit(other, locationIds=[str(self.shop_a.id), str(self.shop_b.id)]).status_code, 400)
+        self.assertEqual(self.edit(self.owner, name="Hacked").status_code, 404)  # managers only see their staff

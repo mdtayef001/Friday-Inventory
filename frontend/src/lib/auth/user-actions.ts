@@ -37,6 +37,22 @@ export async function createUser(input: z.input<typeof CreateUserSchema>): Promi
 
 const userPath = (id: string) => `users/${encodeURIComponent(id)}/`
 
+const UpdateUserSchema = CreateUserSchema.omit({ password: true }).extend({
+  canSell: z.boolean().optional(),
+  canAddStock: z.boolean().optional(),
+})
+
+/** Edit someone's name, email, role, locations and (for staff) rights, without recreating the account. */
+export async function updateUser(id: string, input: z.input<typeof UpdateUserSchema>): Promise<ActionResult> {
+  const { user: actor } = await requireAccess("/users")
+  const parsed = UpdateUserSchema.safeParse(input)
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0].message }
+  if (!creatableRoles(actor.role).includes(parsed.data.role)) {
+    return { ok: false, error: "You are not allowed to give this role." }
+  }
+  return toResult(() => api(userPath(id), { method: "PATCH", body: parsed.data }))
+}
+
 export async function setUserActive(id: string, active: boolean) {
   await requireAccess("/users")
   if (typeof active !== "boolean") return { ok: false, error: "Invalid request." } as ActionResult
