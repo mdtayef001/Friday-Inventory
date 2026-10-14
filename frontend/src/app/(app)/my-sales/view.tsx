@@ -7,7 +7,7 @@ import { CalendarDays, HandCoins, Package, Receipt, Sun } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { EmptyState, PageBody, PageHeader, Pager, Pill, StatCard } from "@/components/common"
+import { EmptyState, PageBody, PageHeader, Pager, Pill, StatCard, MoneyTotal } from "@/components/common"
 import { useScope, useSessionUser } from "@/components/session-provider"
 import { apiQuery, PAGE_SIZE, usePage, usePageNumber } from "@/lib/data/queries"
 import { formatDateTime, formatMoney, formatNumber } from "@/lib/format"
@@ -53,8 +53,8 @@ export function MySalesView() {
           </>
         ) : (
           <>
-            <StatCard label="Today" value={formatMoney(data.today.revenue)} hint={line(data.today)} icon={Sun} />
-            <StatCard label="This month" value={formatMoney(data.month.revenue)} hint={line(data.month)} icon={CalendarDays} tone="green" />
+            <StatCard label="Today" value={<MoneyTotal value={data.today.revenue} />} hint={line(data.today)} icon={Sun} />
+            <StatCard label="This month" value={<MoneyTotal value={data.month.revenue} />} hint={line(data.month)} icon={CalendarDays} tone="green" />
           </>
         )}
       </div>

@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { AlertTriangle, ChevronLeft, ChevronRight, RotateCcw, Search, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
-import { formatNumber } from "@/lib/format"
+import { formatMoney, formatMoneyShort, formatNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -363,4 +363,9 @@ export function SearchInput({
       <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="h-9 pl-9" />
     </div>
   )
+}
+
+/** A money total in short form ("৳12.5 lakh", "$1.25 million"), with the exact amount on hover. */
+export function MoneyTotal({ value }: { value: number }) {
+  return <span title={formatMoney(value)}>{formatMoneyShort(value)}</span>
 }

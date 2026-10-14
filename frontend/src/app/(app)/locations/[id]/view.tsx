@@ -2,11 +2,11 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { ArrowLeft, Boxes, CalendarClock, DollarSign, MapPinOff, Truck } from "lucide-react"
+import { ArrowLeft, Boxes, CalendarClock, Banknote, MapPinOff, Truck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { EmptyState, ListSkeleton, PageBody, PageHeader, Pager, QueryError, SearchInput, StatCard } from "@/components/common"
+import { EmptyState, ListSkeleton, PageBody, PageHeader, Pager, QueryError, SearchInput, StatCard, MoneyTotal } from "@/components/common"
 import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { StockPill } from "@/components/status"
 import {
@@ -62,7 +62,7 @@ export function LocationDetailView({ id }: { id: string }) {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Units in stock" value={formatNumber(stats?.units ?? 0)} hint={`${formatNumber(stats?.products ?? 0)} different products`} icon={Boxes} />
-        <StatCard label="Stock value (cost)" value={formatMoney(stats?.value ?? 0)} icon={DollarSign} tone="green" />
+        <StatCard label="Stock value (cost)" value={<MoneyTotal value={stats?.value ?? 0} />} icon={Banknote} tone="green" />
         {showRentals && <StatCard label="Active rentals" value={rentals?.active ?? 0} icon={CalendarClock} tone="violet" />}
         {showOrders && (
           <StatCard label="Open orders" value={openOrders} hint={incoming ? `${incoming} transfer(s) arriving` : undefined} icon={Truck} tone="amber" />

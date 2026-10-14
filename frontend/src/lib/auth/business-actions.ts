@@ -2,7 +2,6 @@
 
 import { z } from "zod"
 import { api, toResult, type ActionResult } from "@/lib/api/server"
-import { CURRENCIES } from "@/lib/business"
 import { requireAccess } from "./dal"
 
 const flag = z.boolean()
@@ -10,7 +9,8 @@ const SettingsSchema = z.object({
   name: z.string().trim().min(2, "Business name must be at least 2 characters").max(80),
   industry: z.string().trim().max(60),
   settings: z.object({
-    currency: z.enum(CURRENCIES as [string, ...string[]]),
+    // BDT or USD, or the one the business already had before the list was narrowed; Django checks.
+    currency: z.string().length(3),
     modules: z.object({ rentals: flag, tracking: flag, transfers: flag, trackingLinks: flag }),
     permissions: z.object({
       managerUsers: flag,

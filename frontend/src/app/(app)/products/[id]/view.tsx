@@ -2,12 +2,12 @@
 
 import { useRef, useState } from "react"
 import Link from "next/link"
-import { ArrowLeft, Boxes, CalendarClock, DollarSign, PackageX, Pencil, Printer, ShoppingCart, Truck, Warehouse } from "lucide-react"
+import { ArrowLeft, Boxes, CalendarClock, Banknote, PackageX, Pencil, Printer, ShoppingCart, Truck, Warehouse } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { EmptyState, ListSkeleton, PageBody, PageHeader, Pill, QueryError, StatCard } from "@/components/common"
+import { EmptyState, ListSkeleton, PageBody, PageHeader, Pill, QueryError, StatCard, MoneyTotal } from "@/components/common"
 import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { RentalStatusPill, ShipmentStatusPill, StockPill } from "@/components/status"
 import { SellDialog } from "@/components/sell-dialog"
@@ -111,8 +111,8 @@ export function ProductDetailView({ id }: { id: string }) {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="In stock" value={`${formatNumber(total)} ${product.unit}`} hint={<StockPill quantity={total} threshold={product.lowStockThreshold} />} icon={Boxes} />
-        <StatCard label="Stock value (cost)" value={formatMoney(total * product.cost)} hint={`Cost ${formatMoney(product.cost)} each`} icon={DollarSign} tone="green" />
-        <StatCard label="Selling price" value={formatMoney(product.price)} hint={`Margin ${formatMoney(product.price - product.cost)}`} icon={DollarSign} tone="violet" />
+        <StatCard label="Stock value (cost)" value={<MoneyTotal value={total * product.cost} />} hint={`Cost ${formatMoney(product.cost)} each`} icon={Banknote} tone="green" />
+        <StatCard label="Selling price" value={formatMoney(product.price)} hint={`Margin ${formatMoney(product.price - product.cost)}`} icon={Banknote} tone="violet" />
         <StatCard
           label="Out on rent"
           value={product.rentable ? `${rented} ${product.unit}` : "Not rentable"}

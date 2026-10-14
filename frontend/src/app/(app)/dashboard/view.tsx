@@ -2,18 +2,18 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { AlertTriangle, ArrowRight, Boxes, CalendarClock, DollarSign, Package, Truck } from "lucide-react"
+import { AlertTriangle, ArrowRight, Boxes, CalendarClock, Banknote, Package, Truck } from "lucide-react"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
-import { PageBody, PageHeader, Pill, QueryError, StatCard } from "@/components/common"
+import { PageBody, PageHeader, Pill, QueryError, StatCard, MoneyTotal } from "@/components/common"
 import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { SHIPMENT_STATUS } from "@/components/status"
 import { RequestStockDialog } from "@/components/stock-request-dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useOverview } from "@/lib/data/queries"
-import { formatMoney, formatNumber, timeAgo } from "@/lib/format"
+import { formatNumber, timeAgo } from "@/lib/format"
 import { rentalOverdueDays } from "@/lib/rental"
 import type { ShipmentStatus } from "@/lib/types"
 
@@ -76,7 +76,7 @@ export function DashboardView() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Products" value={formatNumber(overview.products)} hint={`${formatNumber(overview.units)} units in stock`} icon={Package} />
-        <StatCard label="Stock value (cost)" value={formatMoney(overview.value)} icon={DollarSign} tone="green" />
+        <StatCard label="Stock value (cost)" value={<MoneyTotal value={overview.value} />} icon={Banknote} tone="green" />
         {showOrders && (
           <StatCard label="Open orders" value={data.openOrders} hint={`${data.byStatus[2].count} out for delivery`} icon={Truck} tone="violet" />
         )}

@@ -7,11 +7,22 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { attempt, useAttempt, ConfirmAction, EmptyState, Field, PageBody, PageHeader, Pill, SimpleSelect } from "@/components/common"
+import {
+  attempt,
+  useAttempt,
+  ConfirmAction,
+  EmptyState,
+  Field,
+  PageBody,
+  PageHeader,
+  Pill,
+  SimpleSelect,
+  MoneyTotal,
+} from "@/components/common"
 import { usePermissions, useScope } from "@/components/session-provider"
 import { actions } from "@/lib/data/actions"
 import { useStockSummary } from "@/lib/data/queries"
-import { formatMoney, formatNumber } from "@/lib/format"
+import { formatNumber } from "@/lib/format"
 import type { Location, LocationType } from "@/lib/types"
 
 export function LocationsView() {
@@ -67,7 +78,7 @@ export function LocationsView() {
             <p className="text-xs text-muted-foreground">Units</p>
           </div>
           <div className="rounded-lg bg-muted/50 p-2">
-            <p className="truncate text-lg font-semibold tabular-nums">{formatMoney(s.value).replace(/\.\d+$/, "")}</p>
+            <p className="truncate text-lg font-semibold tabular-nums"><MoneyTotal value={s.value} /></p>
             <p className="text-xs text-muted-foreground">Value</p>
           </div>
         </CardContent>

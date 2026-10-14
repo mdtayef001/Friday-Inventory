@@ -11,7 +11,8 @@ from .permissions import creatable_roles
 
 # Shapes follow frontend/src/lib/types.ts (camelCased on the wire).
 
-CURRENCIES = ["USD", "EUR", "GBP", "BDT", "INR", "AED", "SAR", "CAD", "AUD"]
+# Currencies a business can choose. One picked before the list was narrowed can still be kept.
+CURRENCIES = ["BDT", "USD"]
 MODULES = ["rentals", "tracking", "transfers", "trackingLinks"]
 PERMISSIONS = ["managerUsers", "managerActivity", "managerProducts", "managerLocations", "staffCreateProducts", "managerProfit"]
 
@@ -75,7 +76,8 @@ class BusinessSerializer(serializers.ModelSerializer):
             number = payments.get("mobileNumber", "")
         except (KeyError, TypeError, AttributeError):
             raise serializers.ValidationError("Settings are incomplete.")
-        if clean["currency"] not in CURRENCIES:
+        kept = self.instance and self.instance.settings.get("currency") == clean["currency"]
+        if clean["currency"] not in CURRENCIES and not kept:
             raise serializers.ValidationError("Unsupported currency.")
         flags = [*clean["modules"].values(), *clean["permissions"].values(), *clean["payments"].values()]
         if not all(isinstance(f, bool) for f in flags):

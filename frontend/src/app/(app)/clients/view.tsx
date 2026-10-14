@@ -7,7 +7,18 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { attempt, ConfirmAction, EmptyState, ListSkeleton, PageBody, PageHeader, Pager, Pill, QueryError, SearchInput } from "@/components/common"
+import {
+  attempt,
+  ConfirmAction,
+  EmptyState,
+  ListSkeleton,
+  PageBody,
+  PageHeader,
+  Pager,
+  Pill,
+  QueryError,
+  SearchInput,
+} from "@/components/common"
 import { ClientDialog } from "@/components/client-dialog"
 import { initials } from "@/components/user-menu"
 import { actions } from "@/lib/data/actions"

@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { format } from "date-fns"
-import { AlertTriangle, CalendarCheck, CalendarClock, DollarSign, LogIn, LogOut, Undo2 } from "lucide-react"
+import { AlertTriangle, CalendarCheck, CalendarClock, Banknote, LogIn, LogOut, Undo2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -23,6 +23,7 @@ import {
   SearchInput,
   SimpleSelect,
   StatCard,
+  MoneyTotal,
 } from "@/components/common"
 import { ClientPicker } from "@/components/client-dialog"
 import { ProductPicker } from "@/components/product-picker"
@@ -90,8 +91,8 @@ export function RentalsView() {
           icon={AlertTriangle}
           tone={stats?.overdue ? "red" : "green"}
         />
-        <StatCard label="Running total (out now)" value={stats ? formatMoney(stats.running) : "–"} icon={DollarSign} tone="violet" />
-        <StatCard label="Earned (returned)" value={stats ? formatMoney(stats.earned) : "–"} icon={CalendarCheck} tone="green" />
+        <StatCard label="Running total (out now)" value={stats ? <MoneyTotal value={stats.running} /> : "–"} icon={Banknote} tone="violet" />
+        <StatCard label="Earned (returned)" value={stats ? <MoneyTotal value={stats.earned} /> : "–"} icon={CalendarCheck} tone="green" />
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

@@ -4,18 +4,18 @@ import { useMemo, useState } from "react"
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { endOfDay, format, startOfDay, startOfMonth, subDays, subMonths } from "date-fns"
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
-import { CalendarClock, DollarSign, Download, Package, Percent, Receipt, ShoppingCart, Store, Trophy, TrendingUp, Truck, X } from "lucide-react"
+import { CalendarClock, Banknote, Download, Package, Percent, Receipt, ShoppingCart, Store, Trophy, TrendingUp, Truck, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { EmptyState, PageBody, PageHeader, Pager, Pill, SimpleSelect, StatCard, type PillTone } from "@/components/common"
+import { EmptyState, PageBody, PageHeader, Pager, Pill, SimpleSelect, StatCard, type PillTone, MoneyTotal } from "@/components/common"
 import { ProductPicker } from "@/components/product-picker"
 import { usePermissions, useScope } from "@/components/session-provider"
 import { apiQuery, PAGE_SIZE, usePage, usePageNumber, withParams } from "@/lib/data/queries"
-import { formatDateTime, formatMoney, formatNumber } from "@/lib/format"
+import { formatDateTime, formatMoney, formatMoneyShort, formatNumber } from "@/lib/format"
 import type { PaymentMethod, Product, Sale, SaleChannel } from "@/lib/types"
 import { PAYMENT_METHODS } from "@/lib/business"
 import { cn } from "@/lib/utils"
@@ -47,14 +47,6 @@ const chartConfig = {
 } satisfies ChartConfig
 
 type TopSort = "revenue" | "units" | "profit"
-
-/** "$12.5k" for axis ticks. */
-const compactMoney = (n: number) => {
-  const abs = Math.abs(n)
-  const short = abs >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : abs >= 1e3 ? `${(n / 1e3).toFixed(abs >= 1e4 ? 0 : 1)}k` : `${Math.round(n)}`
-  const label = formatMoney(0).replace(/0([.,]0+)?/, short.replace("-", ""))
-  return n < 0 ? `-${label}` : label
-}
 
 const CHANNELS: Record<SaleChannel, { label: string; tone: PillTone; icon: typeof Store }> = {
   store: { label: "In store", tone: "blue", icon: Store },
@@ -208,12 +200,12 @@ export function SalesView() {
           <>
             <StatCard
               label="Revenue"
-              value={formatMoney(summary.revenue)}
+              value={<MoneyTotal value={summary.revenue} />}
               hint={`${formatNumber(summary.count)} sale${summary.count === 1 ? "" : "s"}${summary.refundedCount ? ` · ${summary.refundedCount} refunded` : ""}${summary.waitingCount ? ` · ${summary.waitingCount} waiting for payment` : ""}`}
-              icon={DollarSign}
+              icon={Banknote}
             />
             {showProfit && (
-              <StatCard label="Profit" value={formatMoney(summary.profit ?? 0)} hint={`Cost ${formatMoney(summary.cost ?? 0)}`} icon={TrendingUp} tone={(summary.profit ?? 0) < 0 ? "red" : "green"} />
+              <StatCard label="Profit" value={<MoneyTotal value={summary.profit ?? 0} />} hint={`Cost ${formatMoneyShort(summary.cost ?? 0)}`} icon={TrendingUp} tone={(summary.profit ?? 0) < 0 ? "red" : "green"} />
             )}
             {showProfit && (
               <StatCard label="Profit margin" value={summary.margin == null ? "—" : `${summary.margin}%`} hint="Profit as a share of revenue" icon={Percent} tone="violet" />
@@ -266,7 +258,7 @@ export function SalesView() {
                   <LineChart data={summary.series.points} margin={{ left: 4, right: 12, top: 8 }}>
                     <CartesianGrid vertical={false} strokeOpacity={0.5} />
                     <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} tickFormatter={tick} />
-                    <YAxis tickLine={false} axisLine={false} width={56} tickFormatter={compactMoney} />
+                    <YAxis tickLine={false} axisLine={false} width={56} tickFormatter={formatMoneyShort} />
                     <ChartTooltip
                       content={
                         <ChartTooltipContent

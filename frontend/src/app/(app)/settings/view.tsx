@@ -12,7 +12,7 @@ import { ConfirmAction, Field, PageBody, PageHeader, Pill, SimpleSelect } from "
 import { BusinessStatusPill } from "@/components/platform"
 import { useBusiness } from "@/components/session-provider"
 import { removeMerchantAccount, saveMerchantAccount, updateBusinessSettings, type MerchantAccount } from "@/lib/auth/business-actions"
-import { CURRENCIES, MODULES, PERMISSIONS, PRICE_LABEL, accessEndsAt, daysLeft } from "@/lib/business"
+import { CURRENCIES, CURRENCY_LABEL, MODULES, PERMISSIONS, PRICE_LABEL, accessEndsAt, daysLeft } from "@/lib/business"
 import { formatDate } from "@/lib/format"
 import type { BusinessSettings, ModuleId, PermissionId } from "@/lib/types"
 
@@ -76,7 +76,10 @@ export function SettingsView({ merchant }: { merchant: MerchantAccount }) {
               <SimpleSelect
                 value={settings.currency}
                 onChange={(currency) => setSettings((s) => ({ ...s, currency }))}
-                options={CURRENCIES.map((c) => ({ value: c, label: c }))}
+                options={[...CURRENCIES, ...(CURRENCIES.includes(business.settings.currency) ? [] : [business.settings.currency])].map((c) => ({
+                  value: c,
+                  label: CURRENCY_LABEL[c] ?? c,
+                }))}
               />
             </Field>
           </CardContent>

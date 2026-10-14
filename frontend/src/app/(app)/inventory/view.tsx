@@ -2,15 +2,15 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { AlertTriangle, Boxes, DollarSign, PackageX, Warehouse } from "lucide-react"
+import { AlertTriangle, Boxes, Banknote, PackageX, Warehouse } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { EmptyState, ListSkeleton, PageBody, PageHeader, Pager, QueryError, SearchInput, StatCard } from "@/components/common"
+import { EmptyState, ListSkeleton, PageBody, PageHeader, Pager, QueryError, SearchInput, StatCard, MoneyTotal } from "@/components/common"
 import { useScope } from "@/components/session-provider"
 import { StockAdjustDialog } from "@/components/stock-adjust-dialog"
 import { PAGE_SIZE, qtyAt, useDebounced, usePageNumber, useProducts, useStockSummary } from "@/lib/data/queries"
-import { formatMoney, formatNumber } from "@/lib/format"
+import { formatNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 export function InventoryView() {
@@ -39,7 +39,7 @@ export function InventoryView() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Total units" value={summary ? formatNumber(summary.units) : "–"} icon={Boxes} />
-        <StatCard label="Stock value (cost)" value={summary ? formatMoney(summary.value) : "–"} icon={DollarSign} tone="green" />
+        <StatCard label="Stock value (cost)" value={summary ? <MoneyTotal value={summary.value} /> : "–"} icon={Banknote} tone="green" />
         <StatCard label="Low stock products" value={summary?.low ?? "–"} icon={AlertTriangle} tone="amber" />
         <StatCard label="Out of stock" value={summary?.out ?? "–"} icon={PackageX} tone="red" />
       </div>

@@ -52,7 +52,9 @@ export const PERMISSIONS: Record<PermissionId, { label: string; description: str
   staffCreateProducts: { label: "Create new products", description: "When a scanned code is unknown. Otherwise staff only add stock.", role: "staff" },
 }
 
-export const CURRENCIES = ["USD", "EUR", "GBP", "BDT", "INR", "AED", "SAR", "CAD", "AUD"]
+/** Currencies a business can choose. One set before this list was narrowed still works. */
+export const CURRENCIES = ["BDT", "USD"]
+export const CURRENCY_LABEL: Record<string, string> = { BDT: "৳ Bangladeshi taka (BDT)", USD: "$ US dollar (USD)" }
 
 export function defaultSettings(): BusinessSettings {
   return {
