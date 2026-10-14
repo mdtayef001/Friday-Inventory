@@ -365,7 +365,28 @@ export function SearchInput({
   )
 }
 
-/** A money total in short form ("৳12.5 lakh", "$1.25 million"), with the exact amount on hover. */
+/**
+ * A money total in short form ("৳12.5 lakh", "$1.25 million"). Tap or click it for the
+ * exact amount (and again to go back); the exact amount also shows on hover.
+ */
 export function MoneyTotal({ value }: { value: number }) {
-  return <span title={formatMoney(value)}>{formatMoneyShort(value)}</span>
+  const [full, setFull] = useState(false)
+  const exact = formatMoney(value)
+  const short = formatMoneyShort(value)
+  // Nothing to expand when the short form is already the exact amount.
+  if (short === exact) return <>{exact}</>
+  return (
+    <button
+      type="button"
+      title={full ? "Show short" : exact}
+      aria-label={full ? `${exact}, show short` : `${short}, show exact amount`}
+      onClick={(e) => {
+        e.stopPropagation()
+        setFull((f) => !f)
+      }}
+      className="cursor-pointer rounded-sm text-left tabular-nums [overflow-wrap:anywhere] underline decoration-muted-foreground/40 decoration-dotted underline-offset-4 hover:decoration-muted-foreground"
+    >
+      {full ? exact : short}
+    </button>
+  )
 }
