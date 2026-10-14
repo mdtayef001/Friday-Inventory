@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { EmptyState, PageBody, PageHeader, Pager, Pill, StatCard, MoneyTotal } from "@/components/common"
 import { useScope, useSessionUser } from "@/components/session-provider"
-import { apiQuery, PAGE_SIZE, usePage, usePageNumber } from "@/lib/data/queries"
+import { apiQuery, usePage, usePaging } from "@/lib/data/queries"
 import { formatDateTime, formatMoney, formatNumber } from "@/lib/format"
 import type { Sale } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -27,7 +27,7 @@ const CHANNEL_LABEL = { store: "In store", order: "Order", rental: "Rental" } as
 export function MySalesView() {
   const user = useSessionUser()
   const { locations } = useScope()
-  const [page, setPage] = usePageNumber()
+  const paging = usePaging()
   // Worked out once per visit, so the queries keep the same keys.
   const since = useMemo(() => {
     const now = new Date()
@@ -35,7 +35,7 @@ export function MySalesView() {
   }, [])
   const today = useQuery(apiQuery<Totals>("sales/summary/", { mine: true, from: since.today })).data
   const month = useQuery(apiQuery<Totals>("sales/summary/", { mine: true, from: since.month })).data
-  const salesQuery = usePage<Sale>("sales/", { mine: true, from: since.month, page })
+  const salesQuery = usePage<Sale>("sales/", { mine: true, from: since.month, page: paging.page }, { pageSize: paging.pageSize })
   const error = salesQuery.error?.message ?? ""
   const data = today && month && salesQuery.data ? { today, month, sales: salesQuery.data.results } : null
   const line = (t: Totals) => `${formatNumber(t.count)} sale${t.count === 1 ? "" : "s"} · ${formatNumber(t.unitsSold)} unit${t.unitsSold === 1 ? "" : "s"}`
@@ -78,7 +78,7 @@ export function MySalesView() {
             <EmptyState icon={HandCoins} title="No sales yet this month" description="Sales you make with Sell show up here straight away." />
           ) : (
             <div className="overflow-x-auto">
-              <Table>
+              <Table scroll>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="pl-4">Date</TableHead>
@@ -121,7 +121,7 @@ export function MySalesView() {
           )}
           {salesQuery.data && (
             <div className="px-4 pt-4">
-              <Pager page={salesQuery.data.page} pageSize={PAGE_SIZE} count={salesQuery.data.count} onPage={setPage} busy={salesQuery.isPlaceholderData} />
+              <Pager page={salesQuery.data.page} pageSize={paging.pageSize} count={salesQuery.data.count} onPage={paging.setPage} onPageSize={paging.setPageSize} busy={salesQuery.isPlaceholderData} />
             </div>
           )}
         </CardContent>

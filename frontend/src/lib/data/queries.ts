@@ -49,10 +49,12 @@ export function apiQuery<T>(path: string, params: Params = {}) {
   })
 }
 
-export const PAGE_SIZE = 50
+/** Rows per page people can choose. The first is the default. */
+export const PAGE_SIZES = [10, 50, 100]
+const PAGE_SIZE_KEY = "friday.pageSize"
 
 /** One page of a list. The previous page stays on screen while the next one loads. */
-export function usePage<T>(path: string, params: Params & { page: number }, { pageSize = PAGE_SIZE, enabled = true } = {}) {
+export function usePage<T>(path: string, params: Params & { page: number }, { pageSize = PAGE_SIZES[0], enabled = true } = {}) {
   return useQuery({ ...apiQuery<Page<T>>(path, { ...params, pageSize }), placeholderData: keepPreviousData, enabled })
 }
 
@@ -62,6 +64,33 @@ export function usePageNumber(...filters: unknown[]) {
   const [state, setState] = useState({ key, page: 1 })
   const page = state.key === key ? state.page : 1
   return [page, (next: number) => setState({ key, page: next })] as const
+}
+
+/**
+ * Page number and rows per page for a list. Back to page 1 when the filters or the
+ * page size change. The chosen size is remembered in this browser for every list.
+ */
+export function usePaging(...filters: unknown[]) {
+  const [pageSize, setSize] = useState(savedPageSize)
+  const [page, setPage] = usePageNumber(pageSize, ...filters)
+  function setPageSize(size: number) {
+    setSize(size)
+    try {
+      localStorage.setItem(PAGE_SIZE_KEY, String(size))
+    } catch {
+      // Private window or storage blocked: it just isn't remembered.
+    }
+  }
+  return { page, pageSize, setPage, setPageSize }
+}
+
+function savedPageSize() {
+  try {
+    const size = Number(localStorage.getItem(PAGE_SIZE_KEY))
+    return PAGE_SIZES.includes(size) ? size : PAGE_SIZES[0]
+  } catch {
+    return PAGE_SIZES[0]
+  }
 }
 
 /** The value after it stopped changing for a moment, so typing doesn't send a request per key. */

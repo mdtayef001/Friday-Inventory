@@ -22,7 +22,7 @@ import {
 import { ClientDialog } from "@/components/client-dialog"
 import { initials } from "@/components/user-menu"
 import { actions } from "@/lib/data/actions"
-import { PAGE_SIZE, useClients, useDebounced, usePageNumber } from "@/lib/data/queries"
+import { useClients, useDebounced, usePaging } from "@/lib/data/queries"
 import { formatMoney } from "@/lib/format"
 import type { Client } from "@/lib/types"
 
@@ -31,8 +31,8 @@ export function ClientsView() {
   const [query, setQuery] = useState(params.get("q") ?? "")
   const [editing, setEditing] = useState<Client | "new" | null>(null)
   const search = useDebounced(query.trim())
-  const [page, setPage] = usePageNumber(search)
-  const { data, error, isPending, isPlaceholderData, refetch } = useClients({ page, search, stats: true })
+  const paging = usePaging(search)
+  const { data, error, isPending, isPlaceholderData, refetch } = useClients({ page: paging.page, search, stats: true }, { pageSize: paging.pageSize })
   const rows = data?.results ?? []
 
   return (
@@ -59,7 +59,7 @@ export function ClientsView() {
       ) : (
         <Card className={isPlaceholderData ? "py-0 opacity-60 transition-opacity" : "py-0"}>
           <div className="overflow-x-auto">
-            <Table>
+            <Table scroll>
               <TableHeader>
                 <TableRow>
                   <TableHead className="pl-4">Client</TableHead>
@@ -135,7 +135,7 @@ export function ClientsView() {
           </div>
         </Card>
       )}
-      {data && <Pager page={data.page} pageSize={PAGE_SIZE} count={data.count} onPage={setPage} busy={isPlaceholderData} />}
+      {data && <Pager page={data.page} pageSize={paging.pageSize} count={data.count} onPage={paging.setPage} onPageSize={paging.setPageSize} busy={isPlaceholderData} />}
 
       {editing && <ClientDialog client={editing === "new" ? undefined : editing} onClose={() => setEditing(null)} />}
     </PageBody>

@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { AlertTriangle, ChevronLeft, ChevronRight, RotateCcw, Search, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
+import { PAGE_SIZES } from "@/lib/data/queries"
 import { formatMoney, formatMoneyShort, formatNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -283,30 +284,51 @@ export function useAttempt() {
   return [run, pending] as const
 }
 
-/** "1–50 of 230" with previous and next buttons. Hidden when everything fits on one page. */
+/** A list's height limit: about ten rows, then it scrolls. Tables use <Table scroll> instead. */
+export const SCROLL_LIST = "max-h-[min(37rem,70svh)] overflow-y-auto"
+
+/**
+ * "1–10 of 230", rows per page (10, 50 or 100) and previous / next buttons.
+ * Hidden when everything fits in the smallest page.
+ */
 export function Pager({
   page,
   pageSize,
   count,
   onPage,
+  onPageSize,
   busy,
 }: {
   page: number
   pageSize: number
   count: number
   onPage: (page: number) => void
+  onPageSize?: (size: number) => void
   /** The next page is loading. */
   busy?: boolean
 }) {
-  if (count <= pageSize) return null
+  if (count <= PAGE_SIZES[0]) return null
   const pages = Math.ceil(count / pageSize)
   const from = (page - 1) * pageSize + 1
   const to = Math.min(page * pageSize, count)
   return (
-    <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
-      <span className="tabular-nums">
-        {formatNumber(from)}–{formatNumber(to)} of {formatNumber(count)}
-      </span>
+    <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
+      <div className="flex items-center gap-3">
+        <span className="tabular-nums">
+          {formatNumber(from)}–{formatNumber(to)} of {formatNumber(count)}
+        </span>
+        {onPageSize && (
+          <label className="flex items-center gap-2">
+            <span className="hidden sm:inline">Rows per page</span>
+            <SimpleSelect
+              value={String(pageSize)}
+              onChange={(v) => onPageSize(Number(v))}
+              options={PAGE_SIZES.map((n) => ({ value: String(n), label: String(n) }))}
+              className="h-8! w-18"
+            />
+          </label>
+        )}
+      </div>
       <div className="flex gap-2">
         <Button variant="outline" size="sm" disabled={page <= 1 || busy} onClick={() => onPage(page - 1)}>
           <ChevronLeft />

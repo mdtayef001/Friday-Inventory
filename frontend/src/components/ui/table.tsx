@@ -3,11 +3,22 @@
 import * as React from "react"
 import { cn } from "cn"
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+function Table({
+  className,
+  scroll,
+  ...props
+}: React.ComponentProps<"table"> & {
+  /** Scroll inside a box about ten rows tall, keeping the column headings in view. */
+  scroll?: boolean
+}) {
   return (
     <div
       data-slot="table-container"
-      className="relative w-full overflow-x-auto"
+      className={cn(
+        "relative w-full overflow-x-auto",
+        scroll &&
+          "max-h-[min(37rem,70svh)] overflow-y-auto [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-20 [&_thead]:bg-card [&_thead]:shadow-[0_1px_0_var(--border)]"
+      )}
     >
       <table
         data-slot="table"

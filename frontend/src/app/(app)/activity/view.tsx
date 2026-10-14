@@ -3,17 +3,17 @@
 import { useState } from "react"
 import { History } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
-import { EmptyState, ListSkeleton, PageBody, PageHeader, Pager, QueryError, SearchInput, SimpleSelect } from "@/components/common"
-import { PAGE_SIZE, useActivity, useActivityPeople, useDebounced, usePageNumber } from "@/lib/data/queries"
+import { EmptyState, ListSkeleton, PageBody, PageHeader, Pager, QueryError, SCROLL_LIST, SearchInput, SimpleSelect } from "@/components/common"
+import { useActivity, useActivityPeople, useDebounced, usePaging } from "@/lib/data/queries"
 import { formatDateTime, timeAgo } from "@/lib/format"
 
 export function ActivityView() {
   const [query, setQuery] = useState("")
   const [person, setPerson] = useState("all")
   const search = useDebounced(query.trim())
-  const [page, setPage] = usePageNumber(search, person)
+  const paging = usePaging(search, person)
   const people = useActivityPeople()
-  const { data, error, isPending, isPlaceholderData, refetch } = useActivity({ page, search, user: person === "all" ? undefined : person })
+  const { data, error, isPending, isPlaceholderData, refetch } = useActivity({ page: paging.page, search, user: person === "all" ? undefined : person }, { pageSize: paging.pageSize })
   const rows = data?.results ?? []
 
   return (
@@ -36,7 +36,7 @@ export function ActivityView() {
         <EmptyState icon={History} title="No activity found" />
       ) : (
         <Card className={isPlaceholderData ? "opacity-60 transition-opacity" : undefined}>
-          <CardContent>
+          <CardContent className={SCROLL_LIST}>
             <ol className="relative space-y-5 border-l pl-6">
               {rows.map((a) => (
                 <li key={a.id} className="relative">
@@ -56,7 +56,7 @@ export function ActivityView() {
           </CardContent>
         </Card>
       )}
-      {data && <Pager page={data.page} pageSize={PAGE_SIZE} count={data.count} onPage={setPage} busy={isPlaceholderData} />}
+      {data && <Pager page={data.page} pageSize={paging.pageSize} count={data.count} onPage={paging.setPage} onPageSize={paging.setPageSize} busy={isPlaceholderData} />}
     </PageBody>
   )
 }

@@ -30,7 +30,7 @@ import {
 import { usePermissions } from "@/components/session-provider"
 import { StockPill } from "@/components/status"
 import { actions } from "@/lib/data/actions"
-import { PAGE_SIZE, useCategories, useDebounced, usePageNumber, useProducts, useStockSummary } from "@/lib/data/queries"
+import { useCategories, useDebounced, usePaging, useProducts, useStockSummary } from "@/lib/data/queries"
 import { formatMoney, formatNumber } from "@/lib/format"
 import type { Product } from "@/lib/types"
 
@@ -48,16 +48,19 @@ export function ProductsView() {
   const [stockFilter, setStockFilter] = useState("all")
   const [deleting, setDeleting] = useState<Product | null>(null)
   const search = useDebounced(query.trim())
-  const [page, setPage] = usePageNumber(search, category, stockFilter)
+  const paging = usePaging(search, category, stockFilter)
 
   const categories = useCategories()
   const total = useStockSummary().data?.products
-  const { data, error, isPending, isPlaceholderData, refetch } = useProducts({
-    page,
-    search,
-    category: category === "all" ? undefined : category,
-    stock: stockFilter === "all" ? undefined : stockFilter,
-  })
+  const { data, error, isPending, isPlaceholderData, refetch } = useProducts(
+    {
+      page: paging.page,
+      search,
+      category: category === "all" ? undefined : category,
+      stock: stockFilter === "all" ? undefined : stockFilter,
+    },
+    { pageSize: paging.pageSize },
+  )
   const rows = data?.results ?? []
   const filtered = !!search || category !== "all" || stockFilter !== "all"
   const canEdit = usePermissions().can("managerProducts")
@@ -110,7 +113,7 @@ export function ProductsView() {
       ) : (
         <Card className={isPlaceholderData ? "py-0 opacity-60 transition-opacity" : "py-0"}>
           <div className="overflow-x-auto">
-            <Table>
+            <Table scroll>
               <TableHeader>
                 <TableRow>
                   <TableHead className="pl-4">Product</TableHead>
@@ -187,7 +190,7 @@ export function ProductsView() {
           </div>
         </Card>
       )}
-      {data && <Pager page={data.page} pageSize={PAGE_SIZE} count={data.count} onPage={setPage} busy={isPlaceholderData} />}
+      {data && <Pager page={data.page} pageSize={paging.pageSize} count={data.count} onPage={paging.setPage} onPageSize={paging.setPageSize} busy={isPlaceholderData} />}
 
       {deleting && (
         <DeleteProductDialog

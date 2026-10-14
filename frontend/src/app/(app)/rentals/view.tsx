@@ -34,7 +34,7 @@ import { PAYMENT_METHODS } from "@/lib/business"
 import { RentalStatusPill } from "@/components/status"
 import { request } from "@/lib/api/client"
 import { actions } from "@/lib/data/actions"
-import { PAGE_SIZE, qtyAt, useDebounced, usePageNumber, useRentalSummary, useRentals, withParams } from "@/lib/data/queries"
+import { qtyAt, useDebounced, usePaging, useRentalSummary, useRentals, withParams } from "@/lib/data/queries"
 import { formatDate, formatMoney } from "@/lib/format"
 import { countDays, isOverdue, PLAN_LABEL, quoteRental, rentalDueDate, rentalOverdueDays } from "@/lib/rental"
 import type { ClientBrief, Page, PaymentMethod, Product, Rental, RentalPlan } from "@/lib/types"
@@ -50,14 +50,17 @@ export function RentalsView() {
   const [scanningIn, setScanningIn] = useState(false)
   const [returning, setReturning] = useState<Rental | null>(null)
   const search = useDebounced(query.trim())
-  const [page, setPage] = usePageNumber(search, filter)
+  const paging = usePaging(search, filter)
   const stats = useRentalSummary().data
-  const { data, error, isPending, isPlaceholderData, refetch } = useRentals({
-    page,
-    search,
-    status: filter === "active" || filter === "returned" ? filter : undefined,
-    overdue: filter === "overdue",
-  })
+  const { data, error, isPending, isPlaceholderData, refetch } = useRentals(
+    {
+      page: paging.page,
+      search,
+      status: filter === "active" || filter === "returned" ? filter : undefined,
+      overdue: filter === "overdue",
+    },
+    { pageSize: paging.pageSize },
+  )
   const rows = data?.results ?? []
   const locationName = (id: string) => scope.locations.find((l) => l.id === id)?.name
 
@@ -116,7 +119,7 @@ export function RentalsView() {
       ) : (
         <Card className={isPlaceholderData ? "py-0 opacity-60 transition-opacity" : "py-0"}>
           <div className="overflow-x-auto">
-            <Table>
+            <Table scroll>
               <TableHeader>
                 <TableRow>
                   <TableHead className="pl-4">Rental</TableHead>
@@ -197,7 +200,7 @@ export function RentalsView() {
           </div>
         </Card>
       )}
-      {data && <Pager page={data.page} pageSize={PAGE_SIZE} count={data.count} onPage={setPage} busy={isPlaceholderData} />}
+      {data && <Pager page={data.page} pageSize={paging.pageSize} count={data.count} onPage={paging.setPage} onPageSize={paging.setPageSize} busy={isPlaceholderData} />}
 
       {creating && <NewRentalDialog onClose={() => setCreating(false)} />}
       {scanningIn && (

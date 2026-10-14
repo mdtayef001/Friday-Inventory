@@ -27,7 +27,7 @@ import { useScope, useSessionUser } from "@/components/session-provider"
 import { RequestStockDialog } from "@/components/stock-request-dialog"
 import { TransferStatusPill } from "@/components/status"
 import { actions } from "@/lib/data/actions"
-import { PAGE_SIZE, qtyAt, useLocations, usePageNumber, useProduct, useStockRequests, useTransfers } from "@/lib/data/queries"
+import { qtyAt, useLocations, usePaging, useProduct, useStockRequests, useTransfers } from "@/lib/data/queries"
 import { formatDateTime, timeAgo } from "@/lib/format"
 import type { Product, StockRequest } from "@/lib/types"
 
@@ -37,8 +37,8 @@ export function TransfersView() {
   const locationName = (id: string) => locations.find((l) => l.id === id)?.name
   const [creating, setCreating] = useState(false)
   const [requesting, setRequesting] = useState(false)
-  const [page, setPage] = usePageNumber()
-  const { data, error, isPending, isPlaceholderData, refetch } = useTransfers({ page })
+  const paging = usePaging()
+  const { data, error, isPending, isPlaceholderData, refetch } = useTransfers({ page: paging.page }, { pageSize: paging.pageSize })
   const rows = data?.results ?? []
 
   return (
@@ -72,7 +72,7 @@ export function TransfersView() {
       ) : (
         <Card className={isPlaceholderData ? "py-0 opacity-60 transition-opacity" : "py-0"}>
           <div className="overflow-x-auto">
-            <Table>
+            <Table scroll>
               <TableHeader>
                 <TableRow>
                   <TableHead className="pl-4">Reference</TableHead>
@@ -142,7 +142,7 @@ export function TransfersView() {
           </div>
         </Card>
       )}
-      {data && <Pager page={data.page} pageSize={PAGE_SIZE} count={data.count} onPage={setPage} busy={isPlaceholderData} />}
+      {data && <Pager page={data.page} pageSize={paging.pageSize} count={data.count} onPage={paging.setPage} onPageSize={paging.setPageSize} busy={isPlaceholderData} />}
 
       {creating && <NewTransferDialog onClose={() => setCreating(false)} />}
     </PageBody>
@@ -267,7 +267,7 @@ function StockRequests() {
       </CardHeader>
       <CardContent className="px-0">
         <div className="overflow-x-auto">
-          <Table>
+          <Table scroll>
             <TableHeader>
               <TableRow>
                 <TableHead className="pl-4">Request</TableHead>

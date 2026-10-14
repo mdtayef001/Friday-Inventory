@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { EmptyState, PageBody, PageHeader, Pager, Pill, SimpleSelect, StatCard, type PillTone, MoneyTotal } from "@/components/common"
 import { ProductPicker } from "@/components/product-picker"
 import { usePermissions, useScope } from "@/components/session-provider"
-import { apiQuery, PAGE_SIZE, usePage, usePageNumber, withParams } from "@/lib/data/queries"
+import { apiQuery, usePage, usePaging, withParams } from "@/lib/data/queries"
 import { formatDateTime, formatMoney, formatMoneyShort, formatNumber } from "@/lib/format"
 import type { PaymentMethod, Product, Sale, SaleChannel } from "@/lib/types"
 import { PAYMENT_METHODS } from "@/lib/business"
@@ -119,8 +119,8 @@ export function SalesView() {
   }, [period, customFrom, customTo, location, product, seller, channel, method])
 
   const summaryQuery = useQuery({ ...apiQuery<Summary>("sales/summary/", params), placeholderData: keepPreviousData })
-  const [page, setPage] = usePageNumber(params)
-  const salesQuery = usePage<Sale>("sales/", { ...params, page })
+  const paging = usePaging(params)
+  const salesQuery = usePage<Sale>("sales/", { ...params, page: paging.page }, { pageSize: paging.pageSize })
   const summary = summaryQuery.data
   const list = salesQuery.data
   const sales = list?.results ?? []
@@ -362,7 +362,7 @@ export function SalesView() {
             <EmptyState icon={ShoppingCart} title="No sales here" description="Sales from Sell, delivered orders and returned rentals show up here." />
           ) : (
             <div className="overflow-x-auto">
-              <Table>
+              <Table scroll>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="pl-4">Date</TableHead>
@@ -412,7 +412,7 @@ export function SalesView() {
           )}
           {list && (
             <div className="px-4">
-              <Pager page={list.page} pageSize={PAGE_SIZE} count={list.count} onPage={setPage} busy={salesQuery.isPlaceholderData} />
+              <Pager page={list.page} pageSize={paging.pageSize} count={list.count} onPage={paging.setPage} onPageSize={paging.setPageSize} busy={salesQuery.isPlaceholderData} />
             </div>
           )}
         </CardContent>

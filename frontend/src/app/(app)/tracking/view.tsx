@@ -20,6 +20,7 @@ import {
   PageHeader,
   Pager,
   QueryError,
+  SCROLL_LIST,
   SearchInput,
   SimpleSelect,
 } from "@/components/common"
@@ -29,7 +30,7 @@ import { usePermissions, useScope } from "@/components/session-provider"
 import { SHIPMENT_FLOW, SHIPMENT_STATUS, ShipmentStatusPill } from "@/components/status"
 import { TrackingLinkShare, copyTrackingLink } from "@/components/tracking-link"
 import { actions } from "@/lib/data/actions"
-import { PAGE_SIZE, qtyAt, useDebounced, usePageNumber, useShipment, useShipmentCounts, useShipments } from "@/lib/data/queries"
+import { qtyAt, useDebounced, usePaging, useShipment, useShipmentCounts, useShipments } from "@/lib/data/queries"
 import { formatDateTime, formatMoney, timeAgo } from "@/lib/format"
 import type { ClientBrief, Product, Shipment, ShipmentStatus } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -57,11 +58,14 @@ export function TrackingView() {
   const [creating, setCreating] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const search = useDebounced(query.trim())
-  const [page, setPage] = usePageNumber(search, filter)
+  const paging = usePaging(search, filter)
   const counts = useShipmentCounts().data
   const countOf = (value: (typeof FILTERS)[number]["value"]) =>
     counts?.reduce((sum, c) => sum + (value === "all" || c.status === value ? c.count : 0), 0)
-  const { data, error, isPending, isPlaceholderData, refetch } = useShipments({ page, search, status: filter === "all" ? undefined : filter })
+  const { data, error, isPending, isPlaceholderData, refetch } = useShipments(
+    { page: paging.page, search, status: filter === "all" ? undefined : filter },
+    { pageSize: paging.pageSize },
+  )
   const rows = data?.results ?? []
   // Kept fresh on its own, so it stays open while the list changes page or filter.
   const open = useShipment(openId, rows.find((s) => s.id === openId)).data
@@ -105,7 +109,7 @@ export function TrackingView() {
       ) : rows.length === 0 ? (
         <EmptyState icon={Truck} title="No orders here" description="Create an order to send products to a client and track it." />
       ) : (
-        <div className={isPlaceholderData ? "grid gap-3 opacity-60 transition-opacity" : "grid gap-3"}>
+        <div className={cn("grid gap-3 p-0.5 pr-1", SCROLL_LIST, isPlaceholderData && "opacity-60 transition-opacity")}>
           {rows.map((s) => {
             const client = s.client
             return (
@@ -135,7 +139,7 @@ export function TrackingView() {
           })}
         </div>
       )}
-      {data && <Pager page={data.page} pageSize={PAGE_SIZE} count={data.count} onPage={setPage} busy={isPlaceholderData} />}
+      {data && <Pager page={data.page} pageSize={paging.pageSize} count={data.count} onPage={paging.setPage} onPageSize={paging.setPageSize} busy={isPlaceholderData} />}
 
       <Sheet open={!!openId && !!open} onOpenChange={(o) => !o && setOpenId(null)}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-md">{open && <ShipmentDetail shipment={open} />}</SheetContent>

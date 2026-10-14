@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { EmptyState, ListSkeleton, PageBody, PageHeader, Pager, QueryError, SearchInput, StatCard, MoneyTotal } from "@/components/common"
 import { useScope } from "@/components/session-provider"
 import { StockAdjustDialog } from "@/components/stock-adjust-dialog"
-import { PAGE_SIZE, qtyAt, useDebounced, usePageNumber, useProducts, useStockSummary } from "@/lib/data/queries"
+import { qtyAt, useDebounced, usePaging, useProducts, useStockSummary } from "@/lib/data/queries"
 import { formatNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -19,9 +19,9 @@ export function InventoryView() {
   const [lowOnly, setLowOnly] = useState(false)
   const [adjust, setAdjust] = useState<{ productId: string; locationId: string; key: number } | null>(null)
   const search = useDebounced(query.trim())
-  const [page, setPage] = usePageNumber(search, lowOnly)
+  const paging = usePaging(search, lowOnly)
   const summary = useStockSummary().data
-  const { data, error, isPending, isPlaceholderData, refetch } = useProducts({ page, search, attention: lowOnly })
+  const { data, error, isPending, isPlaceholderData, refetch } = useProducts({ page: paging.page, search, attention: lowOnly }, { pageSize: paging.pageSize })
 
   const rows = (data?.results ?? []).map((p) => {
     const cells = scope.locations.map((l) => qtyAt(p, l.id))
@@ -61,7 +61,7 @@ export function InventoryView() {
       ) : (
         <Card className={isPlaceholderData ? "py-0 opacity-60 transition-opacity" : "py-0"}>
           <div className="overflow-x-auto">
-            <Table>
+            <Table scroll>
               <TableHeader>
                 <TableRow>
                   <TableHead className="sticky left-0 z-10 min-w-48 bg-card pl-4">Product</TableHead>
@@ -118,7 +118,7 @@ export function InventoryView() {
           </div>
         </Card>
       )}
-      {data && <Pager page={data.page} pageSize={PAGE_SIZE} count={data.count} onPage={setPage} busy={isPlaceholderData} />}
+      {data && <Pager page={data.page} pageSize={paging.pageSize} count={data.count} onPage={paging.setPage} onPageSize={paging.setPageSize} busy={isPlaceholderData} />}
       <p className="text-xs text-muted-foreground">Tip: click any number to add or remove stock at that location.</p>
 
       {adjust && (

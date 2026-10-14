@@ -10,10 +10,9 @@ import { EmptyState, ListSkeleton, PageBody, PageHeader, Pager, QueryError, Sear
 import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { StockPill } from "@/components/status"
 import {
-  PAGE_SIZE,
   qtyAt,
   useDebounced,
-  usePageNumber,
+  usePaging,
   useProducts,
   useRentalSummary,
   useShipmentCounts,
@@ -32,10 +31,10 @@ export function LocationDetailView({ id }: { id: string }) {
   const location = scope.locations.find((l) => l.id === id)
   const [query, setQuery] = useState("")
   const search = useDebounced(query.trim())
-  const [page, setPage] = usePageNumber(search)
+  const paging = usePaging(search)
   const here = !!location
   // Products kept here (some may have run out), A to Z.
-  const products = useProducts({ page, search, location: id, ordering: "name" }, { enabled: here })
+  const products = useProducts({ page: paging.page, search, location: id, ordering: "name" }, { pageSize: paging.pageSize, enabled: here })
   const stats = useStockSummary().data?.locations.find((l) => l.locationId === id)
   const rentals = useRentalSummary({ location: id }, here && showRentals).data
   const orders = useShipmentCounts({ location: id }, here && showOrders).data
@@ -83,7 +82,7 @@ export function LocationDetailView({ id }: { id: string }) {
             <ListSkeleton className="px-4" />
           ) : (
           <div className={products.isPlaceholderData ? "overflow-x-auto opacity-60 transition-opacity" : "overflow-x-auto"}>
-            <Table>
+            <Table scroll>
               <TableHeader>
                 <TableRow>
                   <TableHead className="pl-4">Product</TableHead>
@@ -125,7 +124,7 @@ export function LocationDetailView({ id }: { id: string }) {
           )}
           {products.data && (
             <div className="px-4">
-              <Pager page={products.data.page} pageSize={PAGE_SIZE} count={products.data.count} onPage={setPage} busy={products.isPlaceholderData} />
+              <Pager page={products.data.page} pageSize={paging.pageSize} count={products.data.count} onPage={paging.setPage} onPageSize={paging.setPageSize} busy={products.isPlaceholderData} />
             </div>
           )}
         </CardContent>
