@@ -12,6 +12,8 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,
+  // Lets a phone on the same Wi-Fi use the dev server (HMR and dev assets).
+  allowedDevOrigins: ["192.168.0.195"],
   turbopack: {
     rules: {
       "*.css": {
