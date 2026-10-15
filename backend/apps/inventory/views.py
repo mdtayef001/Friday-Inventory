@@ -19,7 +19,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.models import User
-from apps.accounts.permissions import TEAM, IsTenantMember, ManagerNeedsPermission, allowed_location_ids
+from apps.accounts.permissions import LEADS, TEAM, IsTenantMember, ManagerNeedsPermission, allowed_location_ids
 from apps.api import Pagination
 
 from . import services
@@ -745,7 +745,7 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixi
     LIST_LIMIT = 500
 
     def get_queryset(self):
-        qs = super().get_queryset().select_related("sold_by", "client")
+        qs = super().get_queryset().select_related("sold_by", "client", "refunded_by", "return_requested_by")
         if self.request.user.role == User.Role.STAFF:
             qs = qs.filter(sold_by=self.request.user)
         return self.scope_to_locations(qs, "location_id")
@@ -782,6 +782,8 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixi
             if params["channel"] not in Sale.Channel.values:
                 raise ValidationError({"channel": "Unknown sale type."})
             qs = qs.filter(channel=params["channel"])
+        if params.get("returns") == "requested":
+            qs = qs.filter(return_request=Sale.ReturnRequest.REQUESTED)
         if params.get("method"):
             method = "" if params["method"] == "none" else params["method"]
             if method and method not in Sale.Method.values:
@@ -975,6 +977,39 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixi
         if not sale.receipt_no:
             raise NotFound("This sale has no receipt yet. It gets one once it's paid.")
         return Response(ReceiptSerializer(sale, context={"internal": True}).data)
+
+    def reason(self, key="reason"):
+        value = self.request.data.get(key, "")
+        if not isinstance(value, str) or len(value) > 200:
+            raise ValidationError({key: "Keep it under 200 characters."})
+        return value
+
+    @action(detail=True, methods=["post"], url_path="return")
+    def return_sale(self, request, pk=None):
+        """Owners and admins take a sale back (or approve a manager's request). Managers ask instead."""
+        if request.user.role != User.Role.OWNER:
+            raise PermissionDenied("Only the owner or an admin can return a sale. Send them a return request.")
+        return Response(self.get_serializer(services.return_sale(request.user, self.get_object(), self.reason())).data)
+
+    @action(detail=True, methods=["post"], url_path="request-return")
+    def request_return(self, request, pk=None):
+        if request.user.role != User.Role.MANAGER:
+            raise PermissionDenied("Managers ask for returns; owners and admins return the sale directly.")
+        return Response(self.get_serializer(services.request_return(request.user, self.get_object(), self.reason())).data)
+
+    @action(detail=True, methods=["post"], url_path="decline-return")
+    def decline_return(self, request, pk=None):
+        if request.user.role != User.Role.OWNER:
+            raise PermissionDenied("Only the owner or an admin can decline a return.")
+        return Response(self.get_serializer(services.decline_return(request.user, self.get_object(), self.reason("note"))).data)
+
+    @action(detail=True, url_path="check-payment")
+    def check_payment(self, request, pk=None):
+        """What SSLCommerz has on record for an online sale, and its refund."""
+        if request.user.role not in LEADS:
+            raise PermissionDenied()
+        result = services.check_online_payment(self.get_object())
+        return Response({"payment": result["payment"], "sale": self.get_serializer(result["sale"]).data})
 
     @action(detail=True, methods=["post"], url_path="cancel-payment")
     def cancel_payment(self, request, pk=None):

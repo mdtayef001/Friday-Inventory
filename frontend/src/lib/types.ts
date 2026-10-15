@@ -317,6 +317,15 @@ export interface Sale {
   soldAt: string
   /** Set when the goods came back; refunded sales don't count. */
   refundedAt: string | null
+  refundedBy: string
+  refundReason: string
+  /** Online sales: the money going back through SSLCommerz. */
+  refundStatus: "" | "processing" | "refunded" | "cancelled"
+  /** A manager asked for a return; the owner or an admin approves or declines it. */
+  returnRequest: "" | "requested" | "declined"
+  returnRequestedBy: string
+  returnRequestedAt: string | null
+  returnDeclineNote: string
   /** "" when not recorded (orders, older sales). */
   paymentMethod: PaymentMethod | ""
   /** Only "paid" counts. Online payments wait for SSLCommerz. */
@@ -330,6 +339,24 @@ export interface Sale {
   receiptToken: string | null
   /** Only right after starting an online payment: the SSLCommerz page to pay on. */
   paymentUrl?: string
+}
+
+/** What SSLCommerz has on record for an online sale, as its API names the fields. */
+export interface PaymentCheck {
+  payment: {
+    status: string
+    amount: string
+    storeAmount: string
+    currency: string
+    tranDate: string
+    validatedOn: string
+    cardType: string
+    cardNo: string
+    cardIssuer: string
+    bankTranId: string
+    riskTitle: string
+  } | null
+  sale: Sale
 }
 
 /** A paid sale as the buyer's receipt. The team's copy adds the fields marked "team". */

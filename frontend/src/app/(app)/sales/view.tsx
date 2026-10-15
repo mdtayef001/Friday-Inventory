@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { EmptyState, PageBody, PageHeader, Pager, Pill, SimpleSelect, StatCard, type PillTone, MoneyTotal } from "@/components/common"
 import { ProductPicker } from "@/components/product-picker"
+import { ReturnRequests, ReturnStatus, SaleActions } from "@/components/sale-return"
 import { usePermissions, useScope } from "@/components/session-provider"
 import { apiQuery, usePage, usePaging, withParams } from "@/lib/data/queries"
 import { formatDateTime, formatMoney, formatMoneyShort, formatNumber } from "@/lib/format"
@@ -145,6 +146,8 @@ export function SalesView() {
           </Button>
         }
       />
+
+      <ReturnRequests />
 
       <div className="flex flex-wrap gap-2">
         <SimpleSelect className="w-40" value={period} onChange={(v) => setPeriod(v as Period)} options={PERIODS} />
@@ -343,7 +346,7 @@ export function SalesView() {
             <Receipt className="size-4" />
             Sales
           </CardTitle>
-          <CardDescription>Newest first. Refunded sales are greyed out and not counted.</CardDescription>
+          <CardDescription>Newest first. Refunded sales are greyed out and not counted. Use ⋯ on a shop sale to return it.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 px-0">
           {!list ? (
@@ -370,7 +373,10 @@ export function SalesView() {
                     <TableHead>Shop</TableHead>
                     <TableHead>Client</TableHead>
                     <TableHead>Sold by</TableHead>
-                    <TableHead className="pr-4">Receipt</TableHead>
+                    <TableHead>Receipt</TableHead>
+                    <TableHead className="w-10 pr-4">
+                      <span className="sr-only">Actions</span>
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -379,7 +385,7 @@ export function SalesView() {
                       <TableCell className="pl-4 text-sm whitespace-nowrap">{formatDateTime(s.soldAt)}</TableCell>
                       <TableCell className="max-w-64 font-medium">
                         <span className="line-clamp-2">{s.productName}</span>
-                        {s.refundedAt && <Pill tone="red">Refunded</Pill>}
+                        <ReturnStatus sale={s} />
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{formatNumber(s.quantity)}</TableCell>
                       <TableCell className="text-right tabular-nums whitespace-nowrap">
@@ -399,8 +405,11 @@ export function SalesView() {
                       <TableCell className="text-sm whitespace-nowrap">{(s.locationId && locationName(s.locationId)) || "—"}</TableCell>
                       <TableCell className="text-sm whitespace-nowrap">{s.clientName || "Walk-in"}</TableCell>
                       <TableCell className="text-sm whitespace-nowrap">{s.soldBy || "—"}</TableCell>
-                      <TableCell className="pr-4">
+                      <TableCell>
                         <ReceiptLink sale={s} />
+                      </TableCell>
+                      <TableCell className="pr-4">
+                        <SaleActions sale={s} />
                       </TableCell>
                     </TableRow>
                   ))}

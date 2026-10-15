@@ -276,8 +276,31 @@ class Sale(TenantModel):
     rental = models.OneToOneField(Rental, null=True, blank=True, on_delete=models.SET_NULL, related_name="sale")
     sold_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+")
     sold_at = models.DateTimeField(default=timezone.now)
-    # Set when the goods come back (a delivered order returned). Refunded sales don't count.
+    # Set when the goods come back (a delivered order returned, or a shop sale
+    # brought back to the counter). Refunded sales don't count.
     refunded_at = models.DateTimeField(null=True, blank=True)
+    refunded_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    refund_reason = models.CharField(max_length=200, blank=True)
+
+    class RefundStatus(models.TextChoices):
+        PROCESSING = "processing", "SSLCommerz is refunding it"
+        REFUNDED = "refunded", "Refunded by SSLCommerz"
+        CANCELLED = "cancelled", "SSLCommerz cancelled the refund"
+
+    class ReturnRequest(models.TextChoices):
+        REQUESTED = "requested", "Return requested"
+        DECLINED = "declined", "Return declined"
+
+    # Managers ask for a return; the owner or an admin approves (which returns
+    # the sale, see refunded_at) or declines with a note. The reason is refund_reason.
+    return_request = models.CharField(max_length=10, choices=ReturnRequest.choices, blank=True)
+    return_requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    return_requested_at = models.DateTimeField(null=True, blank=True)
+    return_decline_note = models.CharField(max_length=200, blank=True)
+
+    # Online sales only: the money going back through SSLCommerz, and its reference there.
+    refund_status = models.CharField(max_length=12, choices=RefundStatus.choices, blank=True)
+    refund_ref_id = models.CharField(max_length=100, blank=True)
 
     class Method(models.TextChoices):
         CASH = "cash", "Cash"

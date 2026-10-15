@@ -106,6 +106,48 @@ def open_session(
     return None, "The payment gateway couldn't start the payment. Please try again in a moment."
 
 
+def _query(account, **params):
+    """One call to SSLCommerz's merchant API (transaction lookup and refunds share it). None if unreachable."""
+    query = urlencode({**params, "store_id": account.store_id, "store_passwd": account.password, "v": "1", "format": "json"})
+    try:
+        with urlopen(f"{account.host}/validator/api/merchantTransIDvalidationAPI.php?{query}", timeout=20) as res:
+            return json.load(res)
+    except (URLError, ValueError) as err:
+        log.error("SSLCommerz merchant API error: %s", err)
+        return None
+
+
+def lookup(account, tran_id):
+    """What SSLCommerz has on record for our tran_id: the completed attempt if
+    there is one, else the latest. None if unreachable, {} if it has nothing."""
+    data = _query(account, tran_id=tran_id)
+    if data is None:
+        return None
+    attempts = data.get("element") or []
+    if not isinstance(attempts, list) or not attempts:
+        return {}
+    done = [a for a in attempts if a.get("status") in ("VALID", "VALIDATED")]
+    return (done or attempts)[0]
+
+
+def refund(account, *, bank_tran_id, amount, remarks, refe_id):
+    """Asks SSLCommerz to send the money back. Returns (refund_ref_id, None) or (None, error)."""
+    data = _query(account, bank_tran_id=bank_tran_id, refund_amount=f"{amount:.2f}", refund_remarks=remarks[:200], refe_id=refe_id)
+    if data is None:
+        return None, "Couldn't reach SSLCommerz. Check your connection and try again."
+    if data.get("status") in ("success", "processing") and data.get("refund_ref_id"):
+        return data["refund_ref_id"], None
+    log.error("SSLCommerz refund refused: %s", data)
+    return None, data.get("errorReason") or "SSLCommerz didn't accept the refund."
+
+
+def refund_status(account, refund_ref_id):
+    """"refunded", "processing" or "cancelled" for a refund we started, or None if unknown."""
+    data = _query(account, refund_ref_id=refund_ref_id)
+    status = (data or {}).get("status")
+    return status if status in ("refunded", "processing", "cancelled") else None
+
+
 def check(account, val_id, *, tran_id, amount, currency):
     """Asks SSLCommerz whether this val_id is a real, completed payment for this
     transaction. Returns (ok, method, bank_tran_id)."""

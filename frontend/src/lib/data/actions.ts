@@ -100,6 +100,18 @@ export const actions = {
   async cancelOnlinePayment(id: string) {
     await call(`sales/${id}/cancel-payment/`, "POST", {}, ...STOCK, "sales")
   },
+  /** Owners and admins: the stock goes back, and online payments are refunded through SSLCommerz. Also approves a request. */
+  returnSale(id: string, reason: string) {
+    return call<Sale>(`sales/${id}/return/`, "POST", { reason }, ...STOCK, "sales")
+  },
+  /** Managers: ask the owner or an admin to take the sale back. */
+  requestReturn(id: string, reason: string) {
+    if (!reason.trim()) throw new Error("Say why the customer is returning it.")
+    return call<Sale>(`sales/${id}/request-return/`, "POST", { reason }, "sales")
+  },
+  declineReturn(id: string, note: string) {
+    return call<Sale>(`sales/${id}/decline-return/`, "POST", { note }, "sales")
+  },
 
   createShipment(input: Pick<Shipment, "productId" | "quantity" | "clientId" | "fromLocationId" | "notes"> & { unitPrice?: number }) {
     positiveInt(input.quantity)

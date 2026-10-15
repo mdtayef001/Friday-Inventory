@@ -249,6 +249,8 @@ class SaleSerializer(serializers.ModelSerializer):
     rental_id = IdField()
     sold_by = serializers.CharField(source="sold_by.name", read_only=True, default="")
     sold_by_id = IdField()
+    refunded_by = serializers.CharField(source="refunded_by.name", read_only=True, default="")
+    return_requested_by = serializers.CharField(source="return_requested_by.name", read_only=True, default="")
     client_name = serializers.CharField(source="client.name", read_only=True, default=None)
     revenue = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
     cost = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
@@ -265,7 +267,8 @@ class SaleSerializer(serializers.ModelSerializer):
             "id", "channel", "product_id", "product_name", "quantity", "unit_price", "unit_cost", "discount",
             "revenue", "cost", "profit", "location_id", "client_id", "client_name", "order_id", "rental_id", "sold_by",
             "sold_by_id", "sold_at", "refunded_at", "payment_method", "payment_status", "gateway_method",
-            "payment_reference", "receipt_no", "receipt_token",
+            "payment_reference", "receipt_no", "receipt_token", "refunded_by", "refund_reason", "refund_status",
+            "return_request", "return_requested_by", "return_requested_at", "return_decline_note",
         ]
 
     def get_receipt_token(self, sale):

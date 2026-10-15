@@ -826,6 +826,94 @@ class ReceiptTests(PaymentsBase):
         self.assertEqual((sale["paymentMethod"], sale["receiptNo"]), ("cash", "R-000001"))
 
 
+class ReturnTests(PaymentsBase):
+    """Shop sales brought back: owners and admins return them, managers ask first."""
+
+    def as_user(self, email):
+        self.client.credentials()
+        self.login(email)
+
+    def test_owner_returns_a_cash_sale(self):
+        sale = self.sell().json()
+        self.assertEqual(self.qty(self.warehouse), 8)
+        res = self.client.post(f"/api/sales/{sale['id']}/return/", {"reason": "Wrong size"}, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        body = res.json()
+        self.assertEqual((body["refundReason"], body["refundedBy"], body["refundStatus"]), ("Wrong size", "owner@a.com", ""))
+        self.assertIsNotNone(body["refundedAt"])
+        self.assertEqual(self.qty(self.warehouse), 10)
+        self.assertEqual(self.client.get("/api/sales/summary/").json()["revenue"], 0)
+        self.assertEqual(self.client.post(f"/api/sales/{sale['id']}/return/", {}, format="json").status_code, 400)  # once
+
+    def test_manager_asks_and_owner_decides(self):
+        manager = self.make_user("manager@a.com", User.Role.MANAGER, self.biz)
+        manager.locations.set([self.warehouse])
+        sale = self.sell().json()
+        self.as_user("manager@a.com")
+        self.assertEqual(self.client.post(f"/api/sales/{sale['id']}/return/", {}, format="json").status_code, 403)
+        self.assertEqual(self.client.post(f"/api/sales/{sale['id']}/request-return/", {"reason": ""}, format="json").status_code, 400)
+        asked = self.client.post(f"/api/sales/{sale['id']}/request-return/", {"reason": "Broken screen"}, format="json").json()
+        self.assertEqual((asked["returnRequest"], asked["returnRequestedBy"]), ("requested", "manager@a.com"))
+        self.assertEqual(self.client.post(f"/api/sales/{sale['id']}/decline-return/", {}, format="json").status_code, 403)
+        self.assertEqual(self.qty(self.warehouse), 8)  # nothing moves until approved
+
+        self.as_user("owner@a.com")
+        waiting = self.client.get("/api/sales/?returns=requested").json()
+        self.assertEqual([s["id"] for s in waiting], [sale["id"]])
+        declined = self.client.post(f"/api/sales/{sale['id']}/decline-return/", {"note": "Used"}, format="json").json()
+        self.assertEqual((declined["returnRequest"], declined["returnDeclineNote"], declined["refundedAt"]), ("declined", "Used", None))
+
+        self.as_user("manager@a.com")
+        self.client.post(f"/api/sales/{sale['id']}/request-return/", {"reason": "Customer insists"}, format="json")
+        self.as_user("owner@a.com")
+        approved = self.client.post(f"/api/sales/{sale['id']}/return/", {}, format="json").json()
+        self.assertEqual((approved["returnRequest"], approved["refundReason"], approved["returnRequestedBy"]), ("", "Customer insists", "manager@a.com"))
+        self.assertEqual(self.qty(self.warehouse), 10)
+
+    def test_staff_cannot_return_or_ask(self):
+        self.staff.locations.set([self.warehouse])
+        self.as_user("staff@a.com")
+        sale = self.sell().json()
+        for path in ("return", "request-return", "decline-return", "check-payment"):
+            method = self.client.get if path == "check-payment" else self.client.post
+            self.assertEqual(method(f"/api/sales/{sale['id']}/{path}/", {"reason": "x"}, format="json").status_code, 403, path)
+
+    def paid_online_sale(self):
+        from unittest import mock
+        from .models import Sale
+
+        sale = self.online_sale()
+        tran = Sale.objects.get(pk=sale["id"]).tran_id
+        with mock.patch("apps.billing.sslcommerz.check", return_value=(True, "VISA-Dutch Bangla", "BANK1")):
+            self.client.post("/api/sale-payments/success/", {"tranId": tran, "valId": "VAL1"}, format="json")
+        return sale
+
+    def test_online_sale_refunds_through_sslcommerz(self):
+        from unittest import mock
+
+        sale = self.paid_online_sale()
+        with mock.patch("apps.billing.sslcommerz.refund", return_value=(None, "Invalid Request")):
+            res = self.client.post(f"/api/sales/{sale['id']}/return/", {"reason": "Faulty"}, format="json")
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(self.qty(self.warehouse), 8)  # refused: nothing changed
+        with mock.patch("apps.billing.sslcommerz.refund", return_value=("REF42", None)) as refund:
+            body = self.client.post(f"/api/sales/{sale['id']}/return/", {"reason": "Faulty"}, format="json").json()
+        self.assertEqual(refund.call_args.kwargs["bank_tran_id"], "BANK1")
+        self.assertEqual(refund.call_args.kwargs["amount"], 1000)
+        self.assertEqual(body["refundStatus"], "processing")
+        self.assertEqual(self.qty(self.warehouse), 10)
+
+        record = {"status": "VALID", "amount": "1000.00", "card_type": "VISA-Dutch Bangla", "bank_tran_id": "BANK1", "risk_title": "Safe"}
+        with mock.patch("apps.billing.sslcommerz.lookup", return_value=record), mock.patch("apps.billing.sslcommerz.refund_status", return_value="refunded"):
+            checked = self.client.get(f"/api/sales/{sale['id']}/check-payment/").json()
+        self.assertEqual((checked["payment"]["status"], checked["payment"]["bankTranId"]), ("VALID", "BANK1"))
+        self.assertEqual(checked["sale"]["refundStatus"], "refunded")
+
+    def test_only_online_sales_are_checked(self):
+        sale = self.sell().json()
+        self.assertEqual(self.client.get(f"/api/sales/{sale['id']}/check-payment/").status_code, 400)
+
+
 class ListingTests(ApiTestCase):
     """Pages, search and filters, so the app never has to load a whole list."""
 

@@ -367,6 +367,109 @@ def confirm_online_payment(tran_id, val_id):
     return sale
 
 
+def check_returnable(sale):
+    if sale.channel != Sale.Channel.STORE:
+        raise ValidationError("Only shop sales are returned here. Orders are returned from Orders.")
+    if sale.payment_status != Sale.PaymentStatus.PAID:
+        raise ValidationError("Only paid sales can be returned.")
+    if sale.refunded_at:
+        raise ValidationError("This sale was already returned.")
+
+
+@transaction.atomic
+def request_return(user, sale, reason):
+    """A manager asks the owner or an admin to take a sale back."""
+    sale = Sale.objects.select_for_update().get(pk=sale.pk)
+    check_returnable(sale)
+    if sale.return_request == Sale.ReturnRequest.REQUESTED:
+        raise ValidationError("A return is already waiting for approval.")
+    reason = reason.strip()
+    if not reason:
+        raise ValidationError({"reason": "Say why the customer is returning it."})
+    sale.return_request = Sale.ReturnRequest.REQUESTED
+    sale.return_requested_by = user
+    sale.return_requested_at = timezone.now()
+    sale.refund_reason = reason
+    sale.return_decline_note = ""
+    sale.save(update_fields=["return_request", "return_requested_by", "return_requested_at", "refund_reason", "return_decline_note"])
+    log(user, "Return requested", f"{sale.receipt_code or ''} {sale.quantity} × {sale.product_name} · {reason}".strip())
+    return sale
+
+
+@transaction.atomic
+def decline_return(user, sale, note=""):
+    sale = Sale.objects.select_for_update().get(pk=sale.pk)
+    if sale.return_request != Sale.ReturnRequest.REQUESTED:
+        raise ValidationError("There's no return waiting for approval on this sale.")
+    sale.return_request = Sale.ReturnRequest.DECLINED
+    sale.return_decline_note = note.strip()
+    sale.save(update_fields=["return_request", "return_decline_note"])
+    log(user, "Return declined", f"{sale.receipt_code or ''} {sale.quantity} × {sale.product_name}{f' · {sale.return_decline_note}' if sale.return_decline_note else ''}".strip())
+    return sale
+
+
+@transaction.atomic
+def return_sale(user, sale, reason=""):
+    """A customer brings back what they bought at the counter: the stock goes back
+    where it was sold from and the sale stops counting. Money paid online goes back
+    through SSLCommerz; any other way, whoever takes the return hands it back.
+    Owners and admins only; approving a manager's request comes here too, keeping
+    the manager's reason unless a new one is given."""
+    from apps.billing import sslcommerz
+
+    sale = Sale.objects.select_for_update().select_related("product", "location", "business").get(pk=sale.pk)
+    check_returnable(sale)
+    approving = sale.return_request == Sale.ReturnRequest.REQUESTED
+    reason = reason.strip() or (sale.refund_reason if approving else "")
+    if sale.product and sale.location:
+        change_stock(sale.product, sale.location, sale.quantity)
+    if sale.payment_method == Sale.Method.ONLINE:
+        # Last, so nothing above can fail after SSLCommerz has been told to pay out.
+        account = sslcommerz.merchant_account(sale.business)
+        if not account:
+            raise ValidationError("SSLCommerz isn't set up any more, so it can't refund this. Add the account in Business Settings.")
+        if not sale.bank_tran_id:
+            raise ValidationError("SSLCommerz has no bank transaction for this sale, so it can't be refunded online.")
+        ref, error = sslcommerz.refund(
+            account, bank_tran_id=sale.bank_tran_id, amount=sale.revenue, remarks=reason or "Returned", refe_id=f"RF{sale.pk}"
+        )
+        if error:
+            raise ValidationError(f"SSLCommerz: {error}")
+        sale.refund_ref_id = ref
+        sale.refund_status = Sale.RefundStatus.PROCESSING
+    sale.refunded_at = timezone.now()
+    sale.refunded_by = user
+    sale.refund_reason = reason
+    # An approved request is just a returned sale; whoever asked stays in return_requested_by.
+    sale.return_request = ""
+    sale.save(update_fields=["refunded_at", "refunded_by", "refund_reason", "refund_ref_id", "refund_status", "return_request"])
+    where = f" to {sale.location.name}" if sale.location else ""
+    log(user, "Return approved" if approving else "Sale returned", f"{sale.receipt_code or ''} {sale.quantity} × {sale.product_name}{where} · {sale.revenue:.2f} back ({sale.get_payment_method_display() or 'not recorded'}){f' · {reason}' if reason else ''}".strip())
+    return sale
+
+
+def check_online_payment(sale):
+    """What SSLCommerz has on record for an online sale, and where its refund is.
+    Brings the sale's refund status up to date on the way."""
+    from apps.billing import sslcommerz
+
+    if sale.payment_method != Sale.Method.ONLINE or not sale.tran_id:
+        raise ValidationError("Only online payments can be checked with SSLCommerz.")
+    account = sslcommerz.merchant_account(sale.business)
+    if not account:
+        raise ValidationError("SSLCommerz isn't set up. Add the account in Business Settings.")
+    record = sslcommerz.lookup(account, sale.tran_id)
+    if record is None:
+        raise ValidationError("Couldn't reach SSLCommerz. Check your connection and try again.")
+    if sale.refund_ref_id:
+        status = sslcommerz.refund_status(account, sale.refund_ref_id)
+        if status and status != sale.refund_status:
+            sale.refund_status = status
+            sale.save(update_fields=["refund_status"])
+    keys = ("status", "amount", "store_amount", "currency", "tran_date", "validated_on", "card_type", "card_no", "card_issuer", "bank_tran_id", "risk_title")
+    return {"payment": {k: record.get(k, "") for k in keys} if record else None, "sale": sale}
+
+
 @transaction.atomic
 def release_online_payment(sale, status=Sale.PaymentStatus.CANCELLED):
     """The payment failed, was cancelled, or ran out of time: put the stock back."""
