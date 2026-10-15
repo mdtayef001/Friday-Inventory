@@ -1,13 +1,9 @@
-import { CheckCircle2, RotateCcw, Store } from "lucide-react";
-import { ReceiptPaper } from "@/components/receipt-paper";
-import { formatDateTime, formatMoneyIn } from "@/lib/format";
-import type { Receipt } from "@/lib/types";
+import { CheckCircle2, RotateCcw, Store } from "lucide-react"
+import { ReceiptPaper } from "@/components/receipt-paper"
+import { formatDateTime, formatMoneyIn } from "@/lib/format"
+import type { Receipt } from "@/lib/types"
 
-const REFERENCE_LABEL = {
-  store: "",
-  order: "Order",
-  rental: "Rental",
-} as const;
+const REFERENCE_LABEL = { store: "", order: "Order", rental: "Rental" } as const
 
 /**
  * The buyer's receipt for one paid sale. Rendered on the server for both the
@@ -15,27 +11,15 @@ const REFERENCE_LABEL = {
  * it formats money in the business's own currency rather than through <StoreGate>.
  */
 export function ReceiptDocument({ receipt: r }: { receipt: Receipt }) {
-  const money = (value: number) => formatMoneyIn(value, r.currency);
-  const payment = r.gatewayMethod
-    ? `${r.paymentLabel} · ${r.gatewayMethod}`
-    : r.paymentLabel;
+  const money = (value: number) => formatMoneyIn(value, r.currency)
+  const payment = r.gatewayMethod ? `${r.paymentLabel} · ${r.gatewayMethod}` : r.paymentLabel
   const rows: [string, string][] = [
     ["Date", formatDateTime(r.soldAt)],
-    ...(r.reference
-      ? ([[REFERENCE_LABEL[r.channel] || "Reference", r.reference]] as [
-          string,
-          string,
-        ][])
-      : []),
-    [
-      "Customer",
-      r.client
-        ? `${r.client.name}${r.client.company ? ` (${r.client.company})` : ""}`
-        : "Walk-in customer",
-    ],
+    ...(r.reference ? ([[REFERENCE_LABEL[r.channel] || "Reference", r.reference]] as [string, string][]) : []),
+    ["Customer", r.client ? `${r.client.name}${r.client.company ? ` (${r.client.company})` : ""}` : "Walk-in customer"],
     ...(r.soldBy ? ([["Served by", r.soldBy]] as [string, string][]) : []),
     ["Payment", payment || "Not recorded"],
-  ];
+  ]
 
   return (
     <>
@@ -48,14 +32,8 @@ export function ReceiptDocument({ receipt: r }: { receipt: Receipt }) {
           {r.shop && (
             <>
               <p className="text-sm text-muted-foreground">{r.shop.name}</p>
-              {r.shop.address && (
-                <p className="text-sm text-muted-foreground">
-                  {r.shop.address}
-                </p>
-              )}
-              {r.shop.phone && (
-                <p className="text-sm text-muted-foreground">{r.shop.phone}</p>
-              )}
+              {r.shop.address && <p className="text-sm text-muted-foreground">{r.shop.address}</p>}
+              {r.shop.phone && <p className="text-sm text-muted-foreground">{r.shop.phone}</p>}
             </>
           )}
         </header>
@@ -63,9 +41,7 @@ export function ReceiptDocument({ receipt: r }: { receipt: Receipt }) {
         <section className="flex items-center justify-between gap-3 border-b py-4">
           <div>
             <h1 className="text-xl font-semibold tracking-tight">Receipt</h1>
-            <p className="font-mono text-sm text-muted-foreground">
-              {r.receiptNo}
-            </p>
+            <p className="font-mono text-sm text-muted-foreground">{r.receiptNo}</p>
           </div>
           {r.refundedAt ? (
             <p className="inline-flex items-center gap-1.5 rounded-full bg-red-600/10 px-2.5 py-0.5 text-sm font-medium text-red-700 dark:text-red-400">
@@ -102,15 +78,9 @@ export function ReceiptDocument({ receipt: r }: { receipt: Receipt }) {
             {r.items.map((item, i) => (
               <tr key={i} className="border-b align-top">
                 <td className="py-3 pr-2 font-medium">{item.name}</td>
-                <td className="py-3 text-right tabular-nums">
-                  {item.quantity}
-                </td>
-                <td className="py-3 pl-2 text-right tabular-nums whitespace-nowrap">
-                  {money(item.unitPrice)}
-                </td>
-                <td className="py-3 pl-2 text-right tabular-nums whitespace-nowrap">
-                  {money(item.amount)}
-                </td>
+                <td className="py-3 text-right tabular-nums">{item.quantity}</td>
+                <td className="py-3 pl-2 text-right tabular-nums whitespace-nowrap">{money(item.unitPrice)}</td>
+                <td className="py-3 pl-2 text-right tabular-nums whitespace-nowrap">{money(item.amount)}</td>
               </tr>
             ))}
           </tbody>
@@ -134,15 +104,14 @@ export function ReceiptDocument({ receipt: r }: { receipt: Receipt }) {
         </div>
 
         <footer className="mt-8 border-t pt-4 text-center text-xs text-muted-foreground">
-          {r.refundedAt ? `Refunded on ${formatDateTime(r.refundedAt)}. ` : ""}
-          Thank you for shopping with {r.businessName}.
+          {r.refundedAt ? `Refunded on ${formatDateTime(r.refundedAt)}. ` : ""}Thank you for shopping with {r.businessName}.
         </footer>
       </article>
       <ReceiptPaper>
         <TillReceipt receipt={r} rows={rows} money={money} />
       </ReceiptPaper>
     </>
-  );
+  )
 }
 
 /**
@@ -150,16 +119,8 @@ export function ReceiptDocument({ receipt: r }: { receipt: Receipt }) {
  * white (thermal printers turn grey into speckles), item details on their own
  * line so long names and prices still fit.
  */
-function TillReceipt({
-  receipt: r,
-  rows,
-  money,
-}: {
-  receipt: Receipt;
-  rows: [string, string][];
-  money: (value: number) => string;
-}) {
-  const rule = "my-[2mm] border-t border-dashed border-black";
+function TillReceipt({ receipt: r, rows, money }: { receipt: Receipt; rows: [string, string][]; money: (value: number) => string }) {
+  const rule = "my-[2mm] border-t border-dashed border-black"
   return (
     <div>
       <div className="text-center">
@@ -174,9 +135,7 @@ function TillReceipt({
       </div>
       <div className={rule} />
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[14px] font-bold">
-          {r.refundedAt ? "RECEIPT · REFUNDED" : "RECEIPT"}
-        </span>
+        <span className="text-[14px] font-bold">{r.refundedAt ? "RECEIPT · REFUNDED" : "RECEIPT"}</span>
         <span className="font-mono">{r.receiptNo}</span>
       </div>
       {rows.map(([k, v]) => (
@@ -214,9 +173,8 @@ function TillReceipt({
       </div>
       <div className={rule} />
       <p className="text-center">
-        {r.refundedAt ? `Refunded on ${formatDateTime(r.refundedAt)}. ` : ""}
-        Thank you for shopping with {r.businessName}.
+        {r.refundedAt ? `Refunded on ${formatDateTime(r.refundedAt)}. ` : ""}Thank you for shopping with {r.businessName}.
       </p>
     </div>
-  );
+  )
 }
