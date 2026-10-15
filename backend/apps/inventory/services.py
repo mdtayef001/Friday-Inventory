@@ -270,17 +270,21 @@ def number_receipt(sale):
 
 
 @transaction.atomic
-def sell(user, *, product, location, quantity, unit_price, discount=0, client=None, payment_method=Sale.Method.CASH):
+def sell(user, *, product, location, quantity, unit_price, discount=0, client=None, payment_method=Sale.Method.CASH, payment_reference=""):
     """A walk-in sale at a shop: takes the stock and records the money. An online
     payment waits for SSLCommerz: the stock is held, and the sale only counts once paid."""
     if discount > unit_price * quantity:
         raise ValidationError("The discount can't be more than the total.")
     if payment_method not in enabled_methods(user.business):
         raise ValidationError("This payment method isn't turned on for your business.")
+    # The same transaction ID twice is an old payment shown again.
+    if payment_reference and Sale.objects.filter(business=user.business, payment_reference__iexact=payment_reference).exists():
+        raise ValidationError("This transaction ID is already on another sale.")
     online = payment_method == Sale.Method.ONLINE
     change_stock(product, location, -quantity)
     sale = Sale.objects.create(
         payment_method=payment_method,
+        payment_reference=payment_reference,
         payment_status=Sale.PaymentStatus.PENDING if online else Sale.PaymentStatus.PAID,
         tran_id=f"FRS{secrets.token_hex(8).upper()}" if online else None,
         business=user.business,

@@ -296,6 +296,8 @@ class Sale(TenantModel):
     # Only paid sales count. Online sales wait for SSLCommerz; the stock is held meanwhile.
     payment_status = models.CharField(max_length=10, choices=PaymentStatus.choices, default=PaymentStatus.PAID)
     tran_id = models.CharField(max_length=40, null=True, blank=True, unique=True)
+    # The bKash / Nagad transaction ID staff copy from the customer's payment, for mobile sales.
+    payment_reference = models.CharField(max_length=60, blank=True)
     # From SSLCommerz once paid, e.g. "BKASH-BKash".
     gateway_method = models.CharField(max_length=100, blank=True)
     val_id = models.CharField(max_length=100, blank=True)

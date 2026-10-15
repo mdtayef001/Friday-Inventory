@@ -265,7 +265,7 @@ class SaleSerializer(serializers.ModelSerializer):
             "id", "channel", "product_id", "product_name", "quantity", "unit_price", "unit_cost", "discount",
             "revenue", "cost", "profit", "location_id", "client_id", "client_name", "order_id", "rental_id", "sold_by",
             "sold_by_id", "sold_at", "refunded_at", "payment_method", "payment_status", "gateway_method",
-            "receipt_no", "receipt_token",
+            "payment_reference", "receipt_no", "receipt_token",
         ]
 
     def get_receipt_token(self, sale):
@@ -287,6 +287,14 @@ class SellSerializer(serializers.Serializer):
     discount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0, required=False, default=0)
     client_id = tenant_field(Client, source="client", required=False, allow_null=True)
     payment_method = serializers.ChoiceField(choices=Sale.Method.choices, required=False, default=Sale.Method.CASH)
+    # The bKash / Nagad transaction ID. Required for mobile banking, ignored otherwise.
+    payment_reference = serializers.CharField(max_length=60, required=False, allow_blank=True, default="")
+
+    def validate(self, data):
+        data["payment_reference"] = data["payment_reference"].strip() if data["payment_method"] == Sale.Method.MOBILE else ""
+        if data["payment_method"] == Sale.Method.MOBILE and not data["payment_reference"]:
+            raise serializers.ValidationError({"payment_reference": "Enter the transaction ID from the customer's payment."})
+        return data
 
 
 class ReceiptSerializer(serializers.ModelSerializer):
@@ -311,7 +319,7 @@ class ReceiptSerializer(serializers.ModelSerializer):
         fields = [
             "id", "receipt_no", "receipt_token", "business_name", "currency", "shop", "sold_at", "channel", "reference",
             "client", "items", "subtotal", "discount", "total", "payment_method", "payment_label", "gateway_method",
-            "refunded_at", "sold_by",
+            "payment_reference", "refunded_at", "sold_by",
         ]
 
     def get_currency(self, sale):

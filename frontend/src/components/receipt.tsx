@@ -19,6 +19,7 @@ export function ReceiptDocument({ receipt: r }: { receipt: Receipt }) {
     ["Customer", r.client ? `${r.client.name}${r.client.company ? ` (${r.client.company})` : ""}` : "Walk-in customer"],
     ...(r.soldBy ? ([["Served by", r.soldBy]] as [string, string][]) : []),
     ["Payment", payment || "Not recorded"],
+    ...(r.paymentReference ? ([["Transaction ID", r.paymentReference]] as [string, string][]) : []),
   ]
 
   return (

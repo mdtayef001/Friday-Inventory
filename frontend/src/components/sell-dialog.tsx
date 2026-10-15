@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input"
 import { ClientPicker } from "@/components/client-dialog"
 import { Field, SimpleSelect, useAttempt } from "@/components/common"
-import { PaymentPicker, useMobileNumber } from "@/components/payment-picker"
+import { PaymentPicker } from "@/components/payment-picker"
 import { ReceiptShare } from "@/components/receipt-share"
 import { useBusiness, usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { PAYMENT_METHODS } from "@/lib/business"
@@ -62,7 +62,6 @@ function SellForm({
   const { locations } = useScope()
   const [run, pending] = useAttempt()
   const showProfit = usePermissions().can("managerProfit")
-  const mobileNumber = useMobileNumber()
   const [locationId, setLocationId] = useState(initialLocation ?? locations.find((l) => qtyAt(product, l.id) > 0)?.id ?? locations[0]?.id ?? "")
   const [quantity, setQuantity] = useState(String(initialQuantity))
   const [price, setPrice] = useState(String(product.price))
@@ -70,6 +69,7 @@ function SellForm({
   const [client, setClient] = useState<ClientBrief | null>(null)
   const [method, setMethod] = useState<PaymentMethod>("cash")
   const [received, setReceived] = useState(false)
+  const [reference, setReference] = useState("")
   const [online, setOnline] = useState<Sale | null>(null)
   const [sold, setSold] = useState<Sale | null>(null)
   // Called on the way out, not straight after the sale: the scan page unmounts this dialog in onSold.
@@ -86,8 +86,9 @@ function SellForm({
   const unitPrice = Number(price)
   const off = Number(discount) || 0
   const total = qty * unitPrice - off
-  // Mobile banking and card machines are checked by a person, so they tick that it arrived.
-  const needsConfirm = method === "mobile" || method === "card"
+  // Card machines are checked by a person, so they tick that it went through.
+  // Mobile banking needs the transaction ID from the customer's payment instead.
+  const needsConfirm = method === "card"
   const valid =
     !!locationId &&
     Number.isInteger(qty) &&
@@ -98,6 +99,7 @@ function SellForm({
     off >= 0 &&
     total >= 0 &&
     (!needsConfirm || received) &&
+    (method !== "mobile" || reference.trim() !== "") &&
     (method !== "online" || total > 0)
   // Staff don't see the client list, so they sell without one.
   const canPickClient = user.role !== "staff"
@@ -108,7 +110,7 @@ function SellForm({
     let sale: Sale | undefined
     // No toast: the Sold screen (or the online payment screen) says it went through.
     const ok = await run(async () => {
-      sale = await actions.sell({ productId: product.id, locationId, quantity: qty, unitPrice, discount: off, clientId: client?.id, paymentMethod: method })
+      sale = await actions.sell({ productId: product.id, locationId, quantity: qty, unitPrice, discount: off, clientId: client?.id, paymentMethod: method, paymentReference: method === "mobile" ? reference.trim() : undefined })
     })
     if (!ok || !sale) return
     if (sale.paymentStatus === "pending") return setOnline(sale)
@@ -162,16 +164,14 @@ function SellForm({
             }}
           />
           {method === "mobile" && (
-            <div className="rounded-lg border p-3 text-sm">
-              <p>
-                Customer sends <strong>{Number.isFinite(total) ? formatMoney(Math.max(0, total)) : "—"}</strong> to <strong>{mobileNumber || "your number"}</strong>.
-              </p>
-            </div>
+            <Field label="Transaction ID" htmlFor="sell-trx" hint="From the bKash / Nagad payment message. It goes on the receipt.">
+              <Input id="sell-trx" value={reference} onChange={(e) => setReference(e.target.value)} maxLength={60} autoComplete="off" placeholder="e.g. 9AB3CD7XYZ" />
+            </Field>
           )}
           {needsConfirm && (
             <label className="flex items-center gap-2 text-sm">
               <Checkbox checked={received} onCheckedChange={(on) => setReceived(on === true)} />
-              {method === "mobile" ? "I've received the money" : "The card payment went through"}
+              The card payment went through
             </label>
           )}
           {method === "online" && <p className="text-xs text-muted-foreground">Next, the customer scans a QR code and pays on their phone. The stock is held until it&apos;s paid.</p>}
@@ -205,7 +205,12 @@ function Sold({ sale, client, onDone }: { sale: Sale; client: ClientBrief | null
         </DialogHeader>
         <div className="grid justify-items-center gap-2 py-2 text-center">
           <CheckCircle2 className="size-10 text-emerald-500" />
-          {sale.paymentMethod && <p className="text-sm">Paid by {PAYMENT_METHODS[sale.paymentMethod].short.toLowerCase()}.</p>}
+          {sale.paymentMethod && (
+            <p className="text-sm">
+              Paid by {PAYMENT_METHODS[sale.paymentMethod].short.toLowerCase()}
+              {sale.paymentReference && <span className="font-mono"> · {sale.paymentReference}</span>}.
+            </p>
+          )}
         </div>
         <ReceiptActions sale={sale} client={client} />
         <DialogFooter>

@@ -647,7 +647,11 @@ class PaymentMethodTests(PaymentsBase):
     def test_owner_turns_on_mobile_and_card(self):
         self.assertEqual(self.settings_with(mobile=True).status_code, 400)  # needs the number
         self.assertEqual(self.settings_with(mobile=True, mobileNumber="bKash 01711000000", card=True).status_code, 200)
-        self.assertEqual(self.sell(paymentMethod="mobile").json()["paymentMethod"], "mobile")
+        self.assertEqual(self.sell(paymentMethod="mobile").status_code, 400)  # needs the transaction ID
+        sale = self.sell(paymentMethod="mobile", paymentReference=" 9AB3CD7XYZ ").json()
+        self.assertEqual((sale["paymentMethod"], sale["paymentReference"]), ("mobile", "9AB3CD7XYZ"))
+        self.assertEqual(self.client.get(f"/api/sales/{sale['id']}/receipt/").json()["paymentReference"], "9AB3CD7XYZ")
+        self.assertEqual(self.sell(paymentMethod="mobile", paymentReference="9ab3cd7xyz").status_code, 400)  # used already
         self.assertEqual(self.sell(quantity=1, paymentMethod="card").status_code, 201)
         methods = self.client.get("/api/sales/summary/").json()["methods"]
         self.assertEqual((methods["mobile"]["count"], methods["card"]["count"], methods["cash"]["count"]), (1, 1, 0))

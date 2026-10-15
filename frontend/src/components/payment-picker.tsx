@@ -56,8 +56,3 @@ export function PaymentPicker({ value, onChange, allowOnline = true }: { value: 
     </div>
   )
 }
-
-/** The bKash / Nagad number to show the customer. */
-export function useMobileNumber() {
-  return useBusiness().settings.payments?.mobileNumber ?? ""
-}

@@ -85,6 +85,7 @@ export const actions = {
     discount: number
     clientId?: string
     paymentMethod: Sale["paymentMethod"]
+    paymentReference?: string
   }) {
     positiveInt(input.quantity)
     return call<Sale>("sales/", "POST", input, ...STOCK, "sales", "clients")

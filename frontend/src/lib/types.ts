@@ -323,6 +323,8 @@ export interface Sale {
   /** Only "paid" counts. Online payments wait for SSLCommerz. */
   paymentStatus: PaymentStatus2
   gatewayMethod: string
+  /** The bKash / Nagad transaction ID, for mobile banking sales. */
+  paymentReference: string
   /** "R-000123". Null until the sale is paid. */
   receiptNo: string | null
   /** For the buyer's public receipt link, /r/<token>. Null until paid. */
@@ -350,6 +352,7 @@ export interface Receipt {
   paymentMethod: PaymentMethod | ""
   paymentLabel: string
   gatewayMethod: string
+  paymentReference: string
   refundedAt: string | null
   /** Team. */
   id?: string
