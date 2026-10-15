@@ -5,7 +5,7 @@ import Link from "next/link"
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { endOfDay, format, startOfDay, startOfMonth, subDays, subMonths } from "date-fns"
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
-import { CalendarClock, Banknote, Download, Package, Percent, Receipt, ReceiptText, ShoppingCart, Store, Trophy, TrendingUp, Truck, X } from "lucide-react"
+import { CalendarClock, Banknote, Download, Package, Percent, Receipt, ReceiptText, ShoppingCart, Store, Trophy, TrendingUp, Truck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -160,14 +160,7 @@ export function SalesView() {
           onChange={setLocation}
           options={[{ value: "all", label: scope.isOwner ? "All locations" : "All my shops" }, ...scope.locations.map((l) => ({ value: l.id, label: l.name }))]}
         />
-        <div className="flex w-52 gap-1">
-          <ProductPicker value={product} onChange={setProduct} placeholder="All products" />
-          {product && (
-            <Button variant="ghost" size="icon" onClick={() => setProduct(null)} aria-label="Show all products">
-              <X />
-            </Button>
-          )}
-        </div>
+        <ProductPicker className="w-52" value={product} onChange={setProduct} allLabel="All products" onAll={() => setProduct(null)} />
         <SimpleSelect
           className="w-40"
           value={channel}

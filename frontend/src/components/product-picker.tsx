@@ -21,11 +21,16 @@ export function ProductPicker({
   params,
   describe,
   placeholder = "Choose product",
+  allLabel,
+  onAll,
   disabled,
   className,
 }: {
   value: Product | null
   onChange: (product: Product) => void
+  /** For filters: an "All products" choice at the top of the list, like the other filter selects. */
+  allLabel?: string
+  onAll?: () => void
   /** Server filters, e.g. { location, inStock: true } for products with some left there. */
   params?: Params
   /** Shown on the right of each option, e.g. "12 free". Defaults to the SKU. */
@@ -44,7 +49,7 @@ export function ProductPicker({
       <PopoverTrigger
         render={<Button type="button" variant="outline" role="combobox" aria-expanded={open} className={cn("w-full min-w-0 justify-between font-normal", className)} disabled={disabled} />}
       >
-        <span className={cn("truncate", !value && "text-muted-foreground")}>{value ? value.name : placeholder}</span>
+        <span className={cn("truncate", !value && !allLabel && "text-muted-foreground")}>{value ? value.name : (allLabel ?? placeholder)}</span>
         <ChevronsUpDown className="opacity-50" />
       </PopoverTrigger>
       <PopoverContent className="w-(--anchor-width) min-w-72 p-0" align="start">
@@ -55,6 +60,17 @@ export function ProductPicker({
               <p className="px-2 py-6 text-center text-sm text-destructive">{error.message}</p>
             ) : (
               <CommandEmpty>{isFetching || !data ? "Searching…" : "No products found."}</CommandEmpty>
+            )}
+            {allLabel && onAll && !term && (
+              <CommandItem
+                value="all"
+                onSelect={() => {
+                  onAll()
+                  setOpen(false)
+                }}
+              >
+                {allLabel}
+              </CommandItem>
             )}
             {data?.results.map((p) => (
               <CommandItem
