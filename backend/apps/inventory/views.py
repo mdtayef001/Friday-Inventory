@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 import csv
+import re
 from decimal import Decimal
 
 from django.db.models import (
@@ -760,7 +761,7 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixi
         return self.request.user.role == User.Role.STAFF or self.request.query_params.get("mine") == "1"
 
     def filtered(self):
-        """Sales matching ?from=&to= (ISO times), ?location=, ?product=, ?seller=, ?channel= and ?mine=1."""
+        """Sales matching ?from=&to= (ISO times), ?location=, ?product=, ?seller=, ?channel=, ?mine=1 and ?search=<receipt number>."""
         qs = self.get_queryset()
         if self.mine_only():
             qs = qs.filter(sold_by=self.request.user)
@@ -782,6 +783,10 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixi
             if params["channel"] not in Sale.Channel.values:
                 raise ValidationError({"channel": "Unknown sale type."})
             qs = qs.filter(channel=params["channel"])
+        if params.get("search", "").strip():
+            # A receipt number, as printed ("R-000706") or just the number ("706").
+            number = re.sub(r"^r\s*-?\s*", "", params["search"].strip(), flags=re.IGNORECASE)
+            qs = qs.filter(receipt_no=int(number)) if number.isdigit() else qs.none()
         if params.get("returns") == "requested":
             qs = qs.filter(return_request=Sale.ReturnRequest.REQUESTED)
         if params.get("method"):

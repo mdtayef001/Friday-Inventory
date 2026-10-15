@@ -909,6 +909,14 @@ class ReturnTests(PaymentsBase):
         self.assertEqual((checked["payment"]["status"], checked["payment"]["bankTranId"]), ("VALID", "BANK1"))
         self.assertEqual(checked["sale"]["refundStatus"], "refunded")
 
+    def test_search_by_receipt_number(self):
+        first, second = self.sell().json(), self.sell(quantity=1).json()
+        self.assertEqual((first["receiptNo"], second["receiptNo"]), ("R-000001", "R-000002"))
+        for term in ("R-000002", "r2", " 2 ", "R 000002"):
+            self.assertEqual([s["id"] for s in self.client.get("/api/sales/", {"search": term}).json()], [second["id"]], term)
+        self.assertEqual(self.client.get("/api/sales/", {"search": "R-9"}).json(), [])
+        self.assertEqual(self.client.get("/api/sales/", {"search": "TV"}).json(), [])
+
     def test_only_online_sales_are_checked(self):
         sale = self.sell().json()
         self.assertEqual(self.client.get(f"/api/sales/{sale['id']}/check-payment/").status_code, 400)

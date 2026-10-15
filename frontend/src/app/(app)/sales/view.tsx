@@ -5,18 +5,18 @@ import Link from "next/link"
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { endOfDay, format, startOfDay, startOfMonth, subDays, subMonths } from "date-fns"
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
-import { CalendarClock, Banknote, Download, Package, Percent, Receipt, ReceiptText, ShoppingCart, Store, Trophy, TrendingUp, Truck } from "lucide-react"
+import { CalendarClock, Banknote, Download, List, Package, Percent, Receipt, ReceiptText, ShoppingCart, Store, Trophy, TrendingUp, Truck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { EmptyState, PageBody, PageHeader, Pager, Pill, SimpleSelect, StatCard, type PillTone, MoneyTotal } from "@/components/common"
+import { EmptyState, PageBody, PageHeader, Pill, SimpleSelect, StatCard, type PillTone, MoneyTotal } from "@/components/common"
 import { ProductPicker } from "@/components/product-picker"
 import { ReturnRequests, ReturnStatus, SaleActions } from "@/components/sale-return"
 import { usePermissions, useScope } from "@/components/session-provider"
-import { apiQuery, usePage, usePaging, withParams } from "@/lib/data/queries"
+import { apiQuery, usePage, withParams } from "@/lib/data/queries"
 import { formatDateTime, formatMoney, formatMoneyShort, formatNumber } from "@/lib/format"
 import type { PaymentMethod, Product, Sale, SaleChannel } from "@/lib/types"
 import { PAYMENT_METHODS } from "@/lib/business"
@@ -93,7 +93,6 @@ function range(period: Period, customFrom: string, customTo: string): { from?: D
 
 export function SalesView() {
   const scope = useScope()
-  const locationName = (id: string) => scope.locations.find((l) => l.id === id)?.name
   // Owners always; managers when the owner allows it. Django sends profit only then, too.
   const showProfit = usePermissions().can("managerProfit")
   const [topSort, setTopSort] = useState<TopSort>("revenue")
@@ -121,8 +120,8 @@ export function SalesView() {
   }, [period, customFrom, customTo, location, product, seller, channel, method])
 
   const summaryQuery = useQuery({ ...apiQuery<Summary>("sales/summary/", params), placeholderData: keepPreviousData })
-  const paging = usePaging(params)
-  const salesQuery = usePage<Sale>("sales/", { ...params, page: paging.page }, { pageSize: paging.pageSize })
+  // The 10 newest for these filters; "Show all" has every sale, with pages and receipt search.
+  const salesQuery = usePage<Sale>("sales/", { ...params, page: 1 }, { pageSize: RECENT })
   const summary = summaryQuery.data
   const list = salesQuery.data
   const sales = list?.results ?? []
@@ -344,9 +343,17 @@ export function SalesView() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Receipt className="size-4" />
-            Sales
+            Recent sales
           </CardTitle>
-          <CardDescription>Newest first. Refunded sales are greyed out and not counted. Use ⋯ on a shop sale to return it.</CardDescription>
+          <CardDescription>
+            The {RECENT} newest{list && list.count > RECENT ? ` of ${formatNumber(list.count)}` : ""}. Refunded sales are greyed out and not counted. Use ⋯ on a shop sale to return it.
+          </CardDescription>
+          <CardAction>
+            <Button variant="outline" size="sm" render={<Link href="/sales/all" />} nativeButton={false}>
+              <List />
+              Show all
+            </Button>
+          </CardAction>
         </CardHeader>
         <CardContent className="space-y-4 px-0">
           {!list ? (
@@ -358,74 +365,82 @@ export function SalesView() {
           ) : sales.length === 0 ? (
             <EmptyState icon={ShoppingCart} title="No sales here" description="Sales from Sell, delivered orders and returned rentals show up here." />
           ) : (
-            <div className="overflow-x-auto">
-              <Table scroll>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="pl-4">Date</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead className="text-right">Qty</TableHead>
-                    <TableHead className="text-right">Price</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    {showProfit && <TableHead className="text-right">Profit</TableHead>}
-                    <TableHead>Type</TableHead>
-                    <TableHead>Payment</TableHead>
-                    <TableHead>Shop</TableHead>
-                    <TableHead>Client</TableHead>
-                    <TableHead>Sold by</TableHead>
-                    <TableHead>Receipt</TableHead>
-                    {/* Pinned to the right edge: the table scrolls sideways on most screens. */}
-                    <TableHead className="sticky right-0 z-10 w-10 bg-card pr-4 shadow-[-1px_0_0_var(--border)]">
-                      <span className="sr-only">Actions</span>
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sales.map((s) => (
-                    <TableRow key={s.id} className={cn((s.refundedAt || s.paymentStatus !== "paid") && "text-muted-foreground opacity-60")}>
-                      <TableCell className="pl-4 text-sm whitespace-nowrap">{formatDateTime(s.soldAt)}</TableCell>
-                      <TableCell className="max-w-64 font-medium">
-                        <span className="line-clamp-2">{s.productName}</span>
-                        <ReturnStatus sale={s} />
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">{formatNumber(s.quantity)}</TableCell>
-                      <TableCell className="text-right tabular-nums whitespace-nowrap">
-                        {formatMoney(s.unitPrice)}
-                        {s.discount > 0 && <div className="text-xs text-muted-foreground">−{formatMoney(s.discount)}</div>}
-                      </TableCell>
-                      <TableCell className="text-right font-medium tabular-nums whitespace-nowrap">{formatMoney(s.revenue)}</TableCell>
-                      {showProfit && (
-                        <TableCell className={cn("text-right tabular-nums whitespace-nowrap", (s.profit ?? 0) < 0 && "text-destructive")}>{formatMoney(s.profit ?? 0)}</TableCell>
-                      )}
-                      <TableCell>
-                        <Pill tone={CHANNELS[s.channel].tone}>{CHANNELS[s.channel].label}</Pill>
-                      </TableCell>
-                      <TableCell className="text-sm whitespace-nowrap">
-                        <PaymentCell sale={s} />
-                      </TableCell>
-                      <TableCell className="text-sm whitespace-nowrap">{(s.locationId && locationName(s.locationId)) || "—"}</TableCell>
-                      <TableCell className="text-sm whitespace-nowrap">{s.clientName || "Walk-in"}</TableCell>
-                      <TableCell className="text-sm whitespace-nowrap">{s.soldBy || "—"}</TableCell>
-                      <TableCell>
-                        <ReceiptLink sale={s} />
-                      </TableCell>
-                      <TableCell className="sticky right-0 z-10 bg-card pr-4 shadow-[-1px_0_0_var(--border)]">
-                        <SaleActions sale={s} />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-          {list && (
-            <div className="px-4">
-              <Pager page={list.page} pageSize={paging.pageSize} count={list.count} onPage={paging.setPage} onPageSize={paging.setPageSize} busy={salesQuery.isPlaceholderData} />
-            </div>
+            <SalesTable sales={sales} />
           )}
         </CardContent>
       </Card>
     </PageBody>
+  )
+}
+
+const RECENT = 10
+
+/** The sales table, shared by the Sales page (newest few) and All sales (every sale, in pages). */
+export function SalesTable({ sales }: { sales: Sale[] }) {
+  const scope = useScope()
+  const locationName = (id: string) => scope.locations.find((l) => l.id === id)?.name
+  // Owners always; managers when the owner allows it. Django sends profit only then, too.
+  const showProfit = usePermissions().can("managerProfit")
+  return (
+    <div className="overflow-x-auto">
+      <Table scroll>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="pl-4">Date</TableHead>
+            <TableHead>Product</TableHead>
+            <TableHead className="text-right">Qty</TableHead>
+            <TableHead className="text-right">Price</TableHead>
+            <TableHead className="text-right">Total</TableHead>
+            {showProfit && <TableHead className="text-right">Profit</TableHead>}
+            <TableHead>Type</TableHead>
+            <TableHead>Payment</TableHead>
+            <TableHead>Shop</TableHead>
+            <TableHead>Client</TableHead>
+            <TableHead>Sold by</TableHead>
+            <TableHead>Receipt</TableHead>
+            {/* Pinned to the right edge: the table scrolls sideways on most screens. */}
+            <TableHead className="sticky right-0 z-10 w-10 bg-card pr-4 shadow-[-1px_0_0_var(--border)]">
+              <span className="sr-only">Actions</span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {sales.map((s) => (
+            <TableRow key={s.id} className={cn((s.refundedAt || s.paymentStatus !== "paid") && "text-muted-foreground opacity-60")}>
+              <TableCell className="pl-4 text-sm whitespace-nowrap">{formatDateTime(s.soldAt)}</TableCell>
+              <TableCell className="max-w-64 font-medium">
+                <span className="line-clamp-2">{s.productName}</span>
+                <ReturnStatus sale={s} />
+              </TableCell>
+              <TableCell className="text-right tabular-nums">{formatNumber(s.quantity)}</TableCell>
+              <TableCell className="text-right tabular-nums whitespace-nowrap">
+                {formatMoney(s.unitPrice)}
+                {s.discount > 0 && <div className="text-xs text-muted-foreground">−{formatMoney(s.discount)}</div>}
+              </TableCell>
+              <TableCell className="text-right font-medium tabular-nums whitespace-nowrap">{formatMoney(s.revenue)}</TableCell>
+              {showProfit && (
+                <TableCell className={cn("text-right tabular-nums whitespace-nowrap", (s.profit ?? 0) < 0 && "text-destructive")}>{formatMoney(s.profit ?? 0)}</TableCell>
+              )}
+              <TableCell>
+                <Pill tone={CHANNELS[s.channel].tone}>{CHANNELS[s.channel].label}</Pill>
+              </TableCell>
+              <TableCell className="text-sm whitespace-nowrap">
+                <PaymentCell sale={s} />
+              </TableCell>
+              <TableCell className="text-sm whitespace-nowrap">{(s.locationId && locationName(s.locationId)) || "—"}</TableCell>
+              <TableCell className="text-sm whitespace-nowrap">{s.clientName || "Walk-in"}</TableCell>
+              <TableCell className="text-sm whitespace-nowrap">{s.soldBy || "—"}</TableCell>
+              <TableCell>
+                <ReceiptLink sale={s} />
+              </TableCell>
+              <TableCell className="sticky right-0 z-10 bg-card pr-4 shadow-[-1px_0_0_var(--border)]">
+                <SaleActions sale={s} />
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   )
 }
 
