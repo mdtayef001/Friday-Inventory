@@ -20,7 +20,7 @@ const SettingsSchema = z.object({
       managerLocations: flag,
       staffCreateProducts: flag,
     }),
-    payments: z.object({ mobile: flag, mobileNumber: z.string().trim().max(60), card: flag, online: flag }),
+    payments: z.object({ mobile: flag, card: flag, online: flag }),
   }),
 })
 

@@ -645,8 +645,7 @@ class PaymentMethodTests(PaymentsBase):
         self.assertEqual((res.json()["paymentMethod"], res.json()["paymentStatus"]), ("cash", "paid"))
 
     def test_owner_turns_on_mobile_and_card(self):
-        self.assertEqual(self.settings_with(mobile=True).status_code, 400)  # needs the number
-        self.assertEqual(self.settings_with(mobile=True, mobileNumber="bKash 01711000000", card=True).status_code, 200)
+        self.assertEqual(self.settings_with(mobile=True, card=True).status_code, 200)
         self.assertEqual(self.sell(paymentMethod="mobile").status_code, 400)  # needs the transaction ID
         sale = self.sell(paymentMethod="mobile", paymentReference=" 9AB3CD7XYZ ").json()
         self.assertEqual((sale["paymentMethod"], sale["paymentReference"]), ("mobile", "9AB3CD7XYZ"))

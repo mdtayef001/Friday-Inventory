@@ -65,7 +65,6 @@ export type PermissionId = keyof Permissions
 export interface PaymentSettings {
   mobile: boolean
   /** Shown to staff and customers, e.g. "bKash 01711000000". */
-  mobileNumber: string
   card: boolean
   /** Online through the business's own SSLCommerz account. */
   online: boolean

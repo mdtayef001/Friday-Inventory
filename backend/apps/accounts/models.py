@@ -21,7 +21,7 @@ def default_settings():
             "managerProfit": False,
         },
         # How customers can pay. Cash always works; the rest are the owner's choice.
-        "payments": {"mobile": False, "mobileNumber": "", "card": False, "online": False},
+        "payments": {"mobile": False, "card": False, "online": False},
     }
 
 

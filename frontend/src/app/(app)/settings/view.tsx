@@ -123,26 +123,13 @@ export function SettingsView({ merchant }: { merchant: MerchantAccount }) {
               </span>
               <Switch checked disabled />
             </label>
-            <div className="py-3">
-              <ToggleRow
-                id="pay-mobile"
-                label="Mobile banking (bKash / Nagad)"
-                description="Customers send money to your number; staff confirm they received it."
-                checked={settings.payments.mobile}
-                onChange={(on) => setPayments({ mobile: on })}
-              />
-              {settings.payments.mobile && (
-                <Field label="Number shown to customers" htmlFor="pay-mobile-number" hint='For example "bKash 01711000000 (personal)".'>
-                  <Input
-                    id="pay-mobile-number"
-                    value={settings.payments.mobileNumber}
-                    onChange={(e) => setPayments({ mobileNumber: e.target.value })}
-                    maxLength={60}
-                    placeholder="bKash 01711000000"
-                  />
-                </Field>
-              )}
-            </div>
+            <ToggleRow
+              id="pay-mobile"
+              label="Mobile banking (bKash / Nagad)"
+              description="Staff enter the transaction ID from the customer's payment; it goes on the receipt."
+              checked={settings.payments.mobile}
+              onChange={(on) => setPayments({ mobile: on })}
+            />
             <ToggleRow
               id="pay-card"
               label="Card machine"

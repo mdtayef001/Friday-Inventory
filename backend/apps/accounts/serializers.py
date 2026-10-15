@@ -74,7 +74,6 @@ class BusinessSerializer(serializers.ModelSerializer):
                 "permissions": {k: permissions[k] for k in PERMISSIONS},
                 "payments": {k: payments[k] for k in ("mobile", "card", "online")},
             }
-            number = payments.get("mobileNumber", "")
         except (KeyError, TypeError, AttributeError):
             raise serializers.ValidationError("Settings are incomplete.")
         kept = self.instance and self.instance.settings.get("currency") == clean["currency"]
@@ -83,11 +82,6 @@ class BusinessSerializer(serializers.ModelSerializer):
         flags = [*clean["modules"].values(), *clean["permissions"].values(), *clean["payments"].values()]
         if not all(isinstance(f, bool) for f in flags):
             raise serializers.ValidationError("Feature switches must be on or off.")
-        if not isinstance(number, str) or len(number) > 60:
-            raise serializers.ValidationError("The mobile banking number is too long.")
-        clean["payments"]["mobileNumber"] = number.strip()
-        if clean["payments"]["mobile"] and not clean["payments"]["mobileNumber"]:
-            raise serializers.ValidationError("Add the bKash / Nagad number customers should send money to.")
         if clean["payments"]["online"] and not (self.instance and hasattr(self.instance, "merchant")):
             raise serializers.ValidationError("Save your SSLCommerz Store ID and password first, then turn on online payments.")
         return clean

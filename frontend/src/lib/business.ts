@@ -68,7 +68,7 @@ export function defaultSettings(): BusinessSettings {
       managerLocations: false,
       staffCreateProducts: true,
     },
-    payments: { mobile: false, mobileNumber: "", card: false, online: false },
+    payments: { mobile: false, card: false, online: false },
   }
 }
 
