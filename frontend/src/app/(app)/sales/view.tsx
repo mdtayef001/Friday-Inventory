@@ -374,7 +374,8 @@ export function SalesView() {
                     <TableHead>Client</TableHead>
                     <TableHead>Sold by</TableHead>
                     <TableHead>Receipt</TableHead>
-                    <TableHead className="w-10 pr-4">
+                    {/* Pinned to the right edge: the table scrolls sideways on most screens. */}
+                    <TableHead className="sticky right-0 z-10 w-10 bg-card pr-4 shadow-[-1px_0_0_var(--border)]">
                       <span className="sr-only">Actions</span>
                     </TableHead>
                   </TableRow>
@@ -408,7 +409,7 @@ export function SalesView() {
                       <TableCell>
                         <ReceiptLink sale={s} />
                       </TableCell>
-                      <TableCell className="pr-4">
+                      <TableCell className="sticky right-0 z-10 bg-card pr-4 shadow-[-1px_0_0_var(--border)]">
                         <SaleActions sale={s} />
                       </TableCell>
                     </TableRow>
