@@ -1,10 +1,11 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import Link from "next/link"
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { endOfDay, format, startOfDay, startOfMonth, subDays, subMonths } from "date-fns"
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
-import { CalendarClock, Banknote, Download, Package, Percent, Receipt, ShoppingCart, Store, Trophy, TrendingUp, Truck, X } from "lucide-react"
+import { CalendarClock, Banknote, Download, Package, Percent, Receipt, ReceiptText, ShoppingCart, Store, Trophy, TrendingUp, Truck, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -375,7 +376,8 @@ export function SalesView() {
                     <TableHead>Payment</TableHead>
                     <TableHead>Shop</TableHead>
                     <TableHead>Client</TableHead>
-                    <TableHead className="pr-4">Sold by</TableHead>
+                    <TableHead>Sold by</TableHead>
+                    <TableHead className="pr-4">Receipt</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -403,7 +405,10 @@ export function SalesView() {
                       </TableCell>
                       <TableCell className="text-sm whitespace-nowrap">{(s.locationId && locationName(s.locationId)) || "—"}</TableCell>
                       <TableCell className="text-sm whitespace-nowrap">{s.clientName || "Walk-in"}</TableCell>
-                      <TableCell className="pr-4 text-sm whitespace-nowrap">{s.soldBy || "—"}</TableCell>
+                      <TableCell className="text-sm whitespace-nowrap">{s.soldBy || "—"}</TableCell>
+                      <TableCell className="pr-4">
+                        <ReceiptLink sale={s} />
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -418,6 +423,22 @@ export function SalesView() {
         </CardContent>
       </Card>
     </PageBody>
+  )
+}
+
+/** Opens the sale's receipt in a new tab, to print or send. Shared with My Sales. */
+export function ReceiptLink({ sale: s }: { sale: Sale }) {
+  if (!s.receiptNo) return <span className="text-sm text-muted-foreground">—</span>
+  return (
+    <Link
+      href={`/receipt/${s.id}`}
+      target="_blank"
+      className="inline-flex items-center gap-1.5 font-mono text-xs whitespace-nowrap underline-offset-2 hover:underline"
+      title="Open the receipt to print or send"
+    >
+      <ReceiptText className="size-3.5 shrink-0" />
+      {s.receiptNo}
+    </Link>
   )
 }
 

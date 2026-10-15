@@ -1,7 +1,7 @@
 "use client"
 
 import { request } from "@/lib/api/client"
-import type { Client, Location, Product, Rental, Sale, Shipment, ShipmentStatus, StockRequest, Transfer } from "@/lib/types"
+import type { Client, Location, PaymentMethod, Product, Rental, Sale, Shipment, ShipmentStatus, StockRequest, Transfer } from "@/lib/types"
 import { getQueryClient } from "./query-client"
 
 // Every change goes to Django first; it does the stock maths, permission checks
@@ -104,8 +104,9 @@ export const actions = {
     positiveInt(input.quantity)
     return call<Shipment>("shipments/", "POST", input, "shipments", "clients", ...STOCK)
   },
-  async setShipmentStatus(id: string, status: ShipmentStatus, note?: string) {
-    await call(`shipments/${id}/status/`, "POST", { status, note: note ?? "" }, "shipments", "clients", "sales", ...STOCK)
+  /** `paymentMethod` is how the client paid; only used when the order is marked delivered. */
+  async setShipmentStatus(id: string, status: ShipmentStatus, note?: string, paymentMethod: PaymentMethod = "cash") {
+    await call(`shipments/${id}/status/`, "POST", { status, note: note ?? "", paymentMethod }, "shipments", "clients", "sales", ...STOCK)
   },
 
   createRental(
@@ -115,7 +116,7 @@ export const actions = {
     if (input.days != null) positiveInt(input.days, "Expected days")
     return call<Rental>("rentals/", "POST", input, "rentals", "clients", ...STOCK)
   },
-  async returnRental(id: string, holidays = 0, paymentMethod: Sale["paymentMethod"] = "") {
+  async returnRental(id: string, holidays = 0, paymentMethod: PaymentMethod = "cash") {
     await call(`rentals/${id}/return/`, "POST", { holidays, paymentMethod }, "rentals", "clients", "sales", ...STOCK)
   },
 

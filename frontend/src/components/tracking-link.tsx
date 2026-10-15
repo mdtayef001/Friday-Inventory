@@ -21,7 +21,7 @@ export async function copyTrackingLink(shipment: Pick<Shipment, "trackingToken">
 }
 
 /** "01712345678" -> "8801712345678", the form wa.me expects. */
-function whatsappNumber(phone?: string) {
+export function whatsappNumber(phone?: string) {
   const digits = (phone ?? "").replace(/\D/g, "")
   if (/^01\d{9}$/.test(digits)) return `88${digits}`
   return digits.length >= 10 ? digits : ""

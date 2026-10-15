@@ -617,7 +617,7 @@ class StockRequestTests(ApiTestCase):
         self.assertEqual(self.client.get("/api/stock-requests/").status_code, 403)
 
 
-class PaymentMethodTests(SalesBase):
+class PaymentsBase(SalesBase):
     def settings_with(self, **payments):
         current = self.client.get("/api/business/").json()["settings"]
         current["payments"] = {**current["payments"], **payments}
@@ -626,6 +626,19 @@ class PaymentMethodTests(SalesBase):
     def save_merchant(self):
         return self.client.put("/api/business/merchant/", {"storeId": "shop123", "storePassword": "s3cret", "sandbox": True}, format="json")
 
+    def online_sale(self):
+        from unittest import mock
+
+        self.save_merchant()
+        self.settings_with(online=True)
+        with mock.patch("apps.billing.sslcommerz.open_session", return_value=("https://sandbox.sslcommerz.com/pay/x", None)) as opened:
+            res = self.sell(quantity=2, unitPrice="500", paymentMethod="online")
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(opened.call_args.kwargs["amount"], 1000)
+        return res.json()
+
+
+class PaymentMethodTests(PaymentsBase):
     def test_cash_only_by_default(self):
         self.assertEqual(self.sell(paymentMethod="card").status_code, 400)
         res = self.sell()
@@ -652,17 +665,6 @@ class PaymentMethodTests(SalesBase):
         self.client.credentials()
         self.login("staff@a.com")
         self.assertEqual(self.client.get("/api/business/merchant/").status_code, 403)
-
-    def online_sale(self):
-        from unittest import mock
-
-        self.save_merchant()
-        self.settings_with(online=True)
-        with mock.patch("apps.billing.sslcommerz.open_session", return_value=("https://sandbox.sslcommerz.com/pay/x", None)) as opened:
-            res = self.sell(quantity=2, unitPrice="500", paymentMethod="online")
-        self.assertEqual(res.status_code, 201, res.content)
-        self.assertEqual(opened.call_args.kwargs["amount"], 1000)
-        return res.json()
 
     def test_online_sale_holds_stock_until_paid(self):
         from unittest import mock
@@ -718,6 +720,107 @@ class PaymentMethodTests(SalesBase):
         self.assertEqual(self.client.post(f"/api/rentals/{rental['id']}/return/", {"paymentMethod": "card"}, format="json").status_code, 400)
         self.client.post(f"/api/rentals/{rental['id']}/return/", {"paymentMethod": "cash"}, format="json")
         self.assertEqual(self.client.get("/api/sales/").json()[0]["paymentMethod"], "cash")
+
+
+class ReceiptTests(PaymentsBase):
+    def order(self, quantity=1):
+        return self.client.post(
+            "/api/shipments/",
+            {"productId": self.product.id, "quantity": quantity, "clientId": self.client_id, "fromLocationId": self.warehouse.id},
+            format="json",
+        ).json()
+
+    def test_paid_sales_are_numbered_per_business(self):
+        first, second = self.sell(quantity=1).json(), self.sell(quantity=1).json()
+        self.assertEqual((first["receiptNo"], second["receiptNo"]), ("R-000001", "R-000002"))
+        # Another business starts at 1 too.
+        from .models import Sale
+
+        other = Product.objects.create(business=self.other_biz, sku="X", name="X")
+        sale = Sale.objects.create(business=self.other_biz, channel="store", product=other, product_name="X", quantity=1, unit_price=1)
+        from .services import number_receipt
+
+        self.assertEqual(number_receipt(sale).receipt_code, "R-000001")
+
+    def test_online_sale_gets_a_number_only_once_paid(self):
+        from unittest import mock
+
+        from .models import Sale
+
+        sale = self.online_sale()
+        self.assertEqual((sale["receiptNo"], sale["receiptToken"]), (None, None))
+        self.assertEqual(self.client.get(f"/api/sales/{sale['id']}/receipt/").status_code, 404)
+        self.assertEqual(self.sell(quantity=1).json()["receiptNo"], "R-000001")  # no gap left for the waiting one
+        tran = Sale.objects.get(pk=sale["id"]).tran_id
+        with mock.patch("apps.billing.sslcommerz.check", return_value=(True, "BKASH-BKash", "BANK1")):
+            self.client.post("/api/sale-payments/success/", {"tranId": tran, "valId": "VAL1"}, format="json")
+        self.assertEqual(self.client.get(f"/api/sales/{sale['id']}/").json()["receiptNo"], "R-000002")
+
+    def test_team_receipt_has_the_bill_and_who_served(self):
+        sale = self.sell(discount="60", clientId=self.client_id).json()
+        res = self.client.get(f"/api/sales/{sale['id']}/receipt/")
+        self.assertEqual(res.status_code, 200, res.content)
+        r = res.json()
+        self.assertEqual((r["receiptNo"], r["businessName"], r["shop"]["name"]), ("R-000001", "Shop A", "Main"))
+        self.assertEqual(r["items"], [{"name": "TV", "quantity": 2, "unitPrice": 480, "amount": 960}])
+        self.assertEqual((r["subtotal"], r["discount"], r["total"], r["paymentLabel"]), (960, 60, 900, "Cash"))
+        self.assertEqual((r["soldBy"], r["client"]["name"], r["receiptToken"]), ("owner@a.com", "Rahim", sale["receiptToken"]))
+        for private in ("unitCost", "cost", "profit"):
+            self.assertNotIn(private, r)
+
+    def test_staff_only_open_receipts_for_their_own_sales(self):
+        sale = self.sell(quantity=1).json()
+        self.client.credentials()
+        self.login("staff@a.com")
+        self.assertEqual(self.client.get(f"/api/sales/{sale['id']}/receipt/").status_code, 404)
+
+    def test_buyer_link_works_without_login_and_hides_internal_details(self):
+        sale = self.sell(clientId=self.client_id).json()
+        self.client.credentials()
+        res = self.client.get(f"/api/receipts/{sale['receiptToken']}/")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["total"], 960)
+        body = res.content.decode()
+        for private in ("owner@a.com", "cost", "profit", "receiptToken", '"id"', "soldBy"):
+            self.assertNotIn(private, body)
+        self.assertEqual(self.client.get("/api/receipts/not-a-real-token/").status_code, 404)
+        self.assertEqual(self.client.get(f"/api/receipts/{sale['receiptNo']}/").status_code, 404)
+        self.biz.trial_ends_at = timezone.now() - timedelta(days=1)
+        self.biz.save()
+        self.assertEqual(self.client.get(f"/api/receipts/{sale['receiptToken']}/").status_code, 404)
+
+    def test_refunded_sale_keeps_its_receipt_marked_refunded(self):
+        order = self.order()
+        self.client.post(f"/api/shipments/{order['id']}/status/", {"status": "delivered"}, format="json")
+        self.client.post(f"/api/shipments/{order['id']}/status/", {"status": "returned"}, format="json")
+        sale = self.client.get("/api/sales/").json()[0]
+        r = self.client.get(f"/api/sales/{sale['id']}/receipt/").json()
+        self.assertEqual(r["reference"], order["code"])
+        self.assertIsNotNone(r["refundedAt"])
+
+    def test_delivered_order_records_payment_cash_by_default(self):
+        first = self.order()
+        self.client.post(f"/api/shipments/{first['id']}/status/", {"status": "delivered"}, format="json")
+        self.assertEqual(self.client.get("/api/sales/").json()[0]["paymentMethod"], "cash")
+        second = self.order()
+        # Card isn't turned on, and online can't be taken on the doorstep.
+        for method in ("card", "online"):
+            res = self.client.post(f"/api/shipments/{second['id']}/status/", {"status": "delivered", "paymentMethod": method}, format="json")
+            self.assertEqual(res.status_code, 400)
+        self.settings_with(card=True)
+        self.client.post(f"/api/shipments/{second['id']}/status/", {"status": "delivered", "paymentMethod": "card"}, format="json")
+        self.assertEqual(self.client.get("/api/sales/").json()[0]["paymentMethod"], "card")
+
+    def test_rental_return_is_cash_by_default(self):
+        rental = self.client.post(
+            "/api/rentals/",
+            {"productId": self.product.id, "quantity": 1, "clientId": self.client_id, "locationId": self.warehouse.id,
+             "startDate": timezone.now().isoformat(), "plan": "daily", "rate": "100"},
+            format="json",
+        ).json()
+        self.client.post(f"/api/rentals/{rental['id']}/return/")
+        sale = self.client.get("/api/sales/").json()[0]
+        self.assertEqual((sale["paymentMethod"], sale["receiptNo"]), ("cash", "R-000001"))
 
 
 class ListingTests(ApiTestCase):

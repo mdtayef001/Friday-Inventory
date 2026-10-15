@@ -33,6 +33,7 @@ from .serializers import (
     ProductCreateSerializer,
     ProductSerializer,
     PublicTrackingSerializer,
+    ReceiptSerializer,
     RentalReturnSerializer,
     RentalSerializer,
     SaleSerializer,
@@ -410,7 +411,10 @@ class ShipmentViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModel
     def set_status(self, request, pk=None):
         serializer = ShipmentStatusSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        shipment = services.set_shipment_status(request.user, self.get_object(), **serializer.validated_data)
+        data = serializer.validated_data
+        if data["status"] == Shipment.Status.DELIVERED and data["payment_method"] not in services.enabled_methods(request.user.business):
+            raise ValidationError("This payment method isn't turned on for your business.")
+        shipment = services.set_shipment_status(request.user, self.get_object(), **data)
         return Response(ShipmentSerializer(shipment, context={"request": request}).data)
 
 
@@ -478,8 +482,7 @@ class RentalViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMi
         body.is_valid(raise_exception=True)
         rental = self.get_object()
         self.check_location(rental.location)
-        method = body.validated_data["payment_method"]
-        if method and method not in services.enabled_methods(request.user.business):
+        if body.validated_data["payment_method"] not in services.enabled_methods(request.user.business):
             raise ValidationError("This payment method isn't turned on for your business.")
         rental = services.return_rental(request.user, rental, **body.validated_data)
         return Response(RentalSerializer(rental, context={"request": request}).data)
@@ -700,6 +703,24 @@ class PublicTrackingView(APIView):
             if timezone.now() - closed_at > timedelta(days=Shipment.TRACKING_LINK_DAYS):
                 return False
         return True
+
+
+class PublicReceiptView(APIView):
+    """The buyer's receipt link. No login: the long random token is the key.
+    Kept while the business is open, like order tracking links."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request, token):
+        sale = (
+            Sale.objects.select_related("business", "location", "client", "shipment", "rental")
+            .filter(receipt_token=token, receipt_no__isnull=False)
+            .first()
+        )
+        if not sale or not sale.business.is_open:
+            raise NotFound("This receipt isn't available.")
+        return Response(ReceiptSerializer(sale).data)
 
 
 class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin):
@@ -946,6 +967,14 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixi
                 return Response({"detail": error}, status=502)
             body["payment_url"] = url
         return Response(body, status=status.HTTP_201_CREATED)
+
+    @action(detail=True)
+    def receipt(self, request, pk=None):
+        """The printable receipt, for whoever can see the sale. Only once it's paid."""
+        sale = self.get_object()
+        if not sale.receipt_no:
+            raise NotFound("This sale has no receipt yet. It gets one once it's paid.")
+        return Response(ReceiptSerializer(sale, context={"internal": True}).data)
 
     @action(detail=True, methods=["post"], url_path="cancel-payment")
     def cancel_payment(self, request, pk=None):

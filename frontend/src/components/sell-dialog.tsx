@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { CheckCircle2, Loader2, ShoppingCart, XCircle } from "lucide-react"
+import Link from "next/link"
+import { CheckCircle2, Loader2, Printer, ShoppingCart, XCircle } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -11,7 +12,8 @@ import { Input } from "@/components/ui/input"
 import { ClientPicker } from "@/components/client-dialog"
 import { Field, SimpleSelect, useAttempt } from "@/components/common"
 import { PaymentPicker, useMobileNumber } from "@/components/payment-picker"
-import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
+import { ReceiptShare } from "@/components/receipt-share"
+import { useBusiness, usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { PAYMENT_METHODS } from "@/lib/business"
 import { actions } from "@/lib/data/actions"
 import { qtyAt, useProduct } from "@/lib/data/queries"
@@ -22,6 +24,7 @@ import type { ClientBrief, PaymentMethod, Product, Sale } from "@/lib/types"
  * A walk-in sale: takes the stock and records the money at the price agreed now.
  * The price starts at the product's selling price and can be changed or discounted.
  * Online payments show a QR code and wait for SSLCommerz to confirm.
+ * Once paid, it shows the receipt to print or send to the buyer.
  */
 export function SellDialog({
   productId,
@@ -68,19 +71,15 @@ function SellForm({
   const [method, setMethod] = useState<PaymentMethod>("cash")
   const [received, setReceived] = useState(false)
   const [online, setOnline] = useState<Sale | null>(null)
-
-  if (online) {
-    return (
-      <OnlinePayment
-        sale={online}
-        onClose={onClose}
-        onPaid={() => {
-          onSold?.()
-          onClose()
-        }}
-      />
-    )
+  const [sold, setSold] = useState<Sale | null>(null)
+  // Called on the way out, not straight after the sale: the scan page unmounts this dialog in onSold.
+  const finish = () => {
+    onSold?.()
+    onClose()
   }
+
+  if (sold) return <Sold sale={sold} client={client} onDone={finish} />
+  if (online) return <OnlinePayment sale={online} client={client} onClose={onClose} onPaid={finish} />
 
   const available = qtyAt(product, locationId)
   const qty = Number(quantity)
@@ -107,16 +106,13 @@ function SellForm({
     e.preventDefault()
     if (!valid) return
     let sale: Sale | undefined
-    const ok = await run(
-      async () => {
-        sale = await actions.sell({ productId: product.id, locationId, quantity: qty, unitPrice, discount: off, clientId: client?.id, paymentMethod: method })
-      },
-      method === "online" ? undefined : `Sold ${qty} ${product.unit} of ${product.name} for ${formatMoney(total)} (${PAYMENT_METHODS[method].short})`,
-    )
+    // No toast: the Sold screen (or the online payment screen) says it went through.
+    const ok = await run(async () => {
+      sale = await actions.sell({ productId: product.id, locationId, quantity: qty, unitPrice, discount: off, clientId: client?.id, paymentMethod: method })
+    })
     if (!ok || !sale) return
     if (sale.paymentStatus === "pending") return setOnline(sale)
-    onSold?.()
-    onClose()
+    setSold(sale)
   }
 
   return (
@@ -196,8 +192,47 @@ function SellForm({
   )
 }
 
+/** The sale went through: the receipt to print or send. */
+function Sold({ sale, client, onDone }: { sale: Sale; client: ClientBrief | null; onDone: () => void }) {
+  return (
+    <Dialog open onOpenChange={(open) => !open && onDone()}>
+      <DialogContent className="max-h-[92svh] overflow-y-auto sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Sold</DialogTitle>
+          <DialogDescription>
+            {sale.quantity} × {sale.productName} · {formatMoney(sale.revenue)}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid justify-items-center gap-2 py-2 text-center">
+          <CheckCircle2 className="size-10 text-emerald-500" />
+          {sale.paymentMethod && <p className="text-sm">Paid by {PAYMENT_METHODS[sale.paymentMethod].short.toLowerCase()}.</p>}
+        </div>
+        <ReceiptActions sale={sale} client={client} />
+        <DialogFooter>
+          <Button onClick={onDone}>Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Print the receipt, or send the buyer its link. Nothing until the sale is paid and numbered. */
+function ReceiptActions({ sale, client }: { sale: Sale; client: ClientBrief | null }) {
+  const business = useBusiness()
+  if (!sale.receiptNo || !sale.receiptToken) return null
+  return (
+    <div className="grid gap-3">
+      <Button variant="outline" render={<Link href={`/receipt/${sale.id}`} target="_blank" />} nativeButton={false}>
+        <Printer />
+        Print receipt {sale.receiptNo}
+      </Button>
+      <ReceiptShare token={sale.receiptToken} receiptNo={sale.receiptNo} businessName={business.name} client={client} />
+    </div>
+  )
+}
+
 /** Shows the SSLCommerz link as a QR code and checks every few seconds until it's paid, failed or cancelled. */
-function OnlinePayment({ sale: initial, onClose, onPaid }: { sale: Sale; onClose: () => void; onPaid: () => void }) {
+function OnlinePayment({ sale: initial, client, onClose, onPaid }: { sale: Sale; client: ClientBrief | null; onClose: () => void; onPaid: () => void }) {
   const { checkSale, cancelOnlinePayment } = actions
   const [sale, setSale] = useState(initial)
   const [cancelling, setCancelling] = useState(false)
@@ -230,7 +265,7 @@ function OnlinePayment({ sale: initial, onClose, onPaid }: { sale: Sale; onClose
 
   return (
     <Dialog open onOpenChange={(open) => !open && status !== "pending" && onClose()}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className={status === "paid" ? "max-h-[92svh] overflow-y-auto sm:max-w-md" : "sm:max-w-sm"}>
         <DialogHeader>
           <DialogTitle>{status === "paid" ? "Paid" : status === "pending" ? "Scan to pay" : "Not paid"}</DialogTitle>
           <DialogDescription>
@@ -252,10 +287,13 @@ function OnlinePayment({ sale: initial, onClose, onPaid }: { sale: Sale; onClose
             </p>
           </div>
         ) : status === "paid" ? (
-          <div className="grid justify-items-center gap-2 py-4 text-center">
-            <CheckCircle2 className="size-10 text-emerald-500" />
-            <p className="text-sm">Confirmed by SSLCommerz{sale.gatewayMethod ? ` · ${sale.gatewayMethod}` : ""}.</p>
-          </div>
+          <>
+            <div className="grid justify-items-center gap-2 py-4 text-center">
+              <CheckCircle2 className="size-10 text-emerald-500" />
+              <p className="text-sm">Confirmed by SSLCommerz{sale.gatewayMethod ? ` · ${sale.gatewayMethod}` : ""}.</p>
+            </div>
+            <ReceiptActions sale={sale} client={client} />
+          </>
         ) : (
           <div className="grid justify-items-center gap-2 py-4 text-center">
             <XCircle className="size-10 text-destructive" />

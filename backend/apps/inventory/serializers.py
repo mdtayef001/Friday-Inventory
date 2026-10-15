@@ -152,9 +152,15 @@ class ShipmentSerializer(serializers.ModelSerializer):
         read_only_fields = ["code", "tracking_token", "status", "created_at"]
 
 
+# Paid at the counter or on the doorstep: everything but SSLCommerz.
+OFFLINE_METHODS = [c for c in Sale.Method.choices if c[0] != Sale.Method.ONLINE]
+
+
 class ShipmentStatusSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=Shipment.Status.choices)
     note = serializers.CharField(required=False, allow_blank=True, max_length=300)
+    # How the client paid. Only used when the order is marked delivered.
+    payment_method = serializers.ChoiceField(choices=OFFLINE_METHODS, required=False, default=Sale.Method.CASH)
 
 
 class RentalSerializer(serializers.ModelSerializer):
@@ -247,6 +253,9 @@ class SaleSerializer(serializers.ModelSerializer):
     revenue = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
     cost = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
     profit = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    # Null until the sale is paid.
+    receipt_no = serializers.CharField(source="receipt_code", read_only=True)
+    receipt_token = serializers.SerializerMethodField()
 
     PRIVATE = ("unit_cost", "cost", "profit")
 
@@ -256,7 +265,11 @@ class SaleSerializer(serializers.ModelSerializer):
             "id", "channel", "product_id", "product_name", "quantity", "unit_price", "unit_cost", "discount",
             "revenue", "cost", "profit", "location_id", "client_id", "client_name", "order_id", "rental_id", "sold_by",
             "sold_by_id", "sold_at", "refunded_at", "payment_method", "payment_status", "gateway_method",
+            "receipt_no", "receipt_token",
         ]
+
+    def get_receipt_token(self, sale):
+        return sale.receipt_token if sale.receipt_no else None
 
     def to_representation(self, sale):
         data = super().to_representation(sale)
@@ -276,12 +289,81 @@ class SellSerializer(serializers.Serializer):
     payment_method = serializers.ChoiceField(choices=Sale.Method.choices, required=False, default=Sale.Method.CASH)
 
 
+class ReceiptSerializer(serializers.ModelSerializer):
+    """A paid sale as the buyer's receipt. Never cost or profit. The team's copy
+    (`internal` in the context) adds who served and the client's contact
+    details for sending it; the buyer's public link leaves those out."""
+
+    receipt_no = serializers.CharField(source="receipt_code")
+    business_name = serializers.CharField(source="business.name")
+    currency = serializers.SerializerMethodField()
+    shop = serializers.SerializerMethodField()
+    client = serializers.SerializerMethodField()
+    reference = serializers.SerializerMethodField()
+    items = serializers.SerializerMethodField()
+    subtotal = serializers.SerializerMethodField()
+    total = serializers.DecimalField(source="revenue", max_digits=14, decimal_places=2)
+    payment_label = serializers.CharField(source="get_payment_method_display")
+    sold_by = serializers.CharField(source="sold_by.name", default="")
+
+    class Meta:
+        model = Sale
+        fields = [
+            "id", "receipt_no", "receipt_token", "business_name", "currency", "shop", "sold_at", "channel", "reference",
+            "client", "items", "subtotal", "discount", "total", "payment_method", "payment_label", "gateway_method",
+            "refunded_at", "sold_by",
+        ]
+
+    def get_currency(self, sale):
+        return sale.business.settings.get("currency", "USD")
+
+    def get_shop(self, sale):
+        loc = sale.location
+        return {"name": loc.name, "address": loc.address, "phone": loc.phone} if loc else None
+
+    def get_client(self, sale):
+        c = sale.client
+        if not c:
+            return None
+        out = {"name": c.name, "company": c.company}
+        if self.context.get("internal"):
+            out.update(phone=c.phone, email=c.email)
+        return out
+
+    def get_reference(self, sale):
+        """The order or rental this sale came from."""
+        if sale.shipment_id and sale.shipment:
+            return sale.shipment.code
+        if sale.rental_id and sale.rental:
+            return sale.rental.code
+        return ""
+
+    def get_items(self, sale):
+        # One line for now; a checkout with several items will group sales under one receipt.
+        money = serializers.DecimalField(max_digits=14, decimal_places=2)
+        return [{
+            "name": sale.product_name,
+            "quantity": sale.quantity,
+            "unit_price": money.to_representation(sale.unit_price),
+            "amount": money.to_representation(sale.unit_price * sale.quantity),
+        }]
+
+    def get_subtotal(self, sale):
+        return serializers.DecimalField(max_digits=14, decimal_places=2).to_representation(sale.unit_price * sale.quantity)
+
+    def to_representation(self, sale):
+        data = super().to_representation(sale)
+        if not self.context.get("internal"):
+            data.pop("receipt_token")
+            data.pop("sold_by")
+            data.pop("id")
+        return data
+
+
 class RentalReturnSerializer(serializers.Serializer):
     holidays = serializers.IntegerField(min_value=0, required=False, default=0)
     # How the rental was paid when it came back. Online isn't offered here.
-    payment_method = serializers.ChoiceField(
-        choices=[("", "Not recorded"), *[c for c in Sale.Method.choices if c[0] != Sale.Method.ONLINE]], required=False, default=""
-    )
+    payment_method = serializers.ChoiceField(choices=OFFLINE_METHODS, required=False, default=Sale.Method.CASH)
 
 
 class StockRequestSerializer(serializers.ModelSerializer):

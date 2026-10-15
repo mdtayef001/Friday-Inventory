@@ -323,8 +323,38 @@ export interface Sale {
   /** Only "paid" counts. Online payments wait for SSLCommerz. */
   paymentStatus: PaymentStatus2
   gatewayMethod: string
+  /** "R-000123". Null until the sale is paid. */
+  receiptNo: string | null
+  /** For the buyer's public receipt link, /r/<token>. Null until paid. */
+  receiptToken: string | null
   /** Only right after starting an online payment: the SSLCommerz page to pay on. */
   paymentUrl?: string
+}
+
+/** A paid sale as the buyer's receipt. The team's copy adds the fields marked "team". */
+export interface Receipt {
+  receiptNo: string
+  businessName: string
+  currency: string
+  shop: { name: string; address: string; phone: string } | null
+  soldAt: string
+  channel: SaleChannel
+  /** The order or rental code it came from, or "". */
+  reference: string
+  /** Phone and email on the team's copy only, for sending it. */
+  client: { name: string; company: string; phone?: string; email?: string } | null
+  items: { name: string; quantity: number; unitPrice: number; amount: number }[]
+  subtotal: number
+  discount: number
+  total: number
+  paymentMethod: PaymentMethod | ""
+  paymentLabel: string
+  gatewayMethod: string
+  refundedAt: string | null
+  /** Team. */
+  id?: string
+  receiptToken?: string
+  soldBy?: string
 }
 
 export type StockRequestStatus = "pending" | "approved" | "declined" | "cancelled"

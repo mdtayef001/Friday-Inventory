@@ -6,7 +6,7 @@ import { getContext } from "@/lib/auth/dal"
 import { PLATFORM, formatTaka } from "@/lib/business"
 import { findPayment } from "@/lib/billing/queries"
 import { formatDate, formatDateTime } from "@/lib/format"
-import { PrintButton } from "./print-button"
+import { PrintButton } from "@/components/print-button"
 
 export const metadata: Metadata = { title: "Invoice" }
 

@@ -15,6 +15,7 @@ from decimal import Decimal
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.db.models import Max
 from django.utils import timezone
 
 from apps.accounts.models import User
@@ -207,6 +208,10 @@ class Command(BaseCommand):
                 sold_by=rng.choice(team), sold_at=now - timedelta(days=rng.randrange(0, 180), minutes=rng.randrange(0, 1440)),
                 payment_method=rng.choice(["cash", "cash", "mobile", "card"]),
             ))
+        # Receipt numbers follow the order they were sold in, after any existing ones.
+        last = Sale.objects.filter(business=business).aggregate(n=Max("receipt_no"))["n"] or 0
+        for n, sale in enumerate(sorted(rows, key=lambda s: s.sold_at), start=last + 1):
+            sale.receipt_no = n
         Sale.objects.bulk_create(rows)
 
     def activity(self, business, team, rng, now):

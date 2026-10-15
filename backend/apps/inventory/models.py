@@ -96,7 +96,7 @@ class Client(TenantModel):
 
 
 def tracking_token():
-    """Long and random, so a client's link can't be guessed from the order number."""
+    """Long and random, so a client's link can't be guessed from the order or receipt number."""
     return secrets.token_urlsafe(16)
 
 
@@ -300,10 +300,20 @@ class Sale(TenantModel):
     gateway_method = models.CharField(max_length=100, blank=True)
     val_id = models.CharField(max_length=100, blank=True)
     bank_tran_id = models.CharField(max_length=100, blank=True)
+    # Numbered 1, 2, 3… per business once the sale is paid, so unpaid online
+    # payments leave no gaps. Shown as R-000001.
+    receipt_no = models.PositiveIntegerField(null=True, blank=True)
+    # For the buyer's public receipt link.
+    receipt_token = models.CharField(max_length=32, unique=True, default=tracking_token)
 
     class Meta:
         ordering = ["-sold_at"]
         indexes = [models.Index(fields=["business", "sold_at"])]
+        constraints = [models.UniqueConstraint(fields=["business", "receipt_no"], name="unique_receipt_no_per_business")]
+
+    @property
+    def receipt_code(self):
+        return f"R-{self.receipt_no:06d}" if self.receipt_no else None
 
     @property
     def revenue(self):

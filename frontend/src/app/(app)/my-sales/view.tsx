@@ -13,7 +13,7 @@ import { apiQuery, usePage, usePaging } from "@/lib/data/queries"
 import { formatDateTime, formatMoney, formatNumber } from "@/lib/format"
 import type { Sale } from "@/lib/types"
 import { cn } from "@/lib/utils"
-import { PaymentCell } from "../sales/view"
+import { PaymentCell, ReceiptLink } from "../sales/view"
 
 interface Totals {
   count: number
@@ -88,7 +88,8 @@ export function MySalesView() {
                     <TableHead className="text-right">Total</TableHead>
                     <TableHead>Payment</TableHead>
                     <TableHead>Shop</TableHead>
-                    <TableHead className="pr-4">Type</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead className="pr-4">Receipt</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -112,7 +113,10 @@ export function MySalesView() {
                         <PaymentCell sale={s} />
                       </TableCell>
                       <TableCell className="text-sm whitespace-nowrap">{(s.locationId && locations.find((l) => l.id === s.locationId)?.name) || "—"}</TableCell>
-                      <TableCell className="pr-4 text-sm">{CHANNEL_LABEL[s.channel]}</TableCell>
+                      <TableCell className="text-sm">{CHANNEL_LABEL[s.channel]}</TableCell>
+                      <TableCell className="pr-4">
+                        <ReceiptLink sale={s} />
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

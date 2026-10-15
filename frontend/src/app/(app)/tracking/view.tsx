@@ -25,6 +25,7 @@ import {
   SimpleSelect,
 } from "@/components/common"
 import { ClientPicker } from "@/components/client-dialog"
+import { PaymentPicker } from "@/components/payment-picker"
 import { ProductPicker } from "@/components/product-picker"
 import { usePermissions, useScope } from "@/components/session-provider"
 import { SHIPMENT_FLOW, SHIPMENT_STATUS, ShipmentStatusPill } from "@/components/status"
@@ -32,7 +33,8 @@ import { TrackingLinkShare, copyTrackingLink } from "@/components/tracking-link"
 import { actions } from "@/lib/data/actions"
 import { qtyAt, useDebounced, usePaging, useShipment, useShipmentCounts, useShipments } from "@/lib/data/queries"
 import { formatDateTime, formatMoney, timeAgo } from "@/lib/format"
-import type { ClientBrief, Product, Shipment, ShipmentStatus } from "@/lib/types"
+import { PAYMENT_METHODS } from "@/lib/business"
+import type { ClientBrief, PaymentMethod, Product, Shipment, ShipmentStatus } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const FILTERS: { value: "all" | ShipmentStatus; label: string }[] = [
@@ -177,14 +179,17 @@ function ShipmentDetail({ shipment: s }: { shipment: Shipment }) {
   const scope = useScope()
   const setStatus = actions.setShipmentStatus
   const [note, setNote] = useState("")
+  // How the client pays on delivery. Recorded on the sale and its receipt.
+  const [method, setMethod] = useState<PaymentMethod>("cash")
   const client = s.client
   const from = scope.locations.find((l) => l.id === s.fromLocationId)?.name
   const next = SHIPMENT_FLOW[SHIPMENT_FLOW.indexOf(s.status) + 1]
   const closed = s.status === "returned" || s.status === "cancelled"
 
   const move = (status: ShipmentStatus, msg: string) => {
-    void attempt(() => setStatus(s.id, status, note.trim() || undefined), msg).then((ok) => ok && setNote(""))
+    void attempt(() => setStatus(s.id, status, note.trim() || undefined, method), msg).then((ok) => ok && setNote(""))
   }
+  const delivering = next === "delivered"
 
   return (
     <>
@@ -210,9 +215,28 @@ function ShipmentDetail({ shipment: s }: { shipment: Shipment }) {
         {!closed && (
           <div className="space-y-3">
             <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note to the next update (optional)" rows={2} />
+            {delivering && (
+              <div className="space-y-2 rounded-xl border p-3">
+                <p className="text-sm">
+                  {s.unitPrice !== null ? (
+                    <>
+                      Collect <strong>{formatMoney(s.unitPrice * s.quantity)}</strong> from the client.
+                    </>
+                  ) : (
+                    "How did the client pay?"
+                  )}
+                </p>
+                <PaymentPicker value={method} onChange={setMethod} allowOnline={false} />
+              </div>
+            )}
             <div className="flex flex-wrap gap-2">
               {next && (
-                <Button className="flex-1" onClick={() => move(next, `Marked as ${SHIPMENT_STATUS[next].label.toLowerCase()}`)}>
+                <Button
+                  className="flex-1"
+                  onClick={() =>
+                    move(next, delivering ? `Marked as delivered, paid by ${PAYMENT_METHODS[method].short.toLowerCase()}` : `Marked as ${SHIPMENT_STATUS[next].label.toLowerCase()}`)
+                  }
+                >
                   <Check />
                   {NEXT_LABEL[s.status]}
                 </Button>

@@ -25,6 +25,9 @@ const number = new Intl.NumberFormat(LOCALE)
 
 export const formatMoney = (value: number) => money.format(value)
 
+/** For pages outside the app (receipts) that know the business's currency but don't run <StoreGate>. */
+export const formatMoneyIn = (value: number, code: string) => moneyFormat(code).format(value)
+
 /**
  * Big amounts in words, for totals: "$1.25 million", "$45.3K", "৳12.5 lakh", "৳3.2 crore".
  * Below 10,000 it's the full amount. Show formatMoney() too (e.g. on hover) where the exact figure matters.

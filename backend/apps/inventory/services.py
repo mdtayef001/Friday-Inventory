@@ -10,8 +10,11 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Max
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
+
+from apps.accounts.models import Business
 
 from .models import Activity, Rental, Sale, Shipment, ShipmentEvent, StockLevel, StockRequest, Transfer
 
@@ -116,7 +119,8 @@ def create_shipment(user, *, product, quantity, client, from_location, notes="",
 
 
 @transaction.atomic
-def set_shipment_status(user, shipment, status, note=""):
+def set_shipment_status(user, shipment, status, note="", payment_method=Sale.Method.CASH):
+    """`payment_method` is how the client paid, recorded when the order is delivered."""
     shipment = Shipment.objects.select_for_update().get(pk=shipment.pk)
     if shipment.status in Shipment.RESTOCKED:
         raise ValidationError("This shipment is closed.")
@@ -128,7 +132,7 @@ def set_shipment_status(user, shipment, status, note=""):
     shipment.status = status
     shipment.save(update_fields=["status"])
     if status == Shipment.Status.DELIVERED:
-        record_order_sale(user, shipment)
+        record_order_sale(user, shipment, payment_method)
     elif was_delivered:
         refund_order_sale(shipment)
     ShipmentEvent.objects.create(shipment=shipment, status=status, by=user, note=note)
@@ -166,7 +170,7 @@ def create_rental(user, *, product, quantity, client, location, start_date, plan
 
 
 @transaction.atomic
-def return_rental(user, rental, holidays=0, payment_method=""):
+def return_rental(user, rental, holidays=0, payment_method=Sale.Method.CASH):
     """Scan in: count the days it was out, take off holidays (per-day plan only), price it, restock."""
     rental = Rental.objects.select_for_update().get(pk=rental.pk)
     if rental.status != Rental.Status.ACTIVE:
@@ -255,6 +259,16 @@ def enabled_methods(business):
     return methods
 
 
+def number_receipt(sale):
+    """Gives a paid sale the business's next receipt number. Call inside a transaction.
+    Locking the business row makes two sales at the same moment wait for each other."""
+    Business.objects.select_for_update().filter(pk=sale.business_id).first()
+    last = Sale.objects.filter(business_id=sale.business_id).aggregate(n=Max("receipt_no"))["n"] or 0
+    sale.receipt_no = last + 1
+    sale.save(update_fields=["receipt_no"])
+    return sale
+
+
 @transaction.atomic
 def sell(user, *, product, location, quantity, unit_price, discount=0, client=None, payment_method=Sale.Method.CASH):
     """A walk-in sale at a shop: takes the stock and records the money. An online
@@ -281,6 +295,8 @@ def sell(user, *, product, location, quantity, unit_price, discount=0, client=No
         client=client,
         sold_by=user,
     )
+    if not online:
+        number_receipt(sale)
     if online:
         log(user, "Online payment started", f"{quantity} × {product.name} at {location.name} for {sale.revenue:.2f}")
     else:
@@ -342,6 +358,7 @@ def confirm_online_payment(tran_id, val_id):
         sale.val_id = val_id
         sale.bank_tran_id = bank_tran_id
         sale.save(update_fields=["payment_status", "gateway_method", "val_id", "bank_tran_id"])
+        number_receipt(sale)
         Activity.objects.create(business=sale.business, user=sale.sold_by, action="Paid online", detail=f"{sale.quantity} × {sale.product_name} · {method}")
     return sale
 
@@ -366,7 +383,7 @@ def expire_online_payments(business):
         release_online_payment(sale)
 
 
-def record_order_sale(user, shipment):
+def record_order_sale(user, shipment, payment_method=Sale.Method.CASH):
     """A delivered order becomes a sale at the price agreed when it was placed."""
     existing = Sale.objects.filter(shipment=shipment).first()
     if existing:
@@ -375,7 +392,7 @@ def record_order_sale(user, shipment):
             existing.save(update_fields=["refunded_at"])
         return existing
     product = shipment.product
-    return Sale.objects.create(
+    sale = Sale.objects.create(
         business_id=shipment.business_id,
         channel=Sale.Channel.ORDER,
         product=product,
@@ -388,7 +405,9 @@ def record_order_sale(user, shipment):
         client=shipment.client,
         shipment=shipment,
         sold_by=user,
+        payment_method=payment_method,
     )
+    return number_receipt(sale)
 
 
 def refund_order_sale(shipment):
@@ -396,12 +415,12 @@ def refund_order_sale(shipment):
     Sale.objects.filter(shipment=shipment, refunded_at__isnull=True).update(refunded_at=timezone.now())
 
 
-def record_rental_income(user, rental, payment_method=""):
+def record_rental_income(user, rental, payment_method=Sale.Method.CASH):
     """Rental money counts when the item comes back. Recorded as one line for the
     whole rental; there's no purchase cost, so it's all profit."""
     product = rental.product
     name = product.name if product else "Deleted product"
-    return Sale.objects.create(
+    sale = Sale.objects.create(
         business_id=rental.business_id,
         channel=Sale.Channel.RENTAL,
         product=product,
@@ -415,6 +434,7 @@ def record_rental_income(user, rental, payment_method=""):
         sold_by=user,
         payment_method=payment_method,
     )
+    return number_receipt(sale)
 
 
 # ---------- Stock requests ----------
