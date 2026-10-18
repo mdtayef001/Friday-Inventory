@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Camera, CheckCircle2, History, Keyboard, MapPin, Minus, Package, PackagePlus, Plus, SearchX, ShoppingCart, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -15,7 +15,7 @@ import { request } from "@/lib/api/client"
 import { actions } from "@/lib/data/actions"
 import { qtyAt, useActivity, useProduct, withParams } from "@/lib/data/queries"
 import { timeAgo } from "@/lib/format"
-import { useAddToCart } from "@/components/cart"
+import { useAddToCart, useCart } from "@/components/cart"
 import { SellDialog } from "@/components/sell-dialog"
 import type { Page, Product } from "@/lib/types"
 
@@ -28,18 +28,46 @@ export function EntryView() {
   const [locationId, setLocationId] = useState(locations[0]?.id ?? "")
   const [tab, setTab] = useState("camera")
   const [result, setResult] = useState<Result>(null)
+  // How many of the found product; it goes into the cart with this count when the next code is scanned.
+  const [quantity, setQuantity] = useState(1)
+  const [selling, setSelling] = useState(false)
+  const { checkingOut } = useCart()
+  const addToCart = useAddToCart()
   const myEntries = useActivity({ page: 1, mine: true, action: ["Stock added", "Product added"] }, { pageSize: 8 }).data?.results ?? []
 
-  /** Finds the product with this barcode or SKU. */
-  async function lookup(raw: string) {
+  // Lookups run one at a time, so each quick scan sees the product the one before it found.
+  const queue = useRef(Promise.resolve())
+  const shown = useRef({ result, quantity })
+  useEffect(() => {
+    shown.current = { result, quantity }
+  })
+
+  function lookup(raw: string) {
     const code = raw.trim()
-    if (!code) return
+    if (code) queue.current = queue.current.then(() => find(code))
+  }
+
+  /** Finds the product with this barcode or SKU. For sellers, the product already shown goes into the cart. */
+  async function find(code: string) {
     try {
       const { results } = await request<Page<Product>>(withParams("products/", { code, page: 1, pageSize: 1 }))
+      const { result: before, quantity: count } = shown.current
+      if (before?.kind === "found" && canSell) {
+        // The same product again: one more of it.
+        if (results[0]?.id === before.product.id) return setQuantity(count + 1)
+        moveToCart(before.product, count)
+      }
       setResult(results[0] ? { kind: "found", product: results[0], code } : { kind: "new", code })
+      setQuantity(1)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't look that up.")
     }
+  }
+
+  function moveToCart(product: Product, count: number) {
+    const available = qtyAt(product, locationId)
+    if (available === 0) toast.error(`${product.name} is out of stock here, so it wasn't added to the cart.`)
+    else addToCart(product, Math.min(count, available), locationId)
   }
 
   if (locations.length === 0) {
@@ -85,9 +113,28 @@ export function EntryView() {
         </CardContent>
       </Card>
 
-      {result?.kind === "found" ? (
-        <FoundProduct product={result.product} locationId={locationId} onDone={() => setResult(null)} />
-      ) : result && result.kind !== "manual" && !canCreateProducts ? (
+      {result?.kind === "found" && (
+        <FoundProduct
+          product={result.product}
+          locationId={locationId}
+          quantity={quantity}
+          onQuantityChange={setQuantity}
+          onSell={() => setSelling(true)}
+          onDone={() => setResult(null)}
+        />
+      )}
+      {selling && result?.kind === "found" && (
+        <SellDialog
+          productId={result.product.id}
+          locationId={locationId}
+          quantity={Math.min(quantity, qtyAt(result.product, locationId))}
+          onClose={() => setSelling(false)}
+          onSold={() => setResult(null)}
+        />
+      )}
+
+      {/* Sellers keep the scanner under the found product, to scan the next one. */}
+      {result?.kind === "found" && !canSell ? null : result?.kind === "new" && !canCreateProducts ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
             <SearchX className="size-10 text-amber-500" />
@@ -148,7 +195,7 @@ export function EntryView() {
           <TabsContent value="camera" className="mt-4">
             <Card>
               <CardContent className="mx-auto w-full max-w-lg">
-                {tab === "camera" && <CameraScanner onDetected={lookup} />}
+                {tab === "camera" && <CameraScanner onDetected={lookup} active={!selling && !checkingOut} />}
               </CardContent>
             </Card>
           </TabsContent>
@@ -210,15 +257,36 @@ export function EntryView() {
   )
 }
 
-function FoundProduct({ product: found, locationId, onDone }: { product: Product; locationId: string; onDone: () => void }) {
+function FoundProduct({
+  product: found,
+  locationId,
+  quantity,
+  onQuantityChange: setQuantity,
+  onSell,
+  onDone,
+}: {
+  product: Product
+  locationId: string
+  quantity: number
+  onQuantityChange: (quantity: number) => void
+  onSell: () => void
+  onDone: () => void
+}) {
   const { canSell, canAddStock } = usePermissions()
   const locationName = useScope().locations.find((l) => l.id === locationId)?.name
   // Kept fresh, so the count updates after adding or selling.
   const product = useProduct(found.id).data ?? found
-  const [quantity, setQuantity] = useState(1)
-  const [selling, setSelling] = useState(false)
-  const addToCart = useAddToCart()
+  const { cart, add: addToCart, checkout } = useCart()
   const current = qtyAt(product, locationId)
+  // With other products in the cart, Sell checks them out together with this one.
+  const items = cart.lines.length + (cart.lines.some((l) => l.productId === product.id) ? 0 : 1)
+
+  function sell() {
+    if (cart.lines.length === 0) return onSell()
+    addToCart(product, Math.min(quantity, current), locationId)
+    checkout()
+    onDone()
+  }
 
   const [run, pending] = useAttempt()
 
@@ -255,7 +323,7 @@ function FoundProduct({ product: found, locationId, onDone }: { product: Product
       </CardHeader>
       <CardContent className="flex flex-col items-center gap-5 sm:flex-row sm:justify-between">
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon-lg" className="size-12" onClick={() => setQuantity((q) => Math.max(1, q - 1))} aria-label="Less">
+          <Button variant="outline" size="icon-lg" className="size-12" onClick={() => setQuantity(Math.max(1, quantity - 1))} aria-label="Less">
             <Minus />
           </Button>
           <Input
@@ -267,31 +335,16 @@ function FoundProduct({ product: found, locationId, onDone }: { product: Product
             className="h-12 w-24 text-center text-xl font-semibold tabular-nums"
             aria-label="Quantity"
           />
-          <Button variant="outline" size="icon-lg" className="size-12" onClick={() => setQuantity((q) => q + 1)} aria-label="More">
+          <Button variant="outline" size="icon-lg" className="size-12" onClick={() => setQuantity(quantity + 1)} aria-label="More">
             <Plus />
           </Button>
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           {canSell && (
-            <>
-              <Button
-                size="lg"
-                variant="outline"
-                className="h-12 flex-1 px-6 text-base"
-                onClick={() => {
-                  addToCart(product, Math.min(quantity, current), locationId)
-                  onDone()
-                }}
-                disabled={current === 0}
-              >
-                <Plus />
-                Add to cart
-              </Button>
-              <Button size="lg" variant={canAddStock ? "outline" : "default"} className="h-12 flex-1 px-6 text-base" onClick={() => setSelling(true)} disabled={current === 0}>
-                <ShoppingCart />
-                Sell
-              </Button>
-            </>
+            <Button size="lg" variant={canAddStock ? "outline" : "default"} className="h-12 flex-1 px-6 text-base" onClick={sell} disabled={current === 0}>
+              <ShoppingCart />
+              {items > 1 ? `Checkout · ${items} items` : "Sell"}
+            </Button>
           )}
           {canAddStock && (
             <Button size="lg" className="h-12 flex-1 px-6 text-base" onClick={add} disabled={pending}>
@@ -301,8 +354,8 @@ function FoundProduct({ product: found, locationId, onDone }: { product: Product
           )}
         </div>
       </CardContent>
-      {selling && (
-        <SellDialog productId={product.id} locationId={locationId} quantity={Math.min(quantity, current)} onClose={() => setSelling(false)} onSold={onDone} />
+      {canSell && current > 0 && (
+        <p className="px-6 text-xs text-muted-foreground">Scan the next product and this one goes into the cart.</p>
       )}
     </Card>
   )

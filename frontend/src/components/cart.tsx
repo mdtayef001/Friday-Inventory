@@ -47,6 +47,9 @@ const CartContext = createContext<{
   add: (product: Pick<Product, "id" | "name" | "price">, quantity: number, locationId?: string) => void
   setLines: (lines: CheckoutLine[]) => void
   clear: () => void
+  /** Whether the checkout is open, and opens it. */
+  checkingOut: boolean
+  checkout: () => void
 } | null>(null)
 
 /**
@@ -60,6 +63,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   // The server has no storage, so it renders an empty cart.
   const saved = useSyncExternalStore(subscribe, () => read(key), () => null)
   const cart = useMemo(() => parse(saved), [saved])
+  const [checkingOut, setCheckingOut] = useState(false)
 
   function save(next: Cart) {
     try {
@@ -84,12 +88,14 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     },
     setLines: (lines: CheckoutLine[]) => save({ ...cart, lines }),
     clear: () => save(EMPTY),
+    checkingOut,
+    checkout: () => setCheckingOut(true),
   }
 
   return (
     <CartContext.Provider value={value}>
       {children}
-      <CartBar />
+      <CartBar onClose={() => setCheckingOut(false)} />
     </CartContext.Provider>
   )
 }
@@ -110,9 +116,8 @@ export function useAddToCart() {
 }
 
 /** Shown at the bottom of every page while the cart has something in it. */
-function CartBar() {
-  const { cart, setLines, clear } = useCart()
-  const [open, setOpen] = useState(false)
+function CartBar({ onClose }: { onClose: () => void }) {
+  const { cart, setLines, clear, checkingOut: open, checkout } = useCart()
   const units = cart.lines.reduce((n, l) => n + l.quantity, 0)
   const total = cart.lines.reduce((sum, l) => sum + l.quantity * (Number(l.unitPrice) || 0), 0)
   if (cart.lines.length === 0 && !open) return null
@@ -134,7 +139,7 @@ function CartBar() {
             <Button variant="ghost" size="icon" onClick={clear} aria-label="Empty the cart">
               <Trash2 />
             </Button>
-            <Button onClick={() => setOpen(true)}>
+            <Button onClick={checkout}>
               Checkout
               <span className="tabular-nums">· {formatMoney(total)}</span>
             </Button>
@@ -146,7 +151,7 @@ function CartBar() {
           lines={cart.lines}
           onLinesChange={setLines}
           initialLocation={cart.locationId ?? undefined}
-          onClose={() => setOpen(false)}
+          onClose={onClose}
           onSold={clear}
         />
       )}
