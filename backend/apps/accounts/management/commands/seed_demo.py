@@ -16,7 +16,7 @@ from apps.accounts.models import Business, User, default_settings
 from apps.billing.models import Payment
 from apps.inventory.models import Activity, Client, Location, Product, Rental, Shipment, ShipmentEvent, StockLevel, Transfer
 
-DEMO_EMAILS = ["super@friday.app", "owner@friday.app", "manager@friday.app", "staff@friday.app", "cafe@friday.app", "urban@friday.app"]
+DEMO_EMAILS = ["super@friday.app", "owner@friday.app", "manager@friday.app", "staff@friday.app", "seller@friday.app", "stocker@friday.app", "cafe@friday.app", "urban@friday.app"]
 
 LOCATIONS = [
     ("main", "Main Warehouse", "warehouse", "12 Industrial Rd, Block C", "+1 555 0100"),
@@ -121,10 +121,13 @@ class Command(BaseCommand):
         for business in (cafe, urban):
             Location.objects.create(business=business, name="Main Store", type="outlet", address="Add your address in Warehouses & Shops")
 
-        user = lambda email, name, role, business, password, locations=(): self.user(email, name, role, business, password, locations)  # noqa: E731
+        user = lambda email, name, role, business, password, locations=(), **rights: self.user(email, name, role, business, password, locations, **rights)  # noqa: E731
         owner = user("owner@friday.app", "Ayesha Rahman", "owner", demo, "owner123")
         manager = user("manager@friday.app", "Karim Hasan", "manager", demo, "manager123", [locs["downtown"], locs["uptown"]])
         staff = user("staff@friday.app", "Nadia Islam", "staff", demo, "staff123", [locs["main"]])
+        # One staff member per right, to try each on its own.
+        user("seller@friday.app", "Rafi Ahmed", "staff", demo, "staff123", [locs["main"]], can_add_stock=False)
+        user("stocker@friday.app", "Mina Das", "staff", demo, "staff123", [locs["main"]], can_sell=False)
         user("cafe@friday.app", "Sara Khan", "owner", cafe, "cafe1234")
         urban_owner = user("urban@friday.app", "Jamal Uddin", "owner", urban, "urban123")
 
@@ -212,15 +215,16 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Demo data loaded. Logins:"))
         for email, password in [
             ("super@friday.app", "super123"), ("owner@friday.app", "owner123"), ("manager@friday.app", "manager123"),
-            ("staff@friday.app", "staff123"), ("cafe@friday.app", "cafe1234"), ("urban@friday.app", "urban123"),
+            ("staff@friday.app", "staff123"), ("seller@friday.app", "staff123"), ("stocker@friday.app", "staff123"),
+            ("cafe@friday.app", "cafe1234"), ("urban@friday.app", "urban123"),
         ]:
             self.stdout.write(f"  {email} / {password}")
 
     def ago(self, days):
         return self.now - timedelta(days=days)
 
-    def user(self, email, name, role, business, password, locations):
-        user = User(email=email, name=name, role=role, business=business)
+    def user(self, email, name, role, business, password, locations, **rights):
+        user = User(email=email, name=name, role=role, business=business, **rights)
         # Demo passwords are short on purpose; skip the strength validators.
         user.set_password(password)
         user.save()

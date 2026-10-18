@@ -13,6 +13,8 @@ const DEMO_ACCOUNTS = [
   { role: "Owner", email: "owner@friday.app", password: "owner123", note: "Friday Demo Store: full access" },
   { role: "Manager", email: "manager@friday.app", password: "manager123", note: "Downtown & Uptown outlets" },
   { role: "Staff", email: "staff@friday.app", password: "staff123", note: "Product entry only" },
+  { role: "Staff (sell only)", email: "seller@friday.app", password: "staff123", note: "Main Warehouse: sells, can't add products" },
+  { role: "Staff (products only)", email: "stocker@friday.app", password: "staff123", note: "Main Warehouse: adds products, can't sell" },
   { role: "Owner (on trial)", email: "cafe@friday.app", password: "cafe1234", note: "Green Leaf Café: trial ends in 2 days" },
   { role: "Owner (unpaid)", email: "urban@friday.app", password: "urban123", note: "Urban Party Rentals: locked, must pay" },
 ]
