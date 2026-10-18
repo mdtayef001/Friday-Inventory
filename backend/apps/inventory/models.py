@@ -420,3 +420,69 @@ class PurchaseItem(models.Model):
     @property
     def amount(self):
         return self.unit_cost * self.quantity
+
+
+class SupplierReturn(TenantModel):
+    """Stock from a purchase sent back to the supplier, usually damaged or broken.
+    It leaves stock straight away. The supplier settles it by sending replacements,
+    refunding the money, or both; the owner can close it unsettled as a loss."""
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Waiting for supplier"
+        SETTLED = "settled", "Settled"
+        CLOSED = "closed", "Closed unsettled"
+
+    class RefundMethod(models.TextChoices):
+        CASH = "cash", "Cash"
+        MOBILE = "mobile", "Mobile banking"
+        BANK = "bank", "Bank"
+
+    # Numbered 1, 2, 3… per business. Shown as SR-000001.
+    number = models.PositiveIntegerField()
+    purchase = models.ForeignKey(Purchase, on_delete=models.PROTECT, related_name="returns")
+    item = models.ForeignKey(PurchaseItem, on_delete=models.PROTECT, related_name="returns")
+    # Copied from the purchase, so lists and totals don't have to go through it.
+    supplier = models.ForeignKey(Supplier, null=True, blank=True, on_delete=models.PROTECT, related_name="returns")
+    location = models.ForeignKey(Location, null=True, on_delete=models.SET_NULL, related_name="+")
+    product = models.ForeignKey(Product, null=True, on_delete=models.SET_NULL, related_name="+")
+    product_name = models.CharField(max_length=200)
+    quantity = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    # What was paid for each on the purchase: what the supplier owes back per unit.
+    unit_cost = models.DecimalField(max_digits=12, decimal_places=2)
+    reason = models.CharField(max_length=200)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
+    # How it was settled so far: units sent again, and money given back.
+    replaced_quantity = models.PositiveIntegerField(default=0)
+    refunded_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # How the last refund came, for the record.
+    refund_method = models.CharField(max_length=10, choices=RefundMethod.choices, blank=True)
+    closed_note = models.CharField(max_length=300, blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    # When it was settled or closed.
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        constraints = [models.UniqueConstraint(fields=["business", "number"], name="unique_supplier_return_no_per_business")]
+
+    @property
+    def code(self):
+        return f"SR-{self.number:06d}"
+
+    @property
+    def value(self):
+        return self.unit_cost * self.quantity
+
+    @property
+    def outstanding(self):
+        """What the supplier still owes: the value less what was replaced and refunded."""
+        return max(self.value - self.unit_cost * self.replaced_quantity - self.refunded_amount, 0)
+
+    @property
+    def units_to_replace(self):
+        """How many more units the supplier can send instead of money."""
+        left = self.quantity - self.replaced_quantity
+        if self.unit_cost <= 0:
+            return left
+        return min(left, int(self.outstanding // self.unit_cost))

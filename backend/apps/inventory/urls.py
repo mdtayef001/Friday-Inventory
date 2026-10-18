@@ -16,6 +16,7 @@ router.register("sales", views.SaleViewSet, basename="sale")
 router.register("stock-requests", views.StockRequestViewSet, basename="stock-request")
 router.register("suppliers", views.SupplierViewSet, basename="supplier")
 router.register("purchases", views.PurchaseViewSet, basename="purchase")
+router.register("supplier-returns", views.SupplierReturnViewSet, basename="supplier-return")
 
 urlpatterns = [
     path("overview/", views.OverviewView.as_view()),

@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -5,7 +7,7 @@ from apps.api import IdField, tenant_field
 
 from .models import (
     Activity, Client, Location, Product, Purchase, PurchaseItem, Rental, Sale, Shipment, ShipmentEvent, StockLevel, StockRequest,
-    Supplier, Transfer,
+    Supplier, SupplierReturn, Transfer,
 )
 
 # Field names follow frontend/src/lib/types.ts (camelCased on the wire).
@@ -476,17 +478,22 @@ class SupplierSerializer(serializers.ModelSerializer):
                 "purchase_count": supplier.purchase_count,
                 "spent": float(supplier.spent or 0),
                 "last_purchase_at": supplier.last_purchase_at,
+                # Open returns: what they still owe back, as money or replacements.
+                "owed_back": float(supplier.owed_back or 0),
             }
         return data
 
 
 class PurchaseItemSerializer(serializers.ModelSerializer):
+    id = IdField()
     product_id = IdField()
     amount = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    # How many were sent back to the supplier. Loaded with the purchase (see PurchaseViewSet).
+    returned = serializers.IntegerField(read_only=True, default=0)
 
     class Meta:
         model = PurchaseItem
-        fields = ["product_id", "product_name", "quantity", "unit_cost", "amount"]
+        fields = ["id", "product_id", "product_name", "quantity", "unit_cost", "amount", "returned"]
 
 
 class PurchaseSerializer(serializers.ModelSerializer):
@@ -510,8 +517,29 @@ class PurchaseSerializer(serializers.ModelSerializer):
         return float(sum(i.amount for i in purchase.items.all()))
 
 
+class NewProductSerializer(serializers.Serializer):
+    """A product bought for the first time, created with the purchase. The rest is filled in later on its page."""
+
+    name = serializers.CharField(max_length=200)
+    unit = serializers.CharField(max_length=30, required=False, allow_blank=True, default="pcs")
+    price = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0, required=False, default=0)
+    barcode = serializers.CharField(max_length=128, required=False, allow_blank=True, default="")
+    category = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+    sku = serializers.CharField(max_length=64, required=False, allow_blank=True, default="")
+
+    def validate(self, data):
+        data = {k: v.strip() if isinstance(v, str) else v for k, v in data.items()}
+        if len(data["name"]) < 2:
+            raise serializers.ValidationError({"name": "Enter the product's name."})
+        data["sku"] = data["sku"].upper()
+        return data
+
+
 class PurchaseItemInputSerializer(serializers.Serializer):
-    product_id = tenant_field(Product, source="product")
+    """An existing product (`product_id`) or a new one (`new_product`), with what was paid."""
+
+    product_id = tenant_field(Product, source="product", required=False, allow_null=True)
+    new_product = NewProductSerializer(required=False, allow_null=True)
     quantity = serializers.IntegerField(min_value=1)
     unit_cost = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0)
 
@@ -531,3 +559,68 @@ class PurchaseCreateSerializer(serializers.Serializer):
         if value and value > timezone.now():
             raise serializers.ValidationError("The purchase date can't be in the future.")
         return value
+
+    def validate_items(self, items):
+        business = self.context["request"].user.business
+        products = Product.objects.filter(business=business)
+        seen = {"barcode": set(), "sku": set()}
+        for item in items:
+            new = item.get("new_product")
+            if bool(new) == bool(item.get("product")):
+                raise serializers.ValidationError("Each line needs a product, either an existing one or a new one.")
+            if not new:
+                continue
+            for field, lookup in (("barcode", "barcode"), ("sku", "sku__iexact")):
+                value = new[field]
+                if not value:
+                    continue
+                if value.upper() in seen[field] or products.filter(**{lookup: value}).exists():
+                    raise serializers.ValidationError(f'{field.upper() if field == "sku" else "Barcode"} "{value}" is already used by another product.')
+                seen[field].add(value.upper())
+        return items
+
+
+class SupplierReturnSerializer(serializers.ModelSerializer):
+    id = IdField()
+    code = serializers.CharField(read_only=True)
+    purchase_id = IdField()
+    purchase_code = serializers.CharField(source="purchase.code", read_only=True)
+    supplier = serializers.SerializerMethodField()
+    location_id = IdField()
+    product_id = IdField()
+    value = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    outstanding = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    units_to_replace = serializers.IntegerField(read_only=True)
+    created_by = serializers.CharField(source="created_by.name", read_only=True, default="")
+
+    class Meta:
+        model = SupplierReturn
+        fields = [
+            "id", "code", "purchase_id", "purchase_code", "supplier", "location_id", "product_id", "product_name", "quantity",
+            "unit_cost", "reason", "status", "replaced_quantity", "refunded_amount", "refund_method", "closed_note", "value",
+            "outstanding", "units_to_replace", "created_by", "created_at", "finished_at",
+        ]
+
+    def get_supplier(self, ret):
+        s = ret.supplier
+        return {"id": str(s.id), "name": s.name, "company": s.company} if s else None
+
+
+class SupplierReturnCreateSerializer(serializers.Serializer):
+    # PurchaseItem has no business of its own; the view looks it up through its purchase.
+    item_id = serializers.IntegerField()
+    quantity = serializers.IntegerField(min_value=1)
+    reason = serializers.CharField(max_length=200)
+
+
+class ReplacementSerializer(serializers.Serializer):
+    quantity = serializers.IntegerField(min_value=1)
+
+
+class RefundSerializer(serializers.Serializer):
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
+    method = serializers.ChoiceField(choices=SupplierReturn.RefundMethod.choices)
+
+
+class CloseReturnSerializer(serializers.Serializer):
+    note = serializers.CharField(max_length=300, required=False, allow_blank=True, default="")

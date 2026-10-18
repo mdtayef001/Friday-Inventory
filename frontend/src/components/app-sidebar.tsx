@@ -13,6 +13,7 @@ import {
   LayoutDashboard,
   Package,
   PackagePlus,
+  PackageX,
   Receipt,
   ScanBarcode,
   Settings,
@@ -63,6 +64,7 @@ const NAV = [
     label: "Buying",
     items: [
       { href: "/purchases", label: "Purchases", icon: PackagePlus },
+      { href: "/supplier-returns", label: "Returns to Suppliers", icon: PackageX },
       { href: "/suppliers", label: "Suppliers", icon: Factory },
     ],
   },

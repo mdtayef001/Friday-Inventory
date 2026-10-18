@@ -19,6 +19,7 @@ import type {
   StockRequest,
   StockSummary,
   Supplier,
+  SupplierReturn,
   Transfer,
 } from "@/lib/types"
 
@@ -178,6 +179,14 @@ export const useSuppliers = (params: Params & { page: number }, options?: { page
   usePage<Supplier>("suppliers/", params, options)
 export const usePurchases = (params: Params & { page: number }, options?: { pageSize?: number; enabled?: boolean }) =>
   usePage<Purchase>("purchases/", params, options)
+
+export const useSupplierReturns = (params: Params & { page: number }, options?: { pageSize?: number; enabled?: boolean }) =>
+  usePage<SupplierReturn>("supplier-returns/", params, options)
+
+/** Returns still waiting on suppliers, and what they owe back in total. */
+export function useSupplierReturnSummary() {
+  return useQuery(apiQuery<{ openCount: number; owed: number }>("supplier-returns/summary/"))
+}
 
 /** How many purchases match the filters, and their total. */
 export function usePurchaseSummary(params: Params = {}) {

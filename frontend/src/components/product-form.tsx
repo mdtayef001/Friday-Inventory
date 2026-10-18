@@ -14,7 +14,7 @@ import { useAttempt, Field, SimpleSelect } from "./common"
 import { ScanButton } from "./scanner"
 import { useScope } from "./session-provider"
 
-const UNITS = ["pcs", "box", "pack", "set", "roll", "kg", "g", "litre", "metre", "pair"]
+export const UNITS = ["pcs", "box", "pack", "set", "roll", "kg", "g", "litre", "metre", "pair"]
 
 function makeSku(category: string) {
   const prefix = (category.replace(/[^a-z]/gi, "").slice(0, 3) || "PRD").toUpperCase()

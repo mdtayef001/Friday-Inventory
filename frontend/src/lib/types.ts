@@ -198,6 +198,8 @@ export interface Supplier {
     purchaseCount: number
     spent: number
     lastPurchaseAt: string | null
+    /** Open returns: what they still owe back, as money or replacements. */
+    owedBack: number
   }
 }
 
@@ -205,11 +207,51 @@ export type SupplierBrief = Pick<Supplier, "id" | "name" | "company">
 
 /** One product on a purchase, at the price paid. productId is null once the product is deleted. */
 export interface PurchaseItem {
+  id: string
   productId: string | null
   productName: string
   quantity: number
   unitCost: number
   amount: number
+  /** How many were sent back to the supplier. */
+  returned: number
+}
+
+export type SupplierReturnStatus = "open" | "settled" | "closed"
+export type RefundMethod = "cash" | "mobile" | "bank"
+
+/**
+ * Stock from a purchase sent back to the supplier (broken, damaged, wrong). It left
+ * stock straight away; the supplier settles with replacements, a refund, or both.
+ */
+export interface SupplierReturn {
+  id: string
+  /** "SR-000003" */
+  code: string
+  purchaseId: string
+  purchaseCode: string
+  supplier: SupplierBrief | null
+  locationId: string | null
+  productId: string | null
+  productName: string
+  quantity: number
+  /** What was paid for each on the purchase. */
+  unitCost: number
+  reason: string
+  status: SupplierReturnStatus
+  replacedQuantity: number
+  refundedAmount: number
+  refundMethod: RefundMethod | ""
+  closedNote: string
+  /** quantity × unitCost */
+  value: number
+  /** What the supplier still owes, as money. */
+  outstanding: number
+  /** How many more units they can send instead. */
+  unitsToReplace: number
+  createdBy: string
+  createdAt: string
+  finishedAt: string | null
 }
 
 /** Stock bought in: one supplier's bill, received at one location. */

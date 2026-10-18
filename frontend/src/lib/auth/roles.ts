@@ -52,6 +52,7 @@ const ROUTE_RULES: Rule[] = [
   { test: prefix("/transfers"), roles: LEADS, module: "transfers" },
   { test: prefix("/purchases"), roles: LEADS, permission: "managerPurchases" },
   { test: prefix("/suppliers"), roles: LEADS, permission: "managerPurchases" },
+  { test: prefix("/supplier-returns"), roles: LEADS, permission: "managerPurchases" },
 ]
 
 export const APP_ROUTES = [
@@ -63,6 +64,7 @@ export const APP_ROUTES = [
   "/transfers",
   "/purchases",
   "/suppliers",
+  "/supplier-returns",
   "/tracking",
   "/rentals",
   "/clients",

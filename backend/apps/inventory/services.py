@@ -16,7 +16,8 @@ from rest_framework.exceptions import ValidationError
 from apps.accounts.models import Business
 
 from .models import (
-    Activity, Product, Purchase, PurchaseItem, Rental, Sale, Shipment, ShipmentEvent, StockLevel, StockRequest, Transfer, tracking_token,
+    Activity, Product, Purchase, PurchaseItem, Rental, Sale, Shipment, ShipmentEvent, StockLevel, StockRequest, SupplierReturn, Transfer,
+    tracking_token,
 )
 
 
@@ -464,10 +465,37 @@ def average_cost(product, quantity, unit_cost):
     return (total / (on_hand + quantity)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def make_sku(business, category=""):
+    """A free SKU like "ELE-4821", from the category's first letters."""
+    prefix = ("".join(c for c in category if c.isalpha())[:3] or "PRD").upper()
+    while True:
+        sku = f"{prefix}-{secrets.randbelow(9000) + 1000}"
+        if not Product.objects.filter(business=business, sku__iexact=sku).exists():
+            return sku
+
+
+def create_product_for_purchase(user, new):
+    """A product first bought on this purchase. Its cost starts at what was paid, once the stock arrives."""
+    product = Product.objects.create(
+        business=user.business,
+        name=new["name"],
+        unit=new.get("unit") or "pcs",
+        price=new.get("price") or 0,
+        barcode=new.get("barcode", ""),
+        category=new.get("category", ""),
+        sku=new.get("sku") or make_sku(user.business, new.get("category", "")),
+        created_by=user,
+    )
+    log(user, "Product added", f"{product.name} (on a purchase)")
+    return product
+
+
 @transaction.atomic
 def record_purchase(user, *, location, items, supplier=None, reference="", note="", purchased_at=None):
     """One supplier's bill: every item goes into stock at `location`, and each
-    product's cost is averaged in. Returns the purchase."""
+    product's cost is averaged in. Items with `new_product` instead of `product`
+    are created first, in the same transaction, so a refused purchase leaves no
+    half-made products behind. Returns the purchase."""
     if not items:
         raise ValidationError("Add at least one product.")
     # Locking the business row makes two purchases at the same moment wait for each other's number.
@@ -484,6 +512,8 @@ def record_purchase(user, *, location, items, supplier=None, reference="", note=
         created_by=user,
     )
     for item in items:
+        if item.get("new_product"):
+            item["product"] = create_product_for_purchase(user, item["new_product"])
         product = Product.objects.select_for_update().get(pk=item["product"].pk)
         product.cost = average_cost(product, item["quantity"], item["unit_cost"])
         product.save(update_fields=["cost"])
@@ -496,6 +526,103 @@ def record_purchase(user, *, location, items, supplier=None, reference="", note=
     who = f" from {supplier.name}" if supplier else ""
     log(user, "Stock bought", f"{purchase.code}{who}: {describe(lines)} at {location.name} for {total:.2f}")
     return purchase
+
+
+# ---------- Returns to suppliers ----------
+# Damaged or wrong stock from a purchase goes back. It leaves stock at once; the
+# supplier settles with replacements, a refund, or both. The product's cost is left
+# alone: the stock goes back at what was paid, and the average stays as it is.
+
+
+@transaction.atomic
+def return_to_supplier(user, item, quantity, reason):
+    """Sends `quantity` of a purchase's item back. Returns the new return."""
+    item = PurchaseItem.objects.select_for_update().select_related("purchase__location", "purchase__supplier", "product").get(pk=item.pk)
+    purchase = item.purchase
+    reason = reason.strip()
+    if not reason:
+        raise ValidationError({"reason": "Say what's wrong with it, e.g. broken."})
+    if not item.product or not purchase.location:
+        raise ValidationError("The product or the location it arrived at no longer exists.")
+    already = item.returns.aggregate(n=Sum("quantity"))["n"] or 0
+    if quantity > item.quantity - already:
+        left = item.quantity - already
+        raise ValidationError(f"Only {left} of this product {'is' if left == 1 else 'are'} left to return from {purchase.code}.")
+    change_stock(item.product, purchase.location, -quantity)
+    Business.objects.select_for_update().filter(pk=user.business_id).first()
+    last = SupplierReturn.objects.filter(business=user.business).aggregate(n=Max("number"))["n"] or 0
+    ret = SupplierReturn.objects.create(
+        business=user.business,
+        number=last + 1,
+        purchase=purchase,
+        item=item,
+        supplier=purchase.supplier,
+        location=purchase.location,
+        product=item.product,
+        product_name=item.product_name,
+        quantity=quantity,
+        unit_cost=item.unit_cost,
+        reason=reason,
+        created_by=user,
+    )
+    to = f" to {purchase.supplier.name}" if purchase.supplier else ""
+    log(user, "Returned to supplier", f"{ret.code} · {quantity} × {ret.product_name}{to} from {purchase.code} · {ret.value:.2f} · {reason}")
+    return ret
+
+
+def _open_return(ret):
+    ret = SupplierReturn.objects.select_for_update().select_related("product", "location", "supplier").get(pk=ret.pk)
+    if ret.status != SupplierReturn.Status.OPEN:
+        raise ValidationError("This return is already settled or closed.")
+    return ret
+
+
+def _finish_if_settled(ret):
+    if ret.replaced_quantity >= ret.quantity or (ret.value > 0 and ret.outstanding <= 0):
+        ret.status = SupplierReturn.Status.SETTLED
+        ret.finished_at = timezone.now()
+
+
+@transaction.atomic
+def receive_replacement(user, ret, quantity):
+    """The supplier sent new units instead: they go into stock where the return left from."""
+    ret = _open_return(ret)
+    if quantity > ret.units_to_replace:
+        raise ValidationError(f"The supplier only owes {ret.units_to_replace} more.")
+    if not ret.product or not ret.location:
+        raise ValidationError("The product or the location no longer exists. Record a refund instead.")
+    change_stock(ret.product, ret.location, quantity)
+    ret.replaced_quantity += quantity
+    _finish_if_settled(ret)
+    ret.save(update_fields=["replaced_quantity", "status", "finished_at"])
+    log(user, "Replacement received", f"{ret.code} · {quantity} × {ret.product_name} at {ret.location.name}")
+    return ret
+
+
+@transaction.atomic
+def receive_refund(user, ret, amount, method):
+    """The supplier gave money back for the return, all of it or part."""
+    ret = _open_return(ret)
+    if amount > ret.outstanding:
+        raise ValidationError(f"The supplier only owes {ret.outstanding:.2f} on this return.")
+    ret.refunded_amount += amount
+    ret.refund_method = method
+    _finish_if_settled(ret)
+    ret.save(update_fields=["refunded_amount", "refund_method", "status", "finished_at"])
+    log(user, "Refund received", f"{ret.code} · {amount:.2f} ({ret.get_refund_method_display()})")
+    return ret
+
+
+@transaction.atomic
+def close_return(user, ret, note=""):
+    """The supplier won't settle the rest: what's still owed is a loss."""
+    ret = _open_return(ret)
+    ret.status = SupplierReturn.Status.CLOSED
+    ret.closed_note = note.strip()
+    ret.finished_at = timezone.now()
+    ret.save(update_fields=["status", "closed_note", "finished_at"])
+    log(user, "Return closed unsettled", f"{ret.code} · {ret.outstanding:.2f} not recovered{f' · {ret.closed_note}' if ret.closed_note else ''}")
+    return ret
 
 
 # ---------- Stock requests ----------

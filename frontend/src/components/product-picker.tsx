@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ChevronsUpDown } from "lucide-react"
+import { ChevronsUpDown, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -25,6 +25,7 @@ export function ProductPicker({
   onAll,
   disabled,
   className,
+  onCreate,
 }: {
   value: Product | null
   onChange: (product: Product) => void
@@ -38,6 +39,8 @@ export function ProductPicker({
   placeholder?: string
   disabled?: boolean
   className?: string
+  /** Offers "Create <what was typed>" at the bottom, for a product that doesn't exist yet. */
+  onCreate?: (name: string) => void
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")
@@ -89,6 +92,19 @@ export function ProductPicker({
               <p className="px-2 py-1.5 text-xs text-muted-foreground">
                 Showing {data.results.length} of {data.count}. Type to narrow it down.
               </p>
+            )}
+            {onCreate && (
+              <CommandItem
+                value="create-new-product"
+                onSelect={() => {
+                  onCreate(search.trim())
+                  setOpen(false)
+                  setSearch("")
+                }}
+              >
+                <Plus />
+                {search.trim() ? `Create “${search.trim()}”` : "Create a new product"}
+              </CommandItem>
             )}
           </CommandList>
         </Command>

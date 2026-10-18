@@ -1,7 +1,8 @@
 from django.contrib import admin
 
 from .models import (
-    Activity, Client, Location, Product, Purchase, PurchaseItem, Rental, Sale, Shipment, StockLevel, StockRequest, Supplier, Transfer,
+    Activity, Client, Location, Product, Purchase, PurchaseItem, Rental, Sale, Shipment, StockLevel, StockRequest, Supplier, SupplierReturn,
+    Transfer,
 )
 
 admin.site.register([Location, Client, StockLevel, Shipment, Rental, Transfer, StockRequest, Supplier])
@@ -33,3 +34,9 @@ class PurchaseItemInline(admin.TabularInline):
 class PurchaseAdmin(admin.ModelAdmin):
     list_display = ["number", "purchased_at", "business", "supplier", "location", "reference"]
     inlines = [PurchaseItemInline]
+
+
+@admin.register(SupplierReturn)
+class SupplierReturnAdmin(admin.ModelAdmin):
+    list_display = ["number", "created_at", "business", "supplier", "product_name", "quantity", "status"]
+    list_filter = ["status"]

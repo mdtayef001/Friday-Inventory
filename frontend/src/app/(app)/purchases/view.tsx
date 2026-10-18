@@ -3,7 +3,8 @@
 import { useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
-import { PackagePlus, Plus } from "lucide-react"
+import Link from "next/link"
+import { PackagePlus, Plus, Undo2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -12,9 +13,10 @@ import { EmptyState, ListSkeleton, PageBody, PageHeader, Pager, QueryError, Sear
 import { PurchaseDialog } from "@/components/purchase-dialog"
 import { useScope } from "@/components/session-provider"
 import { SupplierPicker } from "@/components/supplier-dialog"
+import { ReturnToSupplierDialog } from "@/components/supplier-return"
 import { apiQuery, useDebounced, useLocations, usePaging, usePurchases, usePurchaseSummary } from "@/lib/data/queries"
 import { formatDate, formatDateTime, formatMoney, formatNumber } from "@/lib/format"
-import type { Purchase, Supplier, SupplierBrief } from "@/lib/types"
+import type { Purchase, PurchaseItem, Supplier, SupplierBrief } from "@/lib/types"
 
 export function PurchasesView() {
   const params = useSearchParams()
@@ -32,7 +34,8 @@ export function PurchasesView() {
   const supplierId = picked === undefined ? (supplierParam ?? "") : (picked?.id ?? "")
 
   const [adding, setAdding] = useState(false)
-  const [open, setOpen] = useState<Purchase | null>(null)
+  // The open purchase follows the list, so it shows returns as soon as they're made.
+  const [opened, setOpen] = useState<Purchase | null>(null)
 
   const search = useDebounced(query.trim())
   const filters = { search, supplier: supplierId, location: locationId }
@@ -41,6 +44,7 @@ export function PurchasesView() {
   const summary = usePurchaseSummary(filters).data
   const rows = data?.results ?? []
   const filtered = !!(search || supplierId || locationId)
+  const open = opened && (rows.find((p) => p.id === opened.id) ?? opened)
 
   return (
     <PageBody>
@@ -142,6 +146,8 @@ export function PurchasesView() {
 }
 
 function PurchaseDetail({ purchase: p, location, onClose }: { purchase: Purchase; location: string; onClose: () => void }) {
+  const [returning, setReturning] = useState<PurchaseItem | null>(null)
+  const returned = p.items.reduce((n, i) => n + i.returned, 0)
   const units = p.items.reduce((n, i) => n + i.quantity, 0)
   const facts: [string, string][] = [
     ["Supplier", p.supplier ? (p.supplier.company ? `${p.supplier.name} · ${p.supplier.company}` : p.supplier.name) : "None"],
@@ -174,7 +180,10 @@ function PurchaseDetail({ purchase: p, location, onClose }: { purchase: Purchase
                 <TableHead className="pl-3">Product</TableHead>
                 <TableHead className="text-right">Qty</TableHead>
                 <TableHead className="text-right">Paid each</TableHead>
-                <TableHead className="pr-3 text-right">Amount</TableHead>
+                <TableHead className="text-right">Amount</TableHead>
+                <TableHead className="w-10 pr-3">
+                  <span className="sr-only">Return</span>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -183,10 +192,18 @@ function PurchaseDetail({ purchase: p, location, onClose }: { purchase: Purchase
                   <TableCell className="pl-3">
                     {i.productName}
                     {!i.productId && <span className="block text-xs text-muted-foreground">Product deleted</span>}
+                    {i.returned > 0 && <span className="block text-xs text-amber-700 dark:text-amber-400">{i.returned} returned</span>}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{formatNumber(i.quantity)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatMoney(i.unitCost)}</TableCell>
-                  <TableCell className="pr-3 text-right tabular-nums">{formatMoney(i.amount)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatMoney(i.amount)}</TableCell>
+                  <TableCell className="pr-3">
+                    {i.productId && p.locationId && i.returned < i.quantity && (
+                      <Button variant="ghost" size="icon-sm" onClick={() => setReturning(i)} aria-label={`Return ${i.productName} to the supplier`} title="Return to supplier">
+                        <Undo2 />
+                      </Button>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -195,16 +212,29 @@ function PurchaseDetail({ purchase: p, location, onClose }: { purchase: Purchase
                 <TableCell className="pl-3" colSpan={3}>
                   Total
                 </TableCell>
-                <TableCell className="pr-3 text-right tabular-nums">{formatMoney(p.total)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatMoney(p.total)}</TableCell>
+                <TableCell className="pr-3" />
               </TableRow>
             </TableFooter>
           </Table>
         </div>
         {p.note && <p className="rounded-lg bg-muted/40 p-3 text-sm">{p.note}</p>}
+        <p className="text-xs text-muted-foreground">
+          Broken or wrong? Use <Undo2 className="inline size-3" /> to send it back to the supplier.
+          {returned > 0 && (
+            <>
+              {" "}
+              <Link href={`/supplier-returns?purchase=${p.id}`} className="underline underline-offset-2">
+                See this purchase&apos;s returns
+              </Link>
+            </>
+          )}
+        </p>
         <DialogFooter>
           <Button onClick={onClose}>Done</Button>
         </DialogFooter>
       </DialogContent>
+      {returning && <ReturnToSupplierDialog purchase={p} item={returning} onClose={() => setReturning(null)} />}
     </Dialog>
   )
 }

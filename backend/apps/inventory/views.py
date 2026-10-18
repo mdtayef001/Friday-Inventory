@@ -24,17 +24,23 @@ from apps.accounts.permissions import TEAM, IsTenantMember, ManagerNeedsPermissi
 from apps.api import Pagination
 
 from . import services
-from .models import Activity, Client, Location, Product, Purchase, PurchaseItem, Rental, Sale, Shipment, StockLevel, StockRequest, Supplier, Transfer
+from .models import (
+    Activity, Client, Location, Product, Purchase, PurchaseItem, Rental, Sale, Shipment, StockLevel, StockRequest, Supplier, SupplierReturn,
+    Transfer,
+)
 from .serializers import (
     ActivitySerializer,
     ApproveRequestSerializer,
     DeclineRequestSerializer,
     ClientSerializer,
+    CloseReturnSerializer,
     LocationSerializer,
     ProductCreateSerializer,
     ProductSerializer,
     PurchaseCreateSerializer,
     PurchaseSerializer,
+    RefundSerializer,
+    ReplacementSerializer,
     PublicTrackingSerializer,
     ReceiptSerializer,
     RentalReturnSerializer,
@@ -46,6 +52,8 @@ from .serializers import (
     StockAdjustSerializer,
     StockLevelSerializer,
     StockRequestSerializer,
+    SupplierReturnCreateSerializer,
+    SupplierReturnSerializer,
     SupplierSerializer,
     TransferSerializer,
 )
@@ -401,12 +409,15 @@ class SupplierViewSet(PurchasesFeature, TenantViewSet, viewsets.ModelViewSet):
     def with_stats(self, qs):
         purchases = Purchase.objects.filter(supplier=OuterRef("pk"))
         items = PurchaseItem.objects.filter(purchase__supplier=OuterRef("pk"))
+        open_returns = SupplierReturn.objects.filter(supplier=OuterRef("pk"), status=SupplierReturn.Status.OPEN)
         allowed = allowed_location_ids(self.request.user)
         if allowed is not None:
             purchases = purchases.filter(location_id__in=allowed)
             items = items.filter(purchase__location_id__in=allowed)
+            open_returns = open_returns.filter(location_id__in=allowed)
         money = DecimalField(max_digits=16, decimal_places=2)
         amount = ExpressionWrapper(F("unit_cost") * F("quantity"), output_field=money)
+        owed = SupplierReturnViewSet.owed_expression()
         return qs.annotate(
             purchase_count=Coalesce(
                 Subquery(purchases.values("supplier").annotate(n=Count("id")).values("n"), output_field=IntegerField()), 0
@@ -416,6 +427,10 @@ class SupplierViewSet(PurchasesFeature, TenantViewSet, viewsets.ModelViewSet):
                 Value(0, output_field=money),
             ),
             last_purchase_at=Subquery(purchases.order_by("-purchased_at").values("purchased_at")[:1]),
+            owed_back=Coalesce(
+                Subquery(open_returns.values("supplier").annotate(v=Sum(owed)).values("v"), output_field=money),
+                Value(0, output_field=money),
+            ),
         )
 
     def perform_create(self, serializer):
@@ -441,7 +456,8 @@ class PurchaseViewSet(PurchasesFeature, TenantViewSet, mixins.ListModelMixin, mi
     serializer_class = PurchaseSerializer
 
     def get_queryset(self):
-        qs = super().get_queryset().select_related("supplier", "created_by").prefetch_related("items")
+        items = PurchaseItem.objects.annotate(returned=Coalesce(Sum("returns__quantity"), 0))
+        qs = super().get_queryset().select_related("supplier", "created_by").prefetch_related(Prefetch("items", queryset=items))
         return self.scope_to_locations(qs, "location_id")
 
     def filter_queryset(self, qs):
@@ -479,9 +495,88 @@ class PurchaseViewSet(PurchasesFeature, TenantViewSet, mixins.ListModelMixin, mi
         body = PurchaseCreateSerializer(data=request.data, context={"request": request})
         body.is_valid(raise_exception=True)
         self.check_location(body.validated_data["location"])
-        purchase = services.record_purchase(request.user, **body.validated_data)
+        user = request.user
+        if any(i.get("new_product") for i in body.validated_data["items"]):
+            if user.role == User.Role.MANAGER and not user.business.permission_on("managerProducts"):
+                raise PermissionDenied("You can't add new products. Ask the owner to add them first.")
+        purchase = services.record_purchase(user, **body.validated_data)
         purchase = self.get_queryset().get(pk=purchase.pk)
         return Response(self.get_serializer(purchase).data, status=status.HTTP_201_CREATED)
+
+
+class SupplierReturnViewSet(PurchasesFeature, TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin):
+    """Stock sent back to suppliers, newest first. Managers see their own locations only.
+    List filters: ?status=open|settled|closed, ?supplier=, ?purchase=, ?search= (SR-000003, product, supplier)."""
+
+    model = SupplierReturn
+    serializer_class = SupplierReturnSerializer
+
+    @staticmethod
+    def owed_expression():
+        """What the supplier still owes on a return, in the database."""
+        money = DecimalField(max_digits=16, decimal_places=2)
+        return ExpressionWrapper(F("unit_cost") * (F("quantity") - F("replaced_quantity")) - F("refunded_amount"), output_field=money)
+
+    def get_queryset(self):
+        qs = super().get_queryset().select_related("supplier", "purchase", "created_by")
+        return self.scope_to_locations(qs, "location_id")
+
+    def filter_queryset(self, qs):
+        params = self.request.query_params
+        qs = self.filter_by_ids(qs, supplier="supplier_id", purchase="purchase_id", location="location_id")
+        if params.get("status"):
+            if params["status"] not in SupplierReturn.Status.values:
+                raise ValidationError({"status": "Unknown status."})
+            qs = qs.filter(status=params["status"])
+        term = params.get("search", "").strip()
+        if term:
+            number = re.sub(r"^sr\s*-?\s*", "", term, flags=re.IGNORECASE)
+            query = Q(product_name__icontains=term) | Q(supplier__name__icontains=term) | Q(reason__icontains=term)
+            if number.isdigit():
+                query |= Q(number=int(number))
+            qs = qs.filter(query)
+        return qs
+
+    @action(detail=False)
+    def summary(self, request):
+        """Returns still waiting on the supplier, and what they're owed back in total."""
+        waiting = self.get_queryset().filter(status=SupplierReturn.Status.OPEN)
+        owed = waiting.aggregate(v=Sum(self.owed_expression()))["v"] or 0
+        return Response({"open_count": waiting.count(), "owed": float(owed)})
+
+    def create(self, request):
+        body = SupplierReturnCreateSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        data = body.validated_data
+        item = PurchaseItem.objects.filter(pk=data["item_id"], purchase__business=request.user.business).select_related("purchase__location").first()
+        if not item:
+            raise ValidationError({"item_id": "Unknown purchase item."})
+        if item.purchase.location:
+            self.check_location(item.purchase.location)
+        ret = services.return_to_supplier(request.user, item, data["quantity"], data["reason"])
+        return Response(self.get_serializer(ret).data, status=status.HTTP_201_CREATED)
+
+    def settle(self, body_class, do):
+        body = body_class(data=self.request.data)
+        body.is_valid(raise_exception=True)
+        return Response(self.get_serializer(do(self.request.user, self.get_object(), **body.validated_data)).data)
+
+    @action(detail=True, methods=["post"])
+    def replacement(self, request, pk=None):
+        """The supplier sent new units instead: they go back into stock."""
+        return self.settle(ReplacementSerializer, services.receive_replacement)
+
+    @action(detail=True, methods=["post"])
+    def refund(self, request, pk=None):
+        """The supplier gave money back."""
+        return self.settle(RefundSerializer, services.receive_refund)
+
+    @action(detail=True, methods=["post"])
+    def close(self, request, pk=None):
+        """The supplier won't settle the rest. Owners and admins only, since it writes off money."""
+        if request.user.role != User.Role.OWNER:
+            raise PermissionDenied("Only the owner or an admin can close a return unsettled.")
+        return self.settle(CloseReturnSerializer, services.close_return)
 
 
 class ShipmentViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin):

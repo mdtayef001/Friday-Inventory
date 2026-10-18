@@ -1,7 +1,22 @@
 "use client"
 
 import { request } from "@/lib/api/client"
-import type { Client, Location, PaymentMethod, Product, Purchase, Rental, Sale, Shipment, ShipmentStatus, StockRequest, Supplier, Transfer } from "@/lib/types"
+import type {
+  Client,
+  Location,
+  PaymentMethod,
+  Product,
+  Purchase,
+  RefundMethod,
+  Rental,
+  Sale,
+  Shipment,
+  ShipmentStatus,
+  StockRequest,
+  Supplier,
+  SupplierReturn,
+  Transfer,
+} from "@/lib/types"
 import { getQueryClient } from "./query-client"
 
 // Every change goes to Django first; it does the stock maths, permission checks
@@ -22,8 +37,18 @@ type Collection =
   | "sales"
   | "suppliers"
   | "purchases"
+  | "supplier-returns"
 
 export type ProductInput = Omit<Product, "id" | "createdAt" | "createdBy" | "stock" | "total">
+
+/** A product first bought on a purchase. The rest is filled in later on its page. */
+export interface NewProductInput {
+  name: string
+  unit?: string
+  price?: number
+  barcode?: string
+  category?: string
+}
 
 /** Every change can move the dashboard totals and adds to the activity log. */
 async function refresh(...collections: Collection[]) {
@@ -98,11 +123,14 @@ export const actions = {
   async deleteSupplier(id: string) {
     await call(`suppliers/${id}/`, "DELETE", undefined, "suppliers")
   },
-  /** Stock bought in: it goes into stock at the location, and each product's cost is averaged in. */
+  /**
+   * Stock bought in: it goes into stock at the location, and each product's cost is averaged in.
+   * A line with `newProduct` creates that product with the purchase.
+   */
   recordPurchase(input: {
     supplierId: string | null
     locationId: string
-    items: { productId: string; quantity: number; unitCost: number }[]
+    items: ({ quantity: number; unitCost: number } & ({ productId: string } | { newProduct: NewProductInput }))[]
     reference?: string
     note?: string
     purchasedAt?: string
@@ -110,6 +138,26 @@ export const actions = {
     if (input.items.length === 0) throw new Error("Add at least one product.")
     for (const item of input.items) positiveInt(item.quantity)
     return call<Purchase>("purchases/", "POST", input, ...STOCK, "purchases", "suppliers")
+  },
+
+  /** Sends broken or wrong stock from a purchase back. It leaves stock now. */
+  returnToSupplier(itemId: string, quantity: number, reason: string) {
+    positiveInt(quantity)
+    if (!reason.trim()) throw new Error("Say what's wrong with it, e.g. broken.")
+    return call<SupplierReturn>("supplier-returns/", "POST", { itemId, quantity, reason }, ...STOCK, "purchases", "suppliers", "supplier-returns")
+  },
+  /** The supplier sent new units instead: they go back into stock. */
+  receiveReplacement(id: string, quantity: number) {
+    positiveInt(quantity)
+    return call<SupplierReturn>(`supplier-returns/${id}/replacement/`, "POST", { quantity }, ...STOCK, "suppliers", "supplier-returns")
+  },
+  receiveRefund(id: string, amount: number, method: RefundMethod) {
+    if (!(amount > 0)) throw new Error("Enter the amount the supplier gave back.")
+    return call<SupplierReturn>(`supplier-returns/${id}/refund/`, "POST", { amount, method }, "suppliers", "supplier-returns")
+  },
+  /** Owners and admins: the supplier won't settle the rest. */
+  closeReturn(id: string, note: string) {
+    return call<SupplierReturn>(`supplier-returns/${id}/close/`, "POST", { note }, "suppliers", "supplier-returns")
   },
 
   /** A checkout: one or more items from one shop, one discount on the whole bill, one payment, one receipt. */

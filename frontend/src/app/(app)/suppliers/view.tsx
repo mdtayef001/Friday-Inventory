@@ -99,7 +99,14 @@ export function SuppliersView() {
                           <span className="text-xs text-muted-foreground">None yet</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">{formatMoney(stats?.spent ?? 0)}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatMoney(stats?.spent ?? 0)}
+                        {stats?.owedBack ? (
+                          <Link href="/supplier-returns" className="block text-xs text-amber-700 underline-offset-2 hover:underline dark:text-amber-400">
+                            Owes you {formatMoney(stats.owedBack)}
+                          </Link>
+                        ) : null}
+                      </TableCell>
                       <TableCell className="pr-4">
                         <div className="flex justify-end gap-1">
                           <Button variant="ghost" size="icon-sm" onClick={() => setEditing(s)} aria-label="Edit">

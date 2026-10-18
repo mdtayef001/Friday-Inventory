@@ -6,7 +6,7 @@ from rest_framework.test import APITestCase
 
 from apps.accounts.models import Business, User
 
-from .models import Location, Product, Rental, Shipment, StockLevel, Supplier
+from .models import Location, Product, Purchase, PurchaseItem, Rental, Shipment, StockLevel, Supplier
 
 PASSWORD = "a-long-test-password-1"
 
@@ -991,9 +991,7 @@ class ListingTests(ApiTestCase):
         self.assertEqual(self.client.get("/api/stock-requests/", {"status": "lost"}).status_code, 400)
 
 
-class PurchaseTests(SalesBase):
-    """Stock bought from suppliers: stock goes up, cost is averaged, managers need the owner's switch."""
-
+class PurchaseBase(SalesBase):
     def setUp(self):
         super().setUp()
         self.supplier_id = self.client.post("/api/suppliers/", {"name": "Rahim Traders", "phone": "01711"}, format="json").json()["id"]
@@ -1004,13 +1002,18 @@ class PurchaseTests(SalesBase):
         data = {"supplierId": self.supplier_id, "locationId": self.warehouse.id, "items": [item] if items is None else items, **body}
         return self.client.post("/api/purchases/", data, format="json")
 
+
+class PurchaseTests(PurchaseBase):
+    """Stock bought from suppliers: stock goes up, cost is averaged, managers need the owner's switch."""
+
     def test_purchase_adds_stock_and_averages_the_cost(self):
         # 10 on hand at 300, 10 more at 360: cost 330.
         res = self.buy(reference=" INV-77 ")
         self.assertEqual(res.status_code, 201, res.content)
         p = res.json()
         self.assertEqual((p["code"], p["reference"], p["total"], p["supplier"]["name"]), ("P-000001", "INV-77", 3600, "Rahim Traders"))
-        self.assertEqual(p["items"], [{"productId": str(self.product.id), "productName": "TV", "quantity": 10, "unitCost": 360, "amount": 3600}])
+        item = {k: v for k, v in p["items"][0].items() if k != "id"}
+        self.assertEqual(item, {"productId": str(self.product.id), "productName": "TV", "quantity": 10, "unitCost": 360, "amount": 3600, "returned": 0})
         self.assertEqual(self.qty(self.warehouse), 20)
         self.product.refresh_from_db()
         self.assertEqual(self.product.cost, 330)
@@ -1081,3 +1084,124 @@ class PurchaseTests(SalesBase):
         self.login("staff@a.com")
         self.assertEqual(self.buy(locationId=self.outlet.id).status_code, 403)
         self.assertEqual(self.client.get("/api/suppliers/").status_code, 403)
+
+
+class NewProductOnPurchaseTests(PurchaseBase):
+    """A business with nothing set up yet adds products as it buys them."""
+
+    def test_new_products_are_created_with_the_purchase(self):
+        items = [
+            {"newProduct": {"name": "Rice 5kg", "unit": "bag", "price": "450", "barcode": "4001"}, "quantity": 20, "unitCost": "380"},
+            {"newProduct": {"name": "Lentils", "category": "Grocery"}, "quantity": 5, "unitCost": "120"},
+        ]
+        res = self.buy(items=items)
+        self.assertEqual(res.status_code, 201, res.content)
+        rice = Product.objects.get(business=self.biz, barcode="4001")
+        self.assertEqual((rice.name, rice.unit, rice.price, rice.cost, rice.created_by), ("Rice 5kg", "bag", 450, 380, self.owner))
+        self.assertEqual(StockLevel.objects.get(product=rice, location=self.warehouse).quantity, 20)
+        lentils = Product.objects.get(business=self.biz, name="Lentils")
+        self.assertRegex(lentils.sku, r"^GRO-\d{4}$")
+        self.assertEqual([i["productName"] for i in res.json()["items"]], ["Rice 5kg", "Lentils"])
+
+    def test_a_refused_purchase_creates_no_products(self):
+        items = [
+            {"newProduct": {"name": "Rice 5kg"}, "quantity": 1, "unitCost": "380"},
+            {"productId": self.product.id, "quantity": 1, "unitCost": "380"},
+        ]
+        self.assertEqual(self.buy(items=items, locationId=999999).status_code, 400)
+        taken = [{"newProduct": {"name": "Copy", "barcode": "123"}, "quantity": 1, "unitCost": "1"}]  # the TV's barcode
+        self.assertEqual(self.buy(items=taken).status_code, 400)
+        twice = [{"newProduct": {"name": n, "barcode": "777"}, "quantity": 1, "unitCost": "1"} for n in ("One", "Two")]
+        self.assertEqual(self.buy(items=twice).status_code, 400)
+        both = [{"productId": self.product.id, "newProduct": {"name": "X"}, "quantity": 1, "unitCost": "1"}]
+        self.assertEqual(self.buy(items=both).status_code, 400)
+        self.assertEqual(Product.objects.filter(business=self.biz).count(), 1)
+
+    def test_managers_also_need_the_products_switch(self):
+        manager = self.make_user("manager@a.com", User.Role.MANAGER, self.biz)
+        manager.locations.set([self.outlet])
+        self.biz.settings["permissions"].update(managerPurchases=True, managerProducts=False)
+        self.biz.save()
+        self.client.credentials()
+        self.login("manager@a.com")
+        new = [{"newProduct": {"name": "Rice"}, "quantity": 1, "unitCost": "1"}]
+        self.assertEqual(self.buy(items=new, locationId=self.outlet.id).status_code, 403)
+        self.assertEqual(self.buy(locationId=self.outlet.id).status_code, 201)
+
+
+class SupplierReturnTests(PurchaseBase):
+    """Broken stock goes back: it leaves stock at once, and the supplier replaces it or refunds."""
+
+    def setUp(self):
+        super().setUp()
+        self.purchase = self.buy().json()  # 10 TVs at 360, warehouse now has 20
+        self.item_id = self.purchase["items"][0]["id"]
+
+    def send_back(self, quantity=5, reason="Broken screen"):
+        return self.client.post("/api/supplier-returns/", {"itemId": self.item_id, "quantity": quantity, "reason": reason}, format="json")
+
+    def test_return_takes_stock_out_and_shows_what_is_owed(self):
+        res = self.send_back()
+        self.assertEqual(res.status_code, 201, res.content)
+        r = res.json()
+        self.assertEqual((r["code"], r["purchaseCode"], r["supplier"]["name"], r["status"]), ("SR-000001", "P-000001", "Rahim Traders", "open"))
+        self.assertEqual((r["value"], r["outstanding"], r["unitsToReplace"]), (1800, 1800, 5))
+        self.assertEqual(self.qty(self.warehouse), 15)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.cost, 330)  # cost left alone
+        self.assertEqual(self.client.get("/api/purchases/").json()[0]["items"][0]["returned"], 5)
+        self.assertEqual(self.client.get("/api/supplier-returns/summary/").json(), {"openCount": 1, "owed": 1800.0})
+        self.assertEqual(self.client.get("/api/suppliers/", {"stats": "1"}).json()[0]["stats"]["owedBack"], 1800.0)
+
+    def test_cannot_return_more_than_was_bought_or_without_a_reason(self):
+        self.assertEqual(self.send_back(reason=" ").status_code, 400)
+        self.assertEqual(self.send_back(quantity=11).status_code, 400)
+        self.send_back(quantity=8)
+        self.assertEqual(self.send_back(quantity=3).status_code, 400)  # only 2 left on that purchase
+        self.assertEqual(self.send_back(quantity=2).status_code, 201)
+        self.assertEqual(self.qty(self.warehouse), 10)
+
+    def test_replacement_and_refund_settle_it(self):
+        ret = self.send_back().json()
+        url = f"/api/supplier-returns/{ret['id']}"
+        r = self.client.post(f"{url}/replacement/", {"quantity": 3}, format="json").json()
+        self.assertEqual((r["replacedQuantity"], r["outstanding"], r["status"]), (3, 720, "open"))
+        self.assertEqual(self.qty(self.warehouse), 18)
+        self.assertEqual(self.client.post(f"{url}/refund/", {"amount": "800", "method": "cash"}, format="json").status_code, 400)  # owes 720
+        self.assertEqual(self.client.post(f"{url}/replacement/", {"quantity": 3}, format="json").status_code, 400)  # owes 2
+        r = self.client.post(f"{url}/refund/", {"amount": "720", "method": "mobile"}, format="json").json()
+        self.assertEqual((r["refundedAmount"], r["refundMethod"], r["outstanding"], r["status"]), (720, "mobile", 0, "settled"))
+        self.assertIsNotNone(r["finishedAt"])
+        self.assertEqual(self.client.post(f"{url}/refund/", {"amount": "1", "method": "cash"}, format="json").status_code, 400)
+        self.assertEqual(self.client.get("/api/supplier-returns/", {"status": "open"}).json(), [])
+
+    def test_full_replacement_settles_it(self):
+        ret = self.send_back(quantity=2).json()
+        r = self.client.post(f"/api/supplier-returns/{ret['id']}/replacement/", {"quantity": 2}, format="json").json()
+        self.assertEqual(r["status"], "settled")
+        self.assertEqual(self.qty(self.warehouse), 20)
+
+    def test_only_owners_close_a_return_unsettled(self):
+        ret = self.send_back().json()
+        manager = self.make_user("manager@a.com", User.Role.MANAGER, self.biz)
+        manager.locations.set([self.warehouse])
+        self.biz.settings["permissions"]["managerPurchases"] = True
+        self.biz.save()
+        self.client.credentials()
+        self.login("manager@a.com")
+        self.assertEqual(self.client.post(f"/api/supplier-returns/{ret['id']}/close/", {}, format="json").status_code, 403)
+        self.client.credentials()
+        self.login("owner@a.com")
+        r = self.client.post(f"/api/supplier-returns/{ret['id']}/close/", {"note": "Supplier refused"}, format="json").json()
+        self.assertEqual((r["status"], r["closedNote"]), ("closed", "Supplier refused"))
+        self.assertEqual(self.client.get("/api/supplier-returns/summary/").json()["openCount"], 0)
+
+    def test_search_and_other_business_items(self):
+        self.send_back()
+        for term in ("SR-000001", "sr1", "broken", "TV", "rahim"):
+            self.assertEqual(len(self.client.get("/api/supplier-returns/", {"search": term}).json()), 1, term)
+        other = Product.objects.create(business=self.other_biz, sku="X", name="X")
+        theirs = Purchase.objects.create(business=self.other_biz, number=1)
+        item = PurchaseItem.objects.create(purchase=theirs, product=other, product_name="X", quantity=5, unit_cost=1)
+        res = self.client.post("/api/supplier-returns/", {"itemId": item.id, "quantity": 1, "reason": "x"}, format="json")
+        self.assertEqual(res.status_code, 400)
