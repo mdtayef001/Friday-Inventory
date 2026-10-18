@@ -89,17 +89,7 @@ export const actions = {
     for (const item of input.items) positiveInt(item.quantity)
     return call<Sale>("sales/", "POST", input, ...STOCK, "sales", "clients")
   },
-  /** The current state of an online payment, for the waiting screen. */
-  async checkSale(id: string) {
-    const sale = await request<Sale>(`sales/${id}/`)
-    // Paid, or failed or expired and the stock went back.
-    if (sale.paymentStatus !== "pending") await refresh(...STOCK, "sales", "clients")
-    return sale
-  },
-  async cancelOnlinePayment(id: string) {
-    await call(`sales/${id}/cancel-payment/`, "POST", {}, ...STOCK, "sales")
-  },
-  /** Owners and admins: the stock goes back, and online payments are refunded through SSLCommerz. Also approves a request. */
+  /** Owners and admins: the stock goes back. Also approves a request. */
   returnSale(id: string, reason: string) {
     return call<Sale>(`sales/${id}/return/`, "POST", { reason }, ...STOCK, "sales")
   },

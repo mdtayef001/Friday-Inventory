@@ -72,7 +72,7 @@ class BusinessSerializer(serializers.ModelSerializer):
                 "currency": value["currency"],
                 "modules": {k: modules[k] for k in MODULES},
                 "permissions": {k: permissions[k] for k in PERMISSIONS},
-                "payments": {k: payments[k] for k in ("mobile", "card", "online")},
+                "payments": {k: payments[k] for k in ("mobile", "card")},
             }
         except (KeyError, TypeError, AttributeError):
             raise serializers.ValidationError("Settings are incomplete.")
@@ -82,8 +82,6 @@ class BusinessSerializer(serializers.ModelSerializer):
         flags = [*clean["modules"].values(), *clean["permissions"].values(), *clean["payments"].values()]
         if not all(isinstance(f, bool) for f in flags):
             raise serializers.ValidationError("Feature switches must be on or off.")
-        if clean["payments"]["online"] and not (self.instance and hasattr(self.instance, "merchant")):
-            raise serializers.ValidationError("Save your SSLCommerz Store ID and password first, then turn on online payments.")
         return clean
 
 
@@ -239,15 +237,3 @@ class BusinessWithOwnerSerializer(serializers.Serializer):
 
     def to_representation(self, business):
         return BusinessSummarySerializer(business).data
-
-
-class MerchantAccountSerializer(serializers.Serializer):
-    """The owner's own SSLCommerz account. The password is write-only and never returned."""
-
-    store_id = serializers.CharField(max_length=100)
-    store_password = serializers.CharField(max_length=200, required=False, allow_blank=True, write_only=True)
-    sandbox = serializers.BooleanField(default=True)
-    has_password = serializers.SerializerMethodField()
-
-    def get_has_password(self, merchant):
-        return bool(getattr(merchant, "store_password", ""))

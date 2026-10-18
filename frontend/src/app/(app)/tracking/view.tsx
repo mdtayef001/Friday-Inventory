@@ -226,7 +226,7 @@ function ShipmentDetail({ shipment: s }: { shipment: Shipment }) {
                     "How did the client pay?"
                   )}
                 </p>
-                <PaymentPicker value={method} onChange={setMethod} allowOnline={false} />
+                <PaymentPicker value={method} onChange={setMethod} />
               </div>
             )}
             <div className="flex flex-wrap gap-2">

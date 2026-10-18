@@ -34,7 +34,7 @@ and a Supabase project in Singapore (`ap-southeast-1`).
 
 - **backend** (Root Directory `backend`): Vercel finds Django from `manage.py` and runs `collectstatic`.
   Environment: `DATABASE_URL` (Supabase *Transaction pooler*, port 6543, `?sslmode=require`),
-  `DJANGO_SECRET_KEY`, `JWT_SIGNING_KEY`, `FIELD_ENCRYPTION_KEY`, `DJANGO_ALLOWED_HOSTS` (the backend's
+  `DJANGO_SECRET_KEY`, `JWT_SIGNING_KEY`, `DJANGO_ALLOWED_HOSTS` (the backend's
   domain), `CORS_ALLOWED_ORIGINS` and `FRONTEND_URL` (the frontend's address), `CRON_SECRET`,
   and the `SSLCOMMERZ_*` keys. Leave `DJANGO_DEBUG` unset.
 - **frontend** (Root Directory `frontend`): `API_URL` (`https://<backend domain>/api`) and the same
@@ -90,9 +90,6 @@ out, or that is suspended, gets 403 on every tenant endpoint.
 | `GET sales/summary/` (filters: `from`, `to`, `location`, `product`, `seller`, `channel`; includes the chart series and top products) | owner, manager |
 | `GET sales/export/` (same filters) | owner, manager; CSV, profit columns only for those allowed to see profit |
 | `sales/` (`POST` to sell) | everyone sells at their own shops; owners and managers list; cost and profit for owners only |
-| `GET/PUT/DELETE business/merchant/` | owner; the business's own SSLCommerz account (password write-only, encrypted) |
-| `POST sales/{id}/cancel-payment/` · `GET sales/{id}/` | the seller / leads; cancel or watch an online payment |
-| `POST sale-payments/{result}/` | public; the frontend forwards SSLCommerz's callbacks for counter sales, Django validates them |
 | `stock-requests/` + `POST {id}/approve/` · `{id}/decline/` · `{id}/cancel/` | managers ask; owner or a manager of the sending location decides |
 | `GET track/{token}/` | public; a client's order status, nothing internal |
 | `POST billing/sslcommerz/{result}/` | public; the frontend forwards SSLCommerz's callbacks, Django validates them |

@@ -400,7 +400,7 @@ class SalesInsightTests(SalesBase):
         body = res.content.decode("utf-8")
         self.assertTrue(body.startswith("﻿"))
         lines = body.lstrip("﻿").splitlines()
-        self.assertEqual(lines[0], "Date,Type,Product,Quantity,Unit price,Discount,Total,Unit cost,Cost,Profit,Payment,Payment status,Shop,Client,Sold by,Refunded")
+        self.assertEqual(lines[0], "Date,Type,Product,Quantity,Unit price,Discount,Total,Unit cost,Cost,Profit,Payment,Shop,Client,Sold by,Refunded")
         self.assertIn("'=HYPERLINK(evil)", lines[1])
         self.assertIn(",1000.00,", lines[1])
 
@@ -626,26 +626,12 @@ class PaymentsBase(SalesBase):
         current["payments"] = {**current["payments"], **payments}
         return self.client.patch("/api/business/", {"settings": current}, format="json")
 
-    def save_merchant(self):
-        return self.client.put("/api/business/merchant/", {"storeId": "shop123", "storePassword": "s3cret", "sandbox": True}, format="json")
-
-    def online_sale(self):
-        from unittest import mock
-
-        self.save_merchant()
-        self.settings_with(online=True)
-        with mock.patch("apps.billing.sslcommerz.open_session", return_value=("https://sandbox.sslcommerz.com/pay/x", None)) as opened:
-            res = self.sell(quantity=2, unitPrice="500", paymentMethod="online")
-        self.assertEqual(res.status_code, 201, res.content)
-        self.assertEqual(opened.call_args.kwargs["amount"], 1000)
-        return res.json()
 
 
 class PaymentMethodTests(PaymentsBase):
     def test_cash_only_by_default(self):
         self.assertEqual(self.sell(paymentMethod="card").status_code, 400)
-        res = self.sell()
-        self.assertEqual((res.json()["paymentMethod"], res.json()["paymentStatus"]), ("cash", "paid"))
+        self.assertEqual(self.sell().json()["paymentMethod"], "cash")
 
     def test_owner_turns_on_mobile_and_card(self):
         self.assertEqual(self.settings_with(mobile=True, card=True).status_code, 200)
@@ -657,63 +643,13 @@ class PaymentMethodTests(PaymentsBase):
         self.assertEqual(self.sell(quantity=1, paymentMethod="card").status_code, 201)
         methods = self.client.get("/api/sales/summary/").json()["methods"]
         self.assertEqual((methods["mobile"]["count"], methods["card"]["count"], methods["cash"]["count"]), (1, 1, 0))
+        self.assertNotIn("online", methods)
 
-    def test_merchant_password_is_encrypted_and_never_returned(self):
-        self.assertEqual(self.settings_with(online=True).status_code, 400)  # account first
-        res = self.save_merchant()
-        self.assertEqual(res.json(), {"configured": True, "storeId": "shop123", "sandbox": True, "hasPassword": True})
-        from apps.accounts.models import MerchantAccount
-
-        stored = MerchantAccount.objects.get(business=self.biz)
-        self.assertNotIn("s3cret", stored.store_password)
-        self.assertEqual(stored.password, "s3cret")
+    def test_online_payment_is_not_offered(self):
+        # Old clients may still send the switch: it's ignored, and the method is refused.
         self.assertEqual(self.settings_with(online=True).status_code, 200)
-        self.client.credentials()
-        self.login("staff@a.com")
-        self.assertEqual(self.client.get("/api/business/merchant/").status_code, 403)
-
-    def test_online_sale_holds_stock_until_paid(self):
-        from unittest import mock
-
-        sale = self.online_sale()
-        self.assertEqual((sale["paymentStatus"], sale["paymentUrl"]), ("pending", "https://sandbox.sslcommerz.com/pay/x"))
-        self.assertEqual(self.qty(self.warehouse), 8)  # held
-        s = self.client.get("/api/sales/summary/").json()
-        self.assertEqual((s["revenue"], s["waitingCount"]), (0, 1))
-        from .models import Sale
-
-        tran = Sale.objects.get(pk=sale["id"]).tran_id
-        # A forged callback: SSLCommerz says it isn't valid.
-        with mock.patch("apps.billing.sslcommerz.check", return_value=(False, "", "")):
-            self.client.credentials()
-            self.client.post("/api/sale-payments/success/", {"tranId": tran, "valId": "FAKE"}, format="json")
-        self.login("owner@a.com")
-        self.assertEqual(self.client.get(f"/api/sales/{sale['id']}/").json()["paymentStatus"], "pending")
-        with mock.patch("apps.billing.sslcommerz.check", return_value=(True, "BKASH-BKash", "BANK1")):
-            res = self.client.post("/api/sale-payments/success/", {"tranId": tran, "valId": "VAL1"}, format="json")
-        self.assertEqual(res.json()["status"], "success")
-        paid = self.client.get(f"/api/sales/{sale['id']}/").json()
-        self.assertEqual((paid["paymentStatus"], paid["gatewayMethod"]), ("paid", "BKASH-BKash"))
-        self.assertEqual(self.client.get("/api/sales/summary/").json()["methods"]["online"]["revenue"], 1000)
-
-    def test_failed_or_cancelled_online_payment_gives_stock_back(self):
-        sale = self.online_sale()
-        from .models import Sale
-
-        tran = Sale.objects.get(pk=sale["id"]).tran_id
-        self.client.post("/api/sale-payments/fail/", {"tranId": tran}, format="json")
-        self.assertEqual(self.qty(self.warehouse), 10)
-        self.assertEqual(self.client.get(f"/api/sales/{sale['id']}/").json()["paymentStatus"], "failed")
-        other = self.online_sale()
-        self.client.post(f"/api/sales/{other['id']}/cancel-payment/")
-        self.assertEqual(self.qty(self.warehouse), 10)
-
-    def test_unfinished_online_payment_expires_after_30_minutes(self):
-        sale = self.online_sale()
-        from .models import Sale
-
-        Sale.objects.filter(pk=sale["id"]).update(sold_at=timezone.now() - timedelta(minutes=31))
-        self.assertEqual(self.client.get(f"/api/sales/{sale['id']}/").json()["paymentStatus"], "cancelled")
+        self.assertNotIn("online", self.client.get("/api/business/").json()["settings"]["payments"])
+        self.assertEqual(self.sell(paymentMethod="online").status_code, 400)
         self.assertEqual(self.qty(self.warehouse), 10)
 
     def test_rental_return_records_how_it_was_paid(self):
@@ -747,20 +683,6 @@ class ReceiptTests(PaymentsBase):
         from .services import number_receipt
 
         self.assertEqual(number_receipt(sale).receipt_code, "R-000001")
-
-    def test_online_sale_gets_a_number_only_once_paid(self):
-        from unittest import mock
-
-        from .models import Sale
-
-        sale = self.online_sale()
-        self.assertEqual((sale["receiptNo"], sale["receiptToken"]), (None, None))
-        self.assertEqual(self.client.get(f"/api/sales/{sale['id']}/receipt/").status_code, 404)
-        self.assertEqual(self.sell(quantity=1).json()["receiptNo"], "R-000001")  # no gap left for the waiting one
-        tran = Sale.objects.get(pk=sale["id"]).tran_id
-        with mock.patch("apps.billing.sslcommerz.check", return_value=(True, "BKASH-BKash", "BANK1")):
-            self.client.post("/api/sale-payments/success/", {"tranId": tran, "valId": "VAL1"}, format="json")
-        self.assertEqual(self.client.get(f"/api/sales/{sale['id']}/").json()["receiptNo"], "R-000002")
 
     def test_team_receipt_has_the_bill_and_who_served(self):
         sale = self.sell(discount="60", clientId=self.client_id).json()
@@ -809,7 +731,7 @@ class ReceiptTests(PaymentsBase):
         self.client.post(f"/api/shipments/{first['id']}/status/", {"status": "delivered"}, format="json")
         self.assertEqual(self.client.get("/api/sales/").json()[0]["paymentMethod"], "cash")
         second = self.order()
-        # Card isn't turned on, and online can't be taken on the doorstep.
+        # Card isn't turned on, and there's no online payment.
         for method in ("card", "online"):
             res = self.client.post(f"/api/shipments/{second['id']}/status/", {"status": "delivered", "paymentMethod": method}, format="json")
             self.assertEqual(res.status_code, 400)
@@ -876,38 +798,6 @@ class CheckoutTests(PaymentsBase):
         self.assertEqual((self.qty(self.warehouse), self.radio_qty()), (10, 5))
         self.assertEqual(self.client.get("/api/sales/").json(), [])
 
-    def test_one_online_payment_for_the_whole_cart(self):
-        from unittest import mock
-
-        from .models import Sale
-
-        self.save_merchant()
-        self.settings_with(online=True)
-        with mock.patch("apps.billing.sslcommerz.open_session", return_value=("https://pay/x", None)) as opened:
-            res = self.cart(paymentMethod="online").json()
-        self.assertEqual((opened.call_args.kwargs["amount"], opened.call_args.kwargs["product_name"]), (1300, "2 x TV, 3 x Radio"))
-        tran = Sale.objects.get(pk=res["id"]).tran_id
-        with mock.patch("apps.billing.sslcommerz.check", return_value=(True, "BKASH-BKash", "BANK1")) as check:
-            self.client.post("/api/sale-payments/success/", {"tranId": tran, "valId": "VAL1"}, format="json")
-        self.assertEqual(check.call_args.kwargs["amount"], 1300)
-        self.assertEqual({(s.payment_status, s.receipt_no) for s in Sale.objects.all()}, {("paid", 1)})
-        # Returning one item refunds just that item.
-        with mock.patch("apps.billing.sslcommerz.refund", return_value=("REF1", None)) as refund:
-            self.client.post(f"/api/sales/{res['sales'][1]['id']}/return/", {"reason": "Broken"}, format="json")
-        self.assertEqual(refund.call_args.kwargs["amount"], 300)
-        r = self.client.get(f"/api/sales/{res['id']}/receipt/").json()
-        self.assertEqual(([i["returned"] for i in r["items"]], r["refunded"], r["refundedAt"]), ([False, True], 300, None))
-
-    def test_cancelling_an_online_cart_puts_every_item_back(self):
-        from unittest import mock
-
-        self.save_merchant()
-        self.settings_with(online=True)
-        with mock.patch("apps.billing.sslcommerz.open_session", return_value=("https://pay/x", None)):
-            res = self.cart(paymentMethod="online").json()
-        self.assertEqual((self.qty(self.warehouse), self.radio_qty()), (8, 2))
-        self.client.post(f"/api/sales/{res['id']}/cancel-payment/")
-        self.assertEqual((self.qty(self.warehouse), self.radio_qty()), (10, 5))
 
 
 class ReturnTests(PaymentsBase):
@@ -923,7 +813,7 @@ class ReturnTests(PaymentsBase):
         res = self.client.post(f"/api/sales/{sale['id']}/return/", {"reason": "Wrong size"}, format="json")
         self.assertEqual(res.status_code, 200, res.content)
         body = res.json()
-        self.assertEqual((body["refundReason"], body["refundedBy"], body["refundStatus"]), ("Wrong size", "owner@a.com", ""))
+        self.assertEqual((body["refundReason"], body["refundedBy"]), ("Wrong size", "owner@a.com"))
         self.assertIsNotNone(body["refundedAt"])
         self.assertEqual(self.qty(self.warehouse), 10)
         self.assertEqual(self.client.get("/api/sales/summary/").json()["revenue"], 0)
@@ -958,40 +848,8 @@ class ReturnTests(PaymentsBase):
         self.staff.locations.set([self.warehouse])
         self.as_user("staff@a.com")
         sale = self.sell().json()
-        for path in ("return", "request-return", "decline-return", "check-payment"):
-            method = self.client.get if path == "check-payment" else self.client.post
-            self.assertEqual(method(f"/api/sales/{sale['id']}/{path}/", {"reason": "x"}, format="json").status_code, 403, path)
-
-    def paid_online_sale(self):
-        from unittest import mock
-        from .models import Sale
-
-        sale = self.online_sale()
-        tran = Sale.objects.get(pk=sale["id"]).tran_id
-        with mock.patch("apps.billing.sslcommerz.check", return_value=(True, "VISA-Dutch Bangla", "BANK1")):
-            self.client.post("/api/sale-payments/success/", {"tranId": tran, "valId": "VAL1"}, format="json")
-        return sale
-
-    def test_online_sale_refunds_through_sslcommerz(self):
-        from unittest import mock
-
-        sale = self.paid_online_sale()
-        with mock.patch("apps.billing.sslcommerz.refund", return_value=(None, "Invalid Request")):
-            res = self.client.post(f"/api/sales/{sale['id']}/return/", {"reason": "Faulty"}, format="json")
-        self.assertEqual(res.status_code, 400)
-        self.assertEqual(self.qty(self.warehouse), 8)  # refused: nothing changed
-        with mock.patch("apps.billing.sslcommerz.refund", return_value=("REF42", None)) as refund:
-            body = self.client.post(f"/api/sales/{sale['id']}/return/", {"reason": "Faulty"}, format="json").json()
-        self.assertEqual(refund.call_args.kwargs["bank_tran_id"], "BANK1")
-        self.assertEqual(refund.call_args.kwargs["amount"], 1000)
-        self.assertEqual(body["refundStatus"], "processing")
-        self.assertEqual(self.qty(self.warehouse), 10)
-
-        record = {"status": "VALID", "amount": "1000.00", "card_type": "VISA-Dutch Bangla", "bank_tran_id": "BANK1", "risk_title": "Safe"}
-        with mock.patch("apps.billing.sslcommerz.lookup", return_value=record), mock.patch("apps.billing.sslcommerz.refund_status", return_value="refunded"):
-            checked = self.client.get(f"/api/sales/{sale['id']}/check-payment/").json()
-        self.assertEqual((checked["payment"]["status"], checked["payment"]["bankTranId"]), ("VALID", "BANK1"))
-        self.assertEqual(checked["sale"]["refundStatus"], "refunded")
+        for path in ("return", "request-return", "decline-return"):
+            self.assertEqual(self.client.post(f"/api/sales/{sale['id']}/{path}/", {"reason": "x"}, format="json").status_code, 403, path)
 
     def test_search_by_receipt_number(self):
         first, second = self.sell().json(), self.sell(quantity=1).json()
@@ -1001,9 +859,6 @@ class ReturnTests(PaymentsBase):
         self.assertEqual(self.client.get("/api/sales/", {"search": "R-9"}).json(), [])
         self.assertEqual(self.client.get("/api/sales/", {"search": "TV"}).json(), [])
 
-    def test_only_online_sales_are_checked(self):
-        sale = self.sell().json()
-        self.assertEqual(self.client.get(f"/api/sales/{sale['id']}/check-payment/").status_code, 400)
 
 
 class ListingTests(ApiTestCase):

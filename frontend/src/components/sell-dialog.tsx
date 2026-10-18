@@ -1,11 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import Link from "next/link"
 import { useQueries } from "@tanstack/react-query"
-import { CheckCircle2, Loader2, Printer, ShoppingCart, X, XCircle } from "lucide-react"
-import { QRCodeSVG } from "qrcode.react"
-import { toast } from "sonner"
+import { CheckCircle2, Loader2, Printer, ShoppingCart, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -65,8 +63,7 @@ export function SellDialog({
  * A walk-in checkout: one or more items from one shop, one discount on the whole
  * bill, one payment and one receipt. Takes the stock and records the money at the
  * prices agreed now; each price starts at the product's selling price and can be
- * changed. Online payments show a QR code and wait for SSLCommerz to confirm.
- * Once paid, it shows the receipt to print or send to the buyer.
+ * changed. Once sold, it shows the receipt to print or send to the buyer.
  *
  * The lines are owned by the caller (the cart keeps them while you browse).
  */
@@ -98,7 +95,6 @@ export function CheckoutDialog({
   const [method, setMethod] = useState<PaymentMethod>("cash")
   const [received, setReceived] = useState(false)
   const [reference, setReference] = useState("")
-  const [online, setOnline] = useState<Sale | null>(null)
   const [sold, setSold] = useState<Sale | null>(null)
   // Called on the way out, not straight after the sale: the scan page unmounts this dialog in onSold.
   const finish = () => {
@@ -107,7 +103,6 @@ export function CheckoutDialog({
   }
 
   if (sold) return <Sold sale={sold} client={client} onDone={finish} />
-  if (online) return <OnlinePayment sale={online} client={client} onClose={onClose} onPaid={finish} />
 
   const update = (i: number, patch: Partial<CheckoutLine>) => onLinesChange(lines.map((l, j) => (j === i ? { ...l, ...patch } : l)))
   const remove = (i: number) => onLinesChange(lines.filter((_, j) => j !== i))
@@ -130,8 +125,7 @@ export function CheckoutDialog({
     off >= 0 &&
     total >= 0 &&
     (!needsConfirm || received) &&
-    (method !== "mobile" || reference.trim() !== "") &&
-    (method !== "online" || total > 0)
+    (method !== "mobile" || reference.trim() !== "")
   // Staff don't see the client list, so they sell without one.
   const canPickClient = user.role !== "staff"
   const single = lines.length === 1
@@ -140,7 +134,7 @@ export function CheckoutDialog({
     e.preventDefault()
     if (!valid) return
     let sale: Sale | undefined
-    // No toast: the Sold screen (or the online payment screen) says it went through.
+    // No toast: the Sold screen says it went through.
     const ok = await run(async () => {
       sale = await actions.sell({
         locationId,
@@ -151,9 +145,7 @@ export function CheckoutDialog({
         paymentReference: method === "mobile" ? reference.trim() : undefined,
       })
     })
-    if (!ok || !sale) return
-    if (sale.paymentStatus === "pending") return setOnline(sale)
-    setSold(sale)
+    if (ok && sale) setSold(sale)
   }
 
   return (
@@ -230,7 +222,6 @@ export function CheckoutDialog({
               The card payment went through
             </label>
           )}
-          {method === "online" && <p className="text-xs text-muted-foreground">Next, the customer scans a QR code and pays on their phone. The stock is held until it&apos;s paid.</p>}
           {off > subtotal && <p className="text-sm text-destructive">The discount can&apos;t be more than the total.</p>}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
@@ -238,7 +229,7 @@ export function CheckoutDialog({
             </Button>
             <Button type="submit" disabled={!valid || pending}>
               {pending ? <Loader2 className="animate-spin" /> : <ShoppingCart />}
-              {method === "online" ? "Get payment QR" : "Sell"} {Number.isFinite(total) && total >= 0 ? `· ${formatMoney(total)}` : ""}
+              Sell {Number.isFinite(total) && total >= 0 ? `· ${formatMoney(total)}` : ""}
             </Button>
           </DialogFooter>
         </form>
@@ -339,7 +330,7 @@ function Sold({ sale, client, onDone }: { sale: Sale; client: ClientBrief | null
   )
 }
 
-/** Print the receipt, or send the buyer its link. Nothing until the sale is paid and numbered. */
+/** Print the receipt, or send the buyer its link. */
 function ReceiptActions({ sale, client }: { sale: Sale; client: ClientBrief | null }) {
   const business = useBusiness()
   if (!sale.receiptNo || !sale.receiptToken) return null
@@ -351,89 +342,5 @@ function ReceiptActions({ sale, client }: { sale: Sale; client: ClientBrief | nu
       </Button>
       <ReceiptShare token={sale.receiptToken} receiptNo={sale.receiptNo} businessName={business.name} client={client} />
     </div>
-  )
-}
-
-/** Shows the SSLCommerz link as a QR code and checks every few seconds until it's paid, failed or cancelled. */
-function OnlinePayment({ sale: initial, client, onClose, onPaid }: { sale: Sale; client: ClientBrief | null; onClose: () => void; onPaid: () => void }) {
-  const { checkSale, cancelOnlinePayment } = actions
-  const [sale, setSale] = useState(initial)
-  const [cancelling, setCancelling] = useState(false)
-  const url = initial.paymentUrl ?? ""
-  const status = sale.paymentStatus
-
-  useEffect(() => {
-    if (status !== "pending") return
-    const timer = setInterval(() => {
-      checkSale(sale.id).then(setSale, () => undefined)
-    }, 3000)
-    return () => clearInterval(timer)
-  }, [status, sale.id, checkSale])
-
-  // The first item comes back on each check; the whole bill is what the checkout returned.
-  const bill = billSummary(initial)
-  useEffect(() => {
-    if (status === "paid") toast.success(`Paid online: ${bill}`)
-  }, [status, bill])
-
-  async function cancel() {
-    setCancelling(true)
-    try {
-      await cancelOnlinePayment(sale.id)
-      toast("Online payment cancelled. The stock is back.")
-      onClose()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't cancel.")
-      setCancelling(false)
-    }
-  }
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && status !== "pending" && onClose()}>
-      <DialogContent className={status === "paid" ? "max-h-[92svh] overflow-y-auto sm:max-w-md" : "sm:max-w-sm"}>
-        <DialogHeader>
-          <DialogTitle>{status === "paid" ? "Paid" : status === "pending" ? "Scan to pay" : "Not paid"}</DialogTitle>
-          <DialogDescription>{bill}</DialogDescription>
-        </DialogHeader>
-        {status === "pending" ? (
-          <div className="grid justify-items-center gap-3 text-center">
-            <div className="rounded-xl bg-white p-3 ring-1 ring-border">
-              <QRCodeSVG value={url} size={200} />
-            </div>
-            <p className="text-sm text-muted-foreground">The customer scans this with their phone camera and pays with bKash, Nagad or a card.</p>
-            <a href={url} target="_blank" rel="noopener noreferrer" className="text-xs underline underline-offset-2">
-              Or open the payment page here
-            </a>
-            <p className="flex items-center gap-2 text-sm font-medium">
-              <Loader2 className="size-4 animate-spin" />
-              Waiting for payment…
-            </p>
-          </div>
-        ) : status === "paid" ? (
-          <>
-            <div className="grid justify-items-center gap-2 py-4 text-center">
-              <CheckCircle2 className="size-10 text-emerald-500" />
-              <p className="text-sm">Confirmed by SSLCommerz{sale.gatewayMethod ? ` · ${sale.gatewayMethod}` : ""}.</p>
-            </div>
-            <ReceiptActions sale={sale} client={client} />
-          </>
-        ) : (
-          <div className="grid justify-items-center gap-2 py-4 text-center">
-            <XCircle className="size-10 text-destructive" />
-            <p className="text-sm">The payment {status === "failed" ? "failed" : "was cancelled"}. The stock is back on the shelf.</p>
-          </div>
-        )}
-        <DialogFooter>
-          {status === "pending" ? (
-            <Button variant="outline" onClick={cancel} disabled={cancelling}>
-              {cancelling && <Loader2 className="animate-spin" />}
-              Cancel payment
-            </Button>
-          ) : (
-            <Button onClick={status === "paid" ? onPaid : onClose}>Done</Button>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   )
 }

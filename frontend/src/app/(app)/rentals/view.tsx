@@ -525,7 +525,7 @@ function ReturnRentalDialog({ rental: r, onClose }: { rental: Rental; onClose: (
               <span className="tabular-nums">{formatMoney(Math.abs(due))}</span>
             </div>
           </div>
-          {due > 0 && <PaymentPicker value={method} onChange={setMethod} allowOnline={false} />}
+          {due > 0 && <PaymentPicker value={method} onChange={setMethod} />}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel

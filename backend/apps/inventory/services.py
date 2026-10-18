@@ -6,10 +6,8 @@ raised as ValidationError with a readable message the frontend shows as a toast.
 """
 
 import secrets
-from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
@@ -255,8 +253,6 @@ def enabled_methods(business):
         methods.add(Sale.Method.MOBILE)
     if payments.get("card"):
         methods.add(Sale.Method.CARD)
-    if payments.get("online") and hasattr(business, "merchant"):
-        methods.add(Sale.Method.ONLINE)
     return methods
 
 
@@ -291,8 +287,7 @@ def sell(user, *, location, items, discount=0, client=None, payment_method=Sale.
     """A walk-in checkout at a shop: one or more items, one discount on the whole bill,
     one payment, one receipt. Each item is still its own sale (so profit per product
     keeps working), grouped under one receipt token and number. Takes the stock and
-    records the money. An online payment waits for SSLCommerz: the stock is held, and
-    the sales only count once paid. Returns the sales in the order rung up."""
+    records the money. Returns the sales in the order rung up."""
     if not items:
         raise ValidationError("Add at least one item.")
     amounts = [item["unit_price"] * item["quantity"] for item in items]
@@ -303,8 +298,7 @@ def sell(user, *, location, items, discount=0, client=None, payment_method=Sale.
     # The same transaction ID twice is an old payment shown again.
     if payment_reference and Sale.objects.filter(business=user.business, payment_reference__iexact=payment_reference).exists():
         raise ValidationError("This transaction ID is already on another sale.")
-    online = payment_method == Sale.Method.ONLINE
-    token, tran_id = tracking_token(), f"FRS{secrets.token_hex(8).upper()}" if online else None
+    token = tracking_token()
     sales = []
     for item, share in zip(items, split_discount(amounts, discount)):
         product = item["product"]
@@ -312,8 +306,6 @@ def sell(user, *, location, items, discount=0, client=None, payment_method=Sale.
         sales.append(Sale.objects.create(
             payment_method=payment_method,
             payment_reference=payment_reference,
-            payment_status=Sale.PaymentStatus.PENDING if online else Sale.PaymentStatus.PAID,
-            tran_id=tran_id,
             receipt_token=token,
             business=user.business,
             channel=Sale.Channel.STORE,
@@ -328,82 +320,16 @@ def sell(user, *, location, items, discount=0, client=None, payment_method=Sale.
             sold_by=user,
         ))
     total = sum(s.revenue for s in sales)
-    if online:
-        log(user, "Online payment started", f"{describe(sales)} at {location.name} for {total:.2f}")
-    else:
-        number_receipt(sales[0])
-        for s in sales[1:]:
-            s.receipt_no = sales[0].receipt_no
-        log(user, "Sold", f"{describe(sales)} at {location.name} for {total:.2f} ({sales[0].get_payment_method_display()})")
+    number_receipt(sales[0])
+    for s in sales[1:]:
+        s.receipt_no = sales[0].receipt_no
+    log(user, "Sold", f"{describe(sales)} at {location.name} for {total:.2f} ({sales[0].get_payment_method_display()})")
     return sales
-
-
-# ---------- Online payments at the counter (the business's own SSLCommerz account) ----------
-
-PENDING_MINUTES = 30
-
-
-def open_online_payment(sale):
-    """Starts the SSLCommerz checkout for a waiting sale and the items sold with it. Returns (url, error)."""
-    from apps.billing import sslcommerz
-
-    account = sslcommerz.merchant_account(sale.business)
-    if not account:
-        return None, "Online payments aren't set up. The owner adds the SSLCommerz account in Business Settings."
-    client = sale.client
-    sales = list(sale.receipt_sales())
-    return sslcommerz.open_session(
-        account,
-        tran_id=sale.tran_id,
-        amount=sum(s.revenue for s in sales),
-        currency=sale.business.settings.get("currency", "BDT"),
-        callback_base=f"{settings.FRONTEND_URL.rstrip('/')}/api/sale-payments/sslcommerz",
-        customer={
-            "name": client.name if client else "",
-            "email": client.email if client else "",
-            "phone": client.phone if client else "",
-            "address": client.address if client else sale.business.name,
-        },
-        product_name=describe(sales).replace("×", "x")[:255],
-        product_category="Retail",
-        value_a=str(sale.business_id),
-    )
-
-
-@transaction.atomic
-def confirm_online_payment(tran_id, val_id):
-    """Called with what SSLCommerz posted back. Only marks the sales paid after
-    SSLCommerz confirms it directly. Safe to call twice (redirect and IPN).
-    Returns the first sale of the checkout."""
-    from apps.billing import sslcommerz
-
-    sales = list(Sale.objects.select_for_update().select_related("business").filter(tran_id=tran_id).order_by("id"))
-    if not sales:
-        return None
-    sale = sales[0]
-    if sale.payment_status != Sale.PaymentStatus.PENDING:
-        return sale
-    account = sslcommerz.merchant_account(sale.business)
-    if not account:
-        return sale
-    ok, method, bank_tran_id = sslcommerz.check(
-        account, val_id, tran_id=tran_id, amount=sum(s.revenue for s in sales), currency=sale.business.settings.get("currency", "BDT")
-    )
-    if ok:
-        Sale.objects.filter(tran_id=tran_id).update(
-            payment_status=Sale.PaymentStatus.PAID, gateway_method=method, val_id=val_id, bank_tran_id=bank_tran_id
-        )
-        sale.refresh_from_db()
-        number_receipt(sale)
-        Activity.objects.create(business=sale.business, user=sale.sold_by, action="Paid online", detail=f"{describe(sales)} · {method}"[:500])
-    return sale
 
 
 def check_returnable(sale):
     if sale.channel != Sale.Channel.STORE:
         raise ValidationError("Only shop sales are returned here. Orders are returned from Orders.")
-    if sale.payment_status != Sale.PaymentStatus.PAID:
-        raise ValidationError("Only paid sales can be returned.")
     if sale.refunded_at:
         raise ValidationError("This sale was already returned.")
 
@@ -443,86 +369,24 @@ def decline_return(user, sale, note=""):
 @transaction.atomic
 def return_sale(user, sale, reason=""):
     """A customer brings back what they bought at the counter: the stock goes back
-    where it was sold from and the sale stops counting. Money paid online goes back
-    through SSLCommerz; any other way, whoever takes the return hands it back.
-    Owners and admins only; approving a manager's request comes here too, keeping
-    the manager's reason unless a new one is given."""
-    from apps.billing import sslcommerz
-
+    where it was sold from, the sale stops counting, and whoever takes the return
+    hands the money back. Owners and admins only; approving a manager's request
+    comes here too, keeping the manager's reason unless a new one is given."""
     sale = Sale.objects.select_for_update().select_related("product", "location", "business").get(pk=sale.pk)
     check_returnable(sale)
     approving = sale.return_request == Sale.ReturnRequest.REQUESTED
     reason = reason.strip() or (sale.refund_reason if approving else "")
     if sale.product and sale.location:
         change_stock(sale.product, sale.location, sale.quantity)
-    if sale.payment_method == Sale.Method.ONLINE:
-        # Last, so nothing above can fail after SSLCommerz has been told to pay out.
-        account = sslcommerz.merchant_account(sale.business)
-        if not account:
-            raise ValidationError("SSLCommerz isn't set up any more, so it can't refund this. Add the account in Business Settings.")
-        if not sale.bank_tran_id:
-            raise ValidationError("SSLCommerz has no bank transaction for this sale, so it can't be refunded online.")
-        ref, error = sslcommerz.refund(
-            account, bank_tran_id=sale.bank_tran_id, amount=sale.revenue, remarks=reason or "Returned", refe_id=f"RF{sale.pk}"
-        )
-        if error:
-            raise ValidationError(f"SSLCommerz: {error}")
-        sale.refund_ref_id = ref
-        sale.refund_status = Sale.RefundStatus.PROCESSING
     sale.refunded_at = timezone.now()
     sale.refunded_by = user
     sale.refund_reason = reason
     # An approved request is just a returned sale; whoever asked stays in return_requested_by.
     sale.return_request = ""
-    sale.save(update_fields=["refunded_at", "refunded_by", "refund_reason", "refund_ref_id", "refund_status", "return_request"])
+    sale.save(update_fields=["refunded_at", "refunded_by", "refund_reason", "return_request"])
     where = f" to {sale.location.name}" if sale.location else ""
     log(user, "Return approved" if approving else "Sale returned", f"{sale.receipt_code or ''} {sale.quantity} × {sale.product_name}{where} · {sale.revenue:.2f} back ({sale.get_payment_method_display() or 'not recorded'}){f' · {reason}' if reason else ''}".strip())
     return sale
-
-
-def check_online_payment(sale):
-    """What SSLCommerz has on record for an online sale, and where its refund is.
-    Brings the sale's refund status up to date on the way."""
-    from apps.billing import sslcommerz
-
-    if sale.payment_method != Sale.Method.ONLINE or not sale.tran_id:
-        raise ValidationError("Only online payments can be checked with SSLCommerz.")
-    account = sslcommerz.merchant_account(sale.business)
-    if not account:
-        raise ValidationError("SSLCommerz isn't set up. Add the account in Business Settings.")
-    record = sslcommerz.lookup(account, sale.tran_id)
-    if record is None:
-        raise ValidationError("Couldn't reach SSLCommerz. Check your connection and try again.")
-    if sale.refund_ref_id:
-        status = sslcommerz.refund_status(account, sale.refund_ref_id)
-        if status and status != sale.refund_status:
-            sale.refund_status = status
-            sale.save(update_fields=["refund_status"])
-    keys = ("status", "amount", "store_amount", "currency", "tran_date", "validated_on", "card_type", "card_no", "card_issuer", "bank_tran_id", "risk_title")
-    return {"payment": {k: record.get(k, "") for k in keys} if record else None, "sale": sale}
-
-
-@transaction.atomic
-def release_online_payment(sale, status=Sale.PaymentStatus.CANCELLED):
-    """The payment failed, was cancelled, or ran out of time: put the stock back
-    for every item paid with it."""
-    rows = Sale.objects.filter(tran_id=sale.tran_id) if sale.tran_id else Sale.objects.filter(pk=sale.pk)
-    sales = list(rows.select_for_update().order_by("id"))
-    for s in sales:
-        if s.payment_status != Sale.PaymentStatus.PENDING:
-            continue
-        if s.product_id and s.location_id:
-            change_stock(s.product, s.location, s.quantity)
-        s.payment_status = status
-        s.save(update_fields=["payment_status"])
-    return next(s for s in sales if s.pk == sale.pk)
-
-
-def expire_online_payments(business):
-    """Online payments nobody finished within 30 minutes give their stock back."""
-    cutoff = timezone.now() - timedelta(minutes=PENDING_MINUTES)
-    for sale in Sale.objects.filter(business=business, payment_status=Sale.PaymentStatus.PENDING, sold_at__lt=cutoff):
-        release_online_payment(sale)
 
 
 def record_order_sale(user, shipment, payment_method=Sale.Method.CASH):

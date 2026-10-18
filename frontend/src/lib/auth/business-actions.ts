@@ -20,7 +20,7 @@ const SettingsSchema = z.object({
       managerLocations: flag,
       staffCreateProducts: flag,
     }),
-    payments: z.object({ mobile: flag, card: flag, online: flag }),
+    payments: z.object({ mobile: flag, card: flag }),
   }),
 })
 
@@ -30,35 +30,4 @@ export async function updateBusinessSettings(input: z.input<typeof SettingsSchem
   const parsed = SettingsSchema.safeParse(input)
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0].message }
   return toResult(() => api("business/", { method: "PATCH", body: parsed.data }))
-}
-
-export interface MerchantAccount {
-  configured: boolean
-  storeId?: string
-  sandbox?: boolean
-  hasPassword?: boolean
-}
-
-/** Owner only: the business's own SSLCommerz account (the password is never returned). */
-export async function getMerchantAccount(): Promise<MerchantAccount> {
-  await requireAccess("/settings")
-  return api<MerchantAccount>("business/merchant/")
-}
-
-const MerchantSchema = z.object({
-  storeId: z.string().trim().min(1, "Enter the Store ID").max(100),
-  storePassword: z.string().max(200),
-  sandbox: z.boolean(),
-})
-
-export async function saveMerchantAccount(input: z.input<typeof MerchantSchema>): Promise<ActionResult> {
-  await requireAccess("/settings")
-  const parsed = MerchantSchema.safeParse(input)
-  if (!parsed.success) return { ok: false, error: parsed.error.issues[0].message }
-  return toResult(() => api("business/merchant/", { method: "PUT", body: parsed.data }))
-}
-
-export async function removeMerchantAccount(): Promise<ActionResult> {
-  await requireAccess("/settings")
-  return toResult(() => api("business/merchant/", { method: "DELETE" }))
 }

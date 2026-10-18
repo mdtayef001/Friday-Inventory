@@ -1,23 +1,23 @@
 "use client"
 
 import Link from "next/link"
-import { Banknote, CreditCard, Globe, Smartphone, type LucideIcon } from "lucide-react"
+import { Banknote, CreditCard, Smartphone, type LucideIcon } from "lucide-react"
 import { useBusiness, usePermissions } from "@/components/session-provider"
 import { PAYMENT_METHODS, enabledMethods } from "@/lib/business"
 import type { PaymentMethod } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-const ICON: Record<PaymentMethod, LucideIcon> = { cash: Banknote, mobile: Smartphone, card: CreditCard, online: Globe }
+const ICON: Record<PaymentMethod, LucideIcon> = { cash: Banknote, mobile: Smartphone, card: CreditCard }
 
 /**
- * The payment methods the owner turned on, as big buttons. `allowOnline` false for rentals.
+ * The payment methods the owner turned on, as big buttons.
  * With only cash on there is nothing to choose, so it just says so, and points
  * whoever can change that to Settings.
  */
-export function PaymentPicker({ value, onChange, allowOnline = true }: { value: PaymentMethod; onChange: (m: PaymentMethod) => void; allowOnline?: boolean }) {
+export function PaymentPicker({ value, onChange }: { value: PaymentMethod; onChange: (m: PaymentMethod) => void }) {
   const business = useBusiness()
   const { canOpen } = usePermissions()
-  const methods = enabledMethods(business.settings).filter((m) => allowOnline || m !== "online")
+  const methods = enabledMethods(business.settings)
   if (methods.length === 1)
     return (
       <div className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
@@ -27,13 +27,13 @@ export function PaymentPicker({ value, onChange, allowOnline = true }: { value: 
         </span>
         {canOpen("/settings") && (
           <Link href="/settings" className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
-            Add bKash, card or online
+            Add bKash or card
           </Link>
         )}
       </div>
     )
   return (
-    <div role="radiogroup" aria-label="Payment" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+    <div role="radiogroup" aria-label="Payment" className="grid grid-cols-3 gap-2">
       {methods.map((m) => {
         const Icon = ICON[m]
         return (

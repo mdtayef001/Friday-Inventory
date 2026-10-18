@@ -1,8 +1,6 @@
 """SSLCommerz payment gateway (https://developer.sslcommerz.com).
 
-Two kinds of account use it:
-- the platform's own account (settings / .env), which collects subscriptions;
-- each business's own account (MerchantAccount), for customers paying at the counter.
+Only the platform's own account (settings / .env) uses it, to collect subscriptions.
 
 Flow: open_session() returns the gateway URL the payer is sent to. After paying,
 SSLCommerz posts the browser back to the frontend, which forwards the fields to
@@ -43,15 +41,6 @@ def platform_account():
     if settings.SSLCOMMERZ_STORE_ID and settings.SSLCOMMERZ_STORE_PASSWORD:
         return Account(settings.SSLCOMMERZ_STORE_ID, settings.SSLCOMMERZ_STORE_PASSWORD, settings.SSLCOMMERZ_SANDBOX)
     return None
-
-
-def merchant_account(business):
-    """The business's own account, or None when it hasn't set one up."""
-    merchant = getattr(business, "merchant", None)
-    if not merchant:
-        return None
-    password = merchant.password
-    return Account(merchant.store_id, password, merchant.sandbox) if password else None
 
 
 def is_test_gateway():
@@ -102,50 +91,8 @@ def open_session(
     log.error("SSLCommerz init failed: %s", data.get("failedreason") or data.get("status"))
     reason = data.get("failedreason") or ""
     if "store" in reason.lower() or "credential" in reason.lower():
-        return None, "SSLCommerz rejected the store ID or password. Check them in Business Settings."
+        return None, "SSLCommerz rejected the store ID or password."
     return None, "The payment gateway couldn't start the payment. Please try again in a moment."
-
-
-def _query(account, **params):
-    """One call to SSLCommerz's merchant API (transaction lookup and refunds share it). None if unreachable."""
-    query = urlencode({**params, "store_id": account.store_id, "store_passwd": account.password, "v": "1", "format": "json"})
-    try:
-        with urlopen(f"{account.host}/validator/api/merchantTransIDvalidationAPI.php?{query}", timeout=20) as res:
-            return json.load(res)
-    except (URLError, ValueError) as err:
-        log.error("SSLCommerz merchant API error: %s", err)
-        return None
-
-
-def lookup(account, tran_id):
-    """What SSLCommerz has on record for our tran_id: the completed attempt if
-    there is one, else the latest. None if unreachable, {} if it has nothing."""
-    data = _query(account, tran_id=tran_id)
-    if data is None:
-        return None
-    attempts = data.get("element") or []
-    if not isinstance(attempts, list) or not attempts:
-        return {}
-    done = [a for a in attempts if a.get("status") in ("VALID", "VALIDATED")]
-    return (done or attempts)[0]
-
-
-def refund(account, *, bank_tran_id, amount, remarks, refe_id):
-    """Asks SSLCommerz to send the money back. Returns (refund_ref_id, None) or (None, error)."""
-    data = _query(account, bank_tran_id=bank_tran_id, refund_amount=f"{amount:.2f}", refund_remarks=remarks[:200], refe_id=refe_id)
-    if data is None:
-        return None, "Couldn't reach SSLCommerz. Check your connection and try again."
-    if data.get("status") in ("success", "processing") and data.get("refund_ref_id"):
-        return data["refund_ref_id"], None
-    log.error("SSLCommerz refund refused: %s", data)
-    return None, data.get("errorReason") or "SSLCommerz didn't accept the refund."
-
-
-def refund_status(account, refund_ref_id):
-    """"refunded", "processing" or "cancelled" for a refund we started, or None if unknown."""
-    data = _query(account, refund_ref_id=refund_ref_id)
-    status = (data or {}).get("status")
-    return status if status in ("refunded", "processing", "cancelled") else None
 
 
 def check(account, val_id, *, tran_id, amount, currency):

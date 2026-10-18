@@ -94,7 +94,7 @@ export function MySalesView() {
                 </TableHeader>
                 <TableBody>
                   {data.sales.map((s) => (
-                    <TableRow key={s.id} className={cn((s.refundedAt || s.paymentStatus !== "paid") && "text-muted-foreground opacity-60")}>
+                    <TableRow key={s.id} className={cn(s.refundedAt && "text-muted-foreground opacity-60")}>
                       <TableCell className="pl-4 text-sm whitespace-nowrap">{formatDateTime(s.soldAt)}</TableCell>
                       <TableCell className="font-medium">
                         <span className="flex items-center gap-2">

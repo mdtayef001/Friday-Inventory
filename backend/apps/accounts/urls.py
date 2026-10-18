@@ -14,7 +14,6 @@ urlpatterns = [
     path("auth/logout/", views.LogoutView.as_view(), name="logout"),
     path("auth/me/", views.MeView.as_view(), name="me"),
     path("business/", views.BusinessSettingsView.as_view(), name="business"),
-    path("business/merchant/", views.MerchantAccountView.as_view(), name="merchant"),
     path("cron/cleanup/", views.CronCleanupView.as_view(), name="cron-cleanup"),
     path("platform/users/<int:pk>/password/", views.PlatformUserPasswordView.as_view()),
     *router.urls,

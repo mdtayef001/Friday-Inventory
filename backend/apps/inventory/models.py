@@ -282,11 +282,6 @@ class Sale(TenantModel):
     refunded_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     refund_reason = models.CharField(max_length=200, blank=True)
 
-    class RefundStatus(models.TextChoices):
-        PROCESSING = "processing", "SSLCommerz is refunding it"
-        REFUNDED = "refunded", "Refunded by SSLCommerz"
-        CANCELLED = "cancelled", "SSLCommerz cancelled the refund"
-
     class ReturnRequest(models.TextChoices):
         REQUESTED = "requested", "Return requested"
         DECLINED = "declined", "Return declined"
@@ -298,37 +293,17 @@ class Sale(TenantModel):
     return_requested_at = models.DateTimeField(null=True, blank=True)
     return_decline_note = models.CharField(max_length=200, blank=True)
 
-    # Online sales only: the money going back through SSLCommerz, and its reference there.
-    refund_status = models.CharField(max_length=12, choices=RefundStatus.choices, blank=True)
-    refund_ref_id = models.CharField(max_length=100, blank=True)
-
     class Method(models.TextChoices):
         CASH = "cash", "Cash"
         MOBILE = "mobile", "Mobile banking"
         CARD = "card", "Card machine"
-        ONLINE = "online", "Online (SSLCommerz)"
-
-    class PaymentStatus(models.TextChoices):
-        PAID = "paid", "Paid"
-        PENDING = "pending", "Waiting for payment"
-        FAILED = "failed", "Payment failed"
-        CANCELLED = "cancelled", "Cancelled"
 
     # Empty when not recorded (orders, and sales from before payment methods).
     payment_method = models.CharField(max_length=10, choices=Method.choices, blank=True)
-    # Only paid sales count. Online sales wait for SSLCommerz; the stock is held meanwhile.
-    payment_status = models.CharField(max_length=10, choices=PaymentStatus.choices, default=PaymentStatus.PAID)
-    # Shared by every item paid in one SSLCommerz payment.
-    tran_id = models.CharField(max_length=40, null=True, blank=True, db_index=True)
     # The bKash / Nagad transaction ID staff copy from the customer's payment, for mobile sales.
     payment_reference = models.CharField(max_length=60, blank=True)
-    # From SSLCommerz once paid, e.g. "BKASH-BKash".
-    gateway_method = models.CharField(max_length=100, blank=True)
-    val_id = models.CharField(max_length=100, blank=True)
-    bank_tran_id = models.CharField(max_length=100, blank=True)
-    # Numbered 1, 2, 3… per business once the sale is paid, so unpaid online
-    # payments leave no gaps. Shown as R-000001. Every item of one checkout
-    # shares the number and the token.
+    # Numbered 1, 2, 3… per business, shown as R-000001. Every item of one
+    # checkout shares the number and the token.
     receipt_no = models.PositiveIntegerField(null=True, blank=True)
     # For the buyer's public receipt link. Also what groups a checkout's items.
     receipt_token = models.CharField(max_length=32, db_index=True, default=tracking_token)

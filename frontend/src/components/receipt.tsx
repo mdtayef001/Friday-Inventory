@@ -12,13 +12,12 @@ const REFERENCE_LABEL = { store: "", order: "Order", rental: "Rental" } as const
  */
 export function ReceiptDocument({ receipt: r }: { receipt: Receipt }) {
   const money = (value: number) => formatMoneyIn(value, r.currency)
-  const payment = r.gatewayMethod ? `${r.paymentLabel} · ${r.gatewayMethod}` : r.paymentLabel
   const rows: [string, string][] = [
     ["Date", formatDateTime(r.soldAt)],
     ...(r.reference ? ([[REFERENCE_LABEL[r.channel] || "Reference", r.reference]] as [string, string][]) : []),
     ["Customer", r.client ? `${r.client.name}${r.client.company ? ` (${r.client.company})` : ""}` : "Walk-in customer"],
     ...(r.soldBy ? ([["Served by", r.soldBy]] as [string, string][]) : []),
-    ["Payment", payment || "Not recorded"],
+    ["Payment", r.paymentLabel || "Not recorded"],
     ...(r.paymentReference ? ([["Transaction ID", r.paymentReference]] as [string, string][]) : []),
   ]
 

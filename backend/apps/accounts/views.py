@@ -14,14 +14,13 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 
 from apps.billing.serializers import PaymentSerializer
 
-from .models import Business, MerchantAccount, User
+from .models import Business, User
 from .permissions import IsSuperAdmin, IsTenantMember, ManagerNeedsPermission
 from .serializers import (
     BusinessSerializer,
     BusinessSummarySerializer,
     BusinessWithOwnerSerializer,
     LoginSerializer,
-    MerchantAccountSerializer,
     ManagedUserSerializer,
     PasswordSerializer,
     SessionUserSerializer,
@@ -187,42 +186,4 @@ class PlatformUserPasswordView(APIView):
         serializer.is_valid(raise_exception=True)
         user.set_password(serializer.validated_data["password"])
         user.save(update_fields=["password"])
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class MerchantAccountView(APIView):
-    """Owner only: the business's own SSLCommerz account for online payments at the counter."""
-
-    permission_classes = [IsTenantMember]
-    allowed_roles = (User.Role.OWNER,)
-
-    def get(self, request):
-        merchant = MerchantAccount.objects.filter(business=request.user.business).first()
-        if not merchant:
-            return Response({"configured": False})
-        return Response({"configured": True, **MerchantAccountSerializer(merchant).data})
-
-    def put(self, request):
-        business = request.user.business
-        merchant = MerchantAccount.objects.filter(business=business).first()
-        serializer = MerchantAccountSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-        password = data.get("store_password", "")
-        if not merchant and not password:
-            return Response({"store_password": ["Enter the store password."]}, status=400)
-        merchant = merchant or MerchantAccount(business=business)
-        merchant.store_id = data["store_id"].strip()
-        merchant.sandbox = data["sandbox"]
-        if password:
-            merchant.set_password(password)
-        merchant.save()
-        return Response({"configured": True, **MerchantAccountSerializer(merchant).data})
-
-    def delete(self, request):
-        """Removes the account and switches online payments off."""
-        business = request.user.business
-        MerchantAccount.objects.filter(business=business).delete()
-        business.settings.setdefault("payments", {})["online"] = False
-        business.save(update_fields=["settings"])
         return Response(status=status.HTTP_204_NO_CONTENT)

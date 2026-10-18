@@ -32,7 +32,6 @@ interface Totals {
 interface Summary extends Totals {
   unitsSold: number
   refundedCount: number
-  waitingCount: number
   methods: Record<PaymentMethod | "none", { count: number; revenue: number }>
   margin?: number | null
   channels: Record<SaleChannel, Totals>
@@ -197,7 +196,7 @@ export function SalesView() {
             <StatCard
               label="Revenue"
               value={<MoneyTotal value={summary.revenue} />}
-              hint={`${formatNumber(summary.count)} sale${summary.count === 1 ? "" : "s"}${summary.refundedCount ? ` · ${summary.refundedCount} refunded` : ""}${summary.waitingCount ? ` · ${summary.waitingCount} waiting for payment` : ""}`}
+              hint={`${formatNumber(summary.count)} sale${summary.count === 1 ? "" : "s"}${summary.refundedCount ? ` · ${summary.refundedCount} refunded` : ""}`}
               icon={Banknote}
             />
             {showProfit && (
@@ -326,7 +325,7 @@ export function SalesView() {
         <Card size="sm">
           <CardContent className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
             <span className="font-medium">How it was paid</span>
-            {(["cash", "mobile", "card", "online", "none"] as const)
+            {(["cash", "mobile", "card", "none"] as const)
               .filter((m) => summary.methods[m]?.count)
               .map((m) => (
                 <span key={m} className="tabular-nums">
@@ -406,7 +405,7 @@ export function SalesTable({ sales }: { sales: Sale[] }) {
         </TableHeader>
         <TableBody>
           {sales.map((s) => (
-            <TableRow key={s.id} className={cn((s.refundedAt || s.paymentStatus !== "paid") && "text-muted-foreground opacity-60")}>
+            <TableRow key={s.id} className={cn(s.refundedAt && "text-muted-foreground opacity-60")}>
               <TableCell className="pl-4 text-sm whitespace-nowrap">{formatDateTime(s.soldAt)}</TableCell>
               <TableCell className="max-w-64 font-medium">
                 <span className="line-clamp-2">{s.productName}</span>
@@ -460,12 +459,8 @@ export function ReceiptLink({ sale: s }: { sale: Sale }) {
   )
 }
 
-/** "Cash", "Online · BKASH", or the payment state when it isn't paid. Shared with My Sales. */
+/** "Cash", "Mobile" or "Card", or a dash when it wasn't recorded. Shared with My Sales. */
 export function PaymentCell({ sale: s }: { sale: Sale }) {
-  if (s.paymentStatus === "pending") return <Pill tone="amber">Waiting for payment</Pill>
-  if (s.paymentStatus === "failed") return <Pill tone="red">Payment failed</Pill>
-  if (s.paymentStatus === "cancelled") return <Pill tone="gray">Cancelled</Pill>
   if (!s.paymentMethod) return <span className="text-muted-foreground">—</span>
-  const label = PAYMENT_METHODS[s.paymentMethod].short
-  return <span title={s.gatewayMethod || undefined}>{s.gatewayMethod ? `${label} · ${s.gatewayMethod.split(/[-·]/)[0].trim()}` : label}</span>
+  return <span>{PAYMENT_METHODS[s.paymentMethod].short}</span>
 }

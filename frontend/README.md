@@ -54,9 +54,9 @@ Demo accounts (created by `seed_demo`, also listed on the login page in developm
   collect after the deposit. Staff can rent at their own shops if they may sell.
 - **Stock requests**: a manager asks for stock (Transfers or the dashboard's low-stock list); the owner or a manager of
   the sending location approves and picks where it ships from, which creates the transfer.
-- **Payment methods**: each business chooses in Business Settings: cash (always), mobile banking (with the number to
-  show customers), card machine, and online through **its own** SSLCommerz account (password stored encrypted). Every
-  sale records how it was paid; online sales show a QR code, hold the stock, and only count once SSLCommerz confirms.
+- **Payment methods**: each business chooses in Business Settings: cash (always), mobile banking (staff enter the
+  bKash / Nagad transaction ID) and card machine. Every sale records how it was paid. SSLCommerz is only used for the
+  subscription the business pays to the platform.
 - **Client tracking links**: every order has a public page, `/track/<token>`, that shows the client its status
   timeline and nothing internal (no prices, stock, notes or staff names). Staff share it from the order panel
   (Copy link, WhatsApp, Email). The owner can switch it off in Business Settings; links stop working 30 days after

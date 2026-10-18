@@ -68,7 +68,7 @@ export function defaultSettings(): BusinessSettings {
       managerLocations: false,
       staffCreateProducts: true,
     },
-    payments: { mobile: false, card: false, online: false },
+    payments: { mobile: false, card: false },
   }
 }
 
@@ -76,7 +76,6 @@ export const PAYMENT_METHODS: Record<PaymentMethod, { label: string; short: stri
   cash: { label: "Cash", short: "Cash" },
   mobile: { label: "Mobile banking (bKash / Nagad)", short: "Mobile" },
   card: { label: "Card machine", short: "Card" },
-  online: { label: "Online (SSLCommerz)", short: "Online" },
 }
 
 /** The payment methods this business has switched on. Cash always. */
@@ -85,6 +84,5 @@ export function enabledMethods(settings: BusinessSettings): PaymentMethod[] {
   const on: PaymentMethod[] = ["cash"]
   if (p?.mobile) on.push("mobile")
   if (p?.card) on.push("card")
-  if (p?.online) on.push("online")
   return on
 }

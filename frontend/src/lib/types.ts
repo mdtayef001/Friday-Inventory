@@ -66,8 +66,6 @@ export interface PaymentSettings {
   mobile: boolean
   /** Shown to staff and customers, e.g. "bKash 01711000000". */
   card: boolean
-  /** Online through the business's own SSLCommerz account. */
-  online: boolean
 }
 
 export interface BusinessSettings {
@@ -77,8 +75,7 @@ export interface BusinessSettings {
   payments: PaymentSettings
 }
 
-export type PaymentMethod = "cash" | "mobile" | "card" | "online"
-export type PaymentStatus2 = "paid" | "pending" | "failed" | "cancelled"
+export type PaymentMethod = "cash" | "mobile" | "card"
 
 export interface Business {
   id: string
@@ -319,8 +316,6 @@ export interface Sale {
   refundedAt: string | null
   refundedBy: string
   refundReason: string
-  /** Online sales: the money going back through SSLCommerz. */
-  refundStatus: "" | "processing" | "refunded" | "cancelled"
   /** A manager asked for a return; the owner or an admin approves or declines it. */
   returnRequest: "" | "requested" | "declined"
   returnRequestedBy: string
@@ -328,37 +323,14 @@ export interface Sale {
   returnDeclineNote: string
   /** "" when not recorded (orders, older sales). */
   paymentMethod: PaymentMethod | ""
-  /** Only "paid" counts. Online payments wait for SSLCommerz. */
-  paymentStatus: PaymentStatus2
-  gatewayMethod: string
   /** The bKash / Nagad transaction ID, for mobile banking sales. */
   paymentReference: string
-  /** "R-000123". Null until the sale is paid. */
+  /** "R-000123". */
   receiptNo: string | null
-  /** For the buyer's public receipt link, /r/<token>. Null until paid. */
+  /** For the buyer's public receipt link, /r/<token>. */
   receiptToken: string | null
-  /** Only right after starting an online payment: the SSLCommerz page to pay on. */
-  paymentUrl?: string
   /** Only right after a checkout: every item sold with this one, this one first. */
   sales?: Sale[]
-}
-
-/** What SSLCommerz has on record for an online sale, as its API names the fields. */
-export interface PaymentCheck {
-  payment: {
-    status: string
-    amount: string
-    storeAmount: string
-    currency: string
-    tranDate: string
-    validatedOn: string
-    cardType: string
-    cardNo: string
-    cardIssuer: string
-    bankTranId: string
-    riskTitle: string
-  } | null
-  sale: Sale
 }
 
 /** A paid sale as the buyer's receipt. The team's copy adds the fields marked "team". */
@@ -383,7 +355,6 @@ export interface Receipt {
   refunded: number
   paymentMethod: PaymentMethod | ""
   paymentLabel: string
-  gatewayMethod: string
   paymentReference: string
   /** Once every item came back. */
   refundedAt: string | null

@@ -152,15 +152,11 @@ class ShipmentSerializer(serializers.ModelSerializer):
         read_only_fields = ["code", "tracking_token", "status", "created_at"]
 
 
-# Paid at the counter or on the doorstep: everything but SSLCommerz.
-OFFLINE_METHODS = [c for c in Sale.Method.choices if c[0] != Sale.Method.ONLINE]
-
-
 class ShipmentStatusSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=Shipment.Status.choices)
     note = serializers.CharField(required=False, allow_blank=True, max_length=300)
     # How the client paid. Only used when the order is marked delivered.
-    payment_method = serializers.ChoiceField(choices=OFFLINE_METHODS, required=False, default=Sale.Method.CASH)
+    payment_method = serializers.ChoiceField(choices=Sale.Method.choices, required=False, default=Sale.Method.CASH)
 
 
 class RentalSerializer(serializers.ModelSerializer):
@@ -255,7 +251,6 @@ class SaleSerializer(serializers.ModelSerializer):
     revenue = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
     cost = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
     profit = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
-    # Null until the sale is paid.
     receipt_no = serializers.CharField(source="receipt_code", read_only=True)
     receipt_token = serializers.SerializerMethodField()
 
@@ -266,8 +261,8 @@ class SaleSerializer(serializers.ModelSerializer):
         fields = [
             "id", "channel", "product_id", "product_name", "quantity", "unit_price", "unit_cost", "discount",
             "revenue", "cost", "profit", "location_id", "client_id", "client_name", "order_id", "rental_id", "sold_by",
-            "sold_by_id", "sold_at", "refunded_at", "payment_method", "payment_status", "gateway_method",
-            "payment_reference", "receipt_no", "receipt_token", "refunded_by", "refund_reason", "refund_status",
+            "sold_by_id", "sold_at", "refunded_at", "payment_method",
+            "payment_reference", "receipt_no", "receipt_token", "refunded_by", "refund_reason",
             "return_request", "return_requested_by", "return_requested_at", "return_decline_note",
         ]
 
@@ -330,7 +325,7 @@ class ReceiptSerializer(serializers.ModelSerializer):
         model = Sale
         fields = [
             "id", "receipt_no", "receipt_token", "business_name", "currency", "shop", "sold_at", "channel", "reference",
-            "client", "items", "subtotal", "discount", "total", "refunded", "payment_method", "payment_label", "gateway_method",
+            "client", "items", "subtotal", "discount", "total", "refunded", "payment_method", "payment_label",
             "payment_reference", "refunded_at", "sold_by",
         ]
 
@@ -410,8 +405,8 @@ class ReceiptSerializer(serializers.ModelSerializer):
 
 class RentalReturnSerializer(serializers.Serializer):
     holidays = serializers.IntegerField(min_value=0, required=False, default=0)
-    # How the rental was paid when it came back. Online isn't offered here.
-    payment_method = serializers.ChoiceField(choices=OFFLINE_METHODS, required=False, default=Sale.Method.CASH)
+    # How the rental was paid when it came back.
+    payment_method = serializers.ChoiceField(choices=Sale.Method.choices, required=False, default=Sale.Method.CASH)
 
 
 class StockRequestSerializer(serializers.ModelSerializer):
