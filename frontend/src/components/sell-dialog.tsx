@@ -258,7 +258,6 @@ function CheckoutRow({
   autoFocus?: boolean
 }) {
   const price = Number(line.unitPrice)
-  const amount = line.quantity * price
   return (
     <li className="grid gap-2 rounded-xl border p-3">
       <div className="flex items-start justify-between gap-2">
@@ -274,7 +273,7 @@ function CheckoutRow({
           </Button>
         )}
       </div>
-      <div className="grid grid-cols-[5rem_1fr_auto] items-end gap-2">
+      <div className="grid grid-cols-[5rem_1fr] items-end gap-2">
         <Field label="Qty" htmlFor={`sell-qty-${index}`}>
           <Input
             id={`sell-qty-${index}`}
@@ -290,7 +289,6 @@ function CheckoutRow({
         <Field label="Price per unit" htmlFor={`sell-price-${index}`} hint={product && line.unitPrice !== "" && price !== product.price ? `List price ${formatMoney(product.price)}` : undefined}>
           <Input id={`sell-price-${index}`} type="number" inputMode="decimal" min="0" step="0.01" value={line.unitPrice} onChange={(e) => onChange({ unitPrice: e.target.value })} />
         </Field>
-        <p className="pb-2 text-right text-sm font-medium tabular-nums">{Number.isFinite(amount) ? formatMoney(amount) : "—"}</p>
       </div>
     </li>
   )

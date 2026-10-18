@@ -30,6 +30,8 @@ export function SupplierDialog({ supplier, onClose, onSaved }: { supplier?: Supp
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
+    // Opened from inside another form (selling, an order, a purchase): don't let this submit reach it.
+    e.stopPropagation()
     const data = {
       name: form.name.trim(),
       company: form.company.trim() || undefined,

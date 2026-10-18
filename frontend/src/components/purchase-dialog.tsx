@@ -319,7 +319,6 @@ function PurchaseRow({
 }) {
   const name = line.product?.name ?? line.draft?.name ?? ""
   const unit = line.product?.unit ?? line.draft?.unit ?? "pcs"
-  const amount = line.quantity * Number(line.unitCost)
   return (
     <li className="grid gap-2 rounded-xl border p-3">
       <div className="flex items-start justify-between gap-2">
@@ -338,7 +337,7 @@ function PurchaseRow({
           <X />
         </Button>
       </div>
-      <div className="grid grid-cols-[5rem_1fr_auto] items-end gap-2">
+      <div className="grid grid-cols-[5rem_1fr] items-end gap-2">
         <Field label={`Qty (${unit})`} htmlFor={`pur-qty-${index}`}>
           <Input
             id={`pur-qty-${index}`}
@@ -361,7 +360,6 @@ function PurchaseRow({
             onChange={(e) => onChange({ unitCost: e.target.value })}
           />
         </Field>
-        <p className="pb-2 text-right text-sm font-medium tabular-nums">{Number.isFinite(amount) ? formatMoney(amount) : "—"}</p>
       </div>
     </li>
   )
