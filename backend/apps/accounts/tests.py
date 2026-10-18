@@ -1,4 +1,5 @@
 from datetime import timedelta
+from io import StringIO
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -182,3 +183,32 @@ class EditAccountTests(APITestCase):
         self.login("owner@x.com")
         self.assertEqual(self.edit(admin2, role="manager", locationIds=[str(self.shop_a.id)]).status_code, 200)
         self.assertEqual(self.client.delete(f"/api/users/{admin.id}/").status_code, 204)
+
+
+class SeedDemoTests(APITestCase):
+    """The demo data loads, logs in, and can be loaded again."""
+
+    def test_seed_and_reset(self):
+        from django.core.management import call_command
+
+        from apps.inventory.models import Purchase, Supplier, SupplierPayment
+
+        call_command("seed_demo", stdout=StringIO())
+        demo = Business.objects.get(name="Friday Demo Store")
+        self.assertEqual(Supplier.objects.filter(business=demo).count(), 3)
+        bills = {p.code: p for p in Purchase.objects.filter(business=demo)}
+        self.assertEqual({c: p.payment_status for c, p in bills.items()},
+                         {"P-000001": "paid", "P-000002": "partly_paid", "P-000003": "paid", "P-000004": "unpaid"})
+        self.assertLess(bills["P-000004"].due_date, timezone.localdate())  # overdue on purpose
+        for p in bills.values():
+            self.assertEqual(p.total, sum(i.amount for i in p.items.all()))
+            self.assertEqual(p.paid_amount, sum(a.amount for a in p.allocations.all()))
+        self.assertEqual(SupplierPayment.objects.filter(business=demo).count(), 3)
+        res = self.client.post("/api/auth/login/", {"email": "owner@friday.app", "password": "owner123"}, format="json")
+        self.assertEqual(res.status_code, 200)
+
+        call_command("seed_demo", stdout=StringIO())  # already there: left alone
+        self.assertEqual(Business.objects.filter(name="Friday Demo Store").count(), 1)
+        call_command("seed_demo", "--reset", stdout=StringIO())
+        self.assertEqual(Business.objects.filter(name="Friday Demo Store").count(), 1)
+        self.assertEqual(Purchase.objects.filter(business__name="Friday Demo Store").count(), 4)

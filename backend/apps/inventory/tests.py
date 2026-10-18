@@ -1281,3 +1281,82 @@ class SupplierPaymentTests(PurchaseBase):
         # They still buy on credit at their shops, and see what each bill owes.
         res = self.buy(quantity=1, paidAmount="100")
         self.assertEqual((res.status_code, res.json()["due"]), (201, 260))
+
+
+class PurchaseEdgeTests(PurchaseBase):
+    """The awkward cases around returns and payments."""
+
+    def setUp(self):
+        super().setUp()
+        self.purchase = self.buy(paidAmount="0").json()  # 10 TVs at 360 on credit; warehouse has 20
+        self.item_id = self.purchase["items"][0]["id"]
+
+    def send_back(self, quantity=5):
+        return self.client.post("/api/supplier-returns/", {"itemId": self.item_id, "quantity": quantity, "reason": "Broken"}, format="json")
+
+    def test_cannot_return_stock_that_is_no_longer_there(self):
+        StockLevel.objects.filter(product=self.product, location=self.warehouse).update(quantity=3)  # most of it was sold
+        self.assertEqual(self.send_back(5).status_code, 400)
+        self.assertEqual(self.client.get("/api/supplier-returns/").json(), [])
+        self.assertEqual(self.qty(self.warehouse), 3)
+
+    def test_a_deleted_product_can_still_be_refunded_but_not_replaced(self):
+        ret = self.send_back(2).json()
+        StockLevel.objects.filter(product=self.product).delete()
+        self.assertEqual(self.client.delete(f"/api/products/{self.product.id}/").status_code, 204)
+        url = f"/api/supplier-returns/{ret['id']}"
+        self.assertEqual(self.client.post(f"{url}/replacement/", {"quantity": 1}, format="json").status_code, 400)
+        r = self.client.post(f"{url}/refund/", {"amount": "720", "method": "bank"}, format="json").json()
+        self.assertEqual((r["status"], r["productName"]), ("settled", "TV"))
+
+    def test_managers_only_see_returns_from_their_shops(self):
+        ret = self.send_back().json()  # at the warehouse
+        manager = self.make_user("manager@a.com", User.Role.MANAGER, self.biz)
+        manager.locations.set([self.outlet])
+        self.biz.settings["permissions"]["managerPurchases"] = True
+        self.biz.save()
+        self.client.credentials()
+        self.login("manager@a.com")
+        self.assertEqual(self.client.get("/api/supplier-returns/").json(), [])
+        self.assertEqual(self.client.get(f"/api/supplier-returns/{ret['id']}/").status_code, 404)
+        self.assertEqual(self.client.post(f"/api/supplier-returns/{ret['id']}/refund/", {"amount": "1", "method": "cash"}, format="json").status_code, 404)
+        self.assertEqual(self.client.get("/api/supplier-returns/summary/").json(), {"openCount": 0, "owed": 0.0})
+
+    def test_bad_payments_are_refused(self):
+        pay = lambda **body: self.client.post("/api/supplier-payments/", {"supplierId": self.supplier_id, "amount": "100", "method": "cash", **body}, format="json")  # noqa: E731
+        self.assertEqual(pay(paidAt=(timezone.now() + timedelta(days=1)).isoformat()).status_code, 400)
+        self.assertEqual(pay(method="credit").status_code, 400)  # only returns make credits
+        self.assertEqual(pay(amount="0").status_code, 400)
+        theirs = Supplier.objects.create(business=self.other_biz, name="Theirs")
+        self.assertEqual(pay(supplierId=theirs.id).status_code, 400)
+        self.assertEqual(self.client.get(f"/api/suppliers/{theirs.id}/statement/").status_code, 404)
+        self.assertEqual(self.client.get("/api/supplier-payments/").json(), [])
+        self.assertEqual(self.client.get(f"/api/suppliers/{self.supplier_id}/statement/").json()["owed"], 3600)
+
+    def test_due_date_only_kept_while_something_is_owed(self):
+        due = (timezone.localdate() + timedelta(days=7)).isoformat()
+        self.assertIsNone(self.buy(quantity=1, dueDate=due).json()["dueDate"])  # paid in full
+        self.assertEqual(self.buy(quantity=1, paidAmount="100", dueDate=due).json()["dueDate"], due)
+        self.assertEqual(self.buy(quantity=1, paidAmount="0", supplierId=self.supplier_id, paymentMethod="credit").status_code, 400)
+
+    def test_a_partly_refunded_return_can_be_credited_for_the_rest(self):
+        ret = self.send_back(5).json()  # 1800 owed back; business owes 3600 - 1800 credit later
+        url = f"/api/supplier-returns/{ret['id']}"
+        self.client.post(f"{url}/refund/", {"amount": "800", "method": "cash"}, format="json")
+        self.assertEqual(self.client.post(f"{url}/credit/", {"amount": "1001"}, format="json").status_code, 400)  # only 1000 left
+        r = self.client.post(f"{url}/credit/", {"amount": "1000"}, format="json").json()
+        self.assertEqual((r["refundedAmount"], r["creditedAmount"], r["status"]), (800, 1000, "settled"))
+        self.assertEqual(self.client.get(f"/api/suppliers/{self.supplier_id}/statement/").json()["owed"], 2600)
+
+    def test_super_admin_can_delete_a_business_with_purchases(self):
+        ret = self.send_back(2).json()
+        self.client.post(f"/api/supplier-returns/{ret['id']}/credit/", {"amount": "720"}, format="json")
+        self.client.post("/api/supplier-payments/", {"supplierId": self.supplier_id, "amount": "100", "method": "cash"}, format="json")
+        # A supplier you've bought from still can't be deleted on its own.
+        self.assertEqual(self.client.delete(f"/api/suppliers/{self.supplier_id}/").status_code, 400)
+        User.objects.create_superuser(email="root@x.com", password=PASSWORD, name="Root")
+        self.client.credentials()
+        self.login("root@x.com")
+        self.assertEqual(self.client.delete(f"/api/platform/businesses/{self.biz.id}/").status_code, 204)
+        self.assertFalse(Business.objects.filter(pk=self.biz.pk).exists())
+        self.assertFalse(Purchase.objects.exists() or Supplier.objects.exists())

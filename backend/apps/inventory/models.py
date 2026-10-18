@@ -382,10 +382,14 @@ class Purchase(TenantModel):
     location. Recording it raises the stock there and moves each product's cost to
     the average of what was on hand and what was just paid."""
 
+    # The links between suppliers, purchases, returns and payments are RESTRICT, not
+    # PROTECT: one can't be deleted while another points at it, but deleting the
+    # whole business takes them all together.
+
     # Numbered 1, 2, 3… per business. Shown as P-000001.
     number = models.PositiveIntegerField()
     # Optional: stock bought at a market stall has no supplier worth keeping.
-    supplier = models.ForeignKey(Supplier, null=True, blank=True, on_delete=models.PROTECT, related_name="purchases")
+    supplier = models.ForeignKey(Supplier, null=True, blank=True, on_delete=models.RESTRICT, related_name="purchases")
     location = models.ForeignKey(Location, null=True, on_delete=models.SET_NULL, related_name="+")
     # The supplier's own bill or invoice number.
     reference = models.CharField(max_length=60, blank=True)
@@ -456,10 +460,10 @@ class SupplierReturn(TenantModel):
 
     # Numbered 1, 2, 3… per business. Shown as SR-000001.
     number = models.PositiveIntegerField()
-    purchase = models.ForeignKey(Purchase, on_delete=models.PROTECT, related_name="returns")
-    item = models.ForeignKey(PurchaseItem, on_delete=models.PROTECT, related_name="returns")
+    purchase = models.ForeignKey(Purchase, on_delete=models.RESTRICT, related_name="returns")
+    item = models.ForeignKey(PurchaseItem, on_delete=models.RESTRICT, related_name="returns")
     # Copied from the purchase, so lists and totals don't have to go through it.
-    supplier = models.ForeignKey(Supplier, null=True, blank=True, on_delete=models.PROTECT, related_name="returns")
+    supplier = models.ForeignKey(Supplier, null=True, blank=True, on_delete=models.RESTRICT, related_name="returns")
     location = models.ForeignKey(Location, null=True, on_delete=models.SET_NULL, related_name="+")
     product = models.ForeignKey(Product, null=True, on_delete=models.SET_NULL, related_name="+")
     product_name = models.CharField(max_length=200)
@@ -522,14 +526,14 @@ class SupplierPayment(TenantModel):
     # Numbered 1, 2, 3… per business. Shown as SP-000001.
     number = models.PositiveIntegerField()
     # Empty only for a purchase bought without a supplier, which is paid in full.
-    supplier = models.ForeignKey(Supplier, null=True, blank=True, on_delete=models.PROTECT, related_name="payments")
+    supplier = models.ForeignKey(Supplier, null=True, blank=True, on_delete=models.RESTRICT, related_name="payments")
     amount = models.DecimalField(max_digits=14, decimal_places=2, validators=[MinValueValidator(0)])
     # Empty for payments recorded before payments were tracked.
     method = models.CharField(max_length=10, choices=Method.choices, blank=True)
     paid_at = models.DateTimeField(default=timezone.now)
     note = models.CharField(max_length=300, blank=True)
     # For a return credit: the return it came from.
-    supplier_return = models.ForeignKey("SupplierReturn", null=True, blank=True, on_delete=models.PROTECT, related_name="credits")
+    supplier_return = models.ForeignKey("SupplierReturn", null=True, blank=True, on_delete=models.RESTRICT, related_name="credits")
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -546,7 +550,7 @@ class PaymentAllocation(models.Model):
     """The part of a payment that went to one purchase."""
 
     payment = models.ForeignKey(SupplierPayment, on_delete=models.CASCADE, related_name="allocations")
-    purchase = models.ForeignKey(Purchase, on_delete=models.PROTECT, related_name="allocations")
+    purchase = models.ForeignKey(Purchase, on_delete=models.RESTRICT, related_name="allocations")
     amount = models.DecimalField(max_digits=14, decimal_places=2)
 
     class Meta:
