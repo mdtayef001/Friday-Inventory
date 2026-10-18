@@ -24,7 +24,7 @@ from apps.accounts.permissions import TEAM, IsTenantMember, ManagerNeedsPermissi
 from apps.api import Pagination
 
 from . import services
-from .models import Activity, Client, Location, Product, Rental, Sale, Shipment, StockLevel, StockRequest, Transfer
+from .models import Activity, Client, Location, Product, Purchase, PurchaseItem, Rental, Sale, Shipment, StockLevel, StockRequest, Supplier, Transfer
 from .serializers import (
     ActivitySerializer,
     ApproveRequestSerializer,
@@ -33,6 +33,8 @@ from .serializers import (
     LocationSerializer,
     ProductCreateSerializer,
     ProductSerializer,
+    PurchaseCreateSerializer,
+    PurchaseSerializer,
     PublicTrackingSerializer,
     ReceiptSerializer,
     RentalReturnSerializer,
@@ -44,6 +46,7 @@ from .serializers import (
     StockAdjustSerializer,
     StockLevelSerializer,
     StockRequestSerializer,
+    SupplierSerializer,
     TransferSerializer,
 )
 
@@ -369,6 +372,116 @@ class ClientViewSet(TenantViewSet, viewsets.ModelViewSet):
         services.check_client_deletable(client)
         services.log(self.request.user, "Client deleted", client.name)
         client.delete()
+
+
+class PurchasesFeature:
+    """Owners and admins; managers only when the owner switches "managerPurchases" on.
+    Reading too, since purchases show what the business paid."""
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        user = request.user
+        if user.role == User.Role.MANAGER and not user.business.permission_on("managerPurchases"):
+            raise PermissionDenied("The owner hasn't turned on purchases for managers.")
+
+
+class SupplierViewSet(PurchasesFeature, TenantViewSet, viewsets.ModelViewSet):
+    """Who the business buys from. ?search=, and ?stats=1 for purchases and spend at the user's locations."""
+
+    model = Supplier
+    serializer_class = SupplierSerializer
+    search_fields = ("name", "company", "phone", "email")
+
+    def filter_queryset(self, qs):
+        qs = self.search(qs)
+        if self.request.query_params.get("stats") == "1":
+            qs = self.with_stats(qs)
+        return qs
+
+    def with_stats(self, qs):
+        purchases = Purchase.objects.filter(supplier=OuterRef("pk"))
+        items = PurchaseItem.objects.filter(purchase__supplier=OuterRef("pk"))
+        allowed = allowed_location_ids(self.request.user)
+        if allowed is not None:
+            purchases = purchases.filter(location_id__in=allowed)
+            items = items.filter(purchase__location_id__in=allowed)
+        money = DecimalField(max_digits=16, decimal_places=2)
+        amount = ExpressionWrapper(F("unit_cost") * F("quantity"), output_field=money)
+        return qs.annotate(
+            purchase_count=Coalesce(
+                Subquery(purchases.values("supplier").annotate(n=Count("id")).values("n"), output_field=IntegerField()), 0
+            ),
+            spent=Coalesce(
+                Subquery(items.values("purchase__supplier").annotate(v=Sum(amount)).values("v"), output_field=money),
+                Value(0, output_field=money),
+            ),
+            last_purchase_at=Subquery(purchases.order_by("-purchased_at").values("purchased_at")[:1]),
+        )
+
+    def perform_create(self, serializer):
+        supplier = serializer.save(business=self.request.user.business)
+        services.log(self.request.user, "Supplier added", supplier.name)
+
+    def perform_update(self, serializer):
+        supplier = serializer.save()
+        services.log(self.request.user, "Supplier updated", supplier.name)
+
+    def perform_destroy(self, supplier):
+        services.check_supplier_deletable(supplier)
+        services.log(self.request.user, "Supplier deleted", supplier.name)
+        supplier.delete()
+
+
+class PurchaseViewSet(PurchasesFeature, TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin):
+    """Stock bought in, newest first. Managers see their own locations only.
+    List filters: ?search= (P-000012, the supplier's bill number or the supplier), ?supplier=,
+    ?location=, ?product=, ?from=&to= (ISO times)."""
+
+    model = Purchase
+    serializer_class = PurchaseSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset().select_related("supplier", "created_by").prefetch_related("items")
+        return self.scope_to_locations(qs, "location_id")
+
+    def filter_queryset(self, qs):
+        params = self.request.query_params
+        qs = self.filter_by_ids(qs, supplier="supplier_id", location="location_id")
+        product = self.id_param("product")
+        if product is not None:
+            qs = qs.filter(Exists(PurchaseItem.objects.filter(purchase=OuterRef("pk"), product_id=product)))
+        for name, lookup in (("from", "purchased_at__gte"), ("to", "purchased_at__lt")):
+            if params.get(name):
+                when = parse_datetime(params[name])
+                if when is None:
+                    raise ValidationError({name: "Use an ISO date and time."})
+                qs = qs.filter(**{lookup: when})
+        term = params.get("search", "").strip()
+        if term:
+            # A purchase number as printed ("P-000012") or just the number ("12").
+            number = re.sub(r"^p\s*-?\s*", "", term, flags=re.IGNORECASE)
+            query = Q(reference__icontains=term) | Q(supplier__name__icontains=term) | Q(supplier__company__icontains=term)
+            if number.isdigit():
+                query |= Q(number=int(number))
+            qs = qs.filter(query)
+        return qs
+
+    @action(detail=False)
+    def summary(self, request):
+        """How many purchases match the filters, and what they cost in total."""
+        qs = self.filter_queryset(self.get_queryset())
+        money = DecimalField(max_digits=16, decimal_places=2)
+        amount = ExpressionWrapper(F("unit_cost") * F("quantity"), output_field=money)
+        total = PurchaseItem.objects.filter(purchase__in=qs.values("pk")).aggregate(v=Sum(amount))["v"] or 0
+        return Response({"count": qs.count(), "total": float(total)})
+
+    def create(self, request):
+        body = PurchaseCreateSerializer(data=request.data, context={"request": request})
+        body.is_valid(raise_exception=True)
+        self.check_location(body.validated_data["location"])
+        purchase = services.record_purchase(request.user, **body.validated_data)
+        purchase = self.get_queryset().get(pk=purchase.pk)
+        return Response(self.get_serializer(purchase).data, status=status.HTTP_201_CREATED)
 
 
 class ShipmentViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin):

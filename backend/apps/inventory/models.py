@@ -358,3 +358,65 @@ class StockRequest(TenantModel):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class Supplier(TenantModel):
+    """Who the business buys stock from."""
+
+    name = models.CharField(max_length=150)
+    company = models.CharField(max_length=150, blank=True)
+    phone = models.CharField(max_length=40, blank=True)
+    email = models.EmailField(blank=True)
+    address = models.CharField(max_length=300, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class Purchase(TenantModel):
+    """Stock bought in: one supplier's bill, one or more products, received at one
+    location. Recording it raises the stock there and moves each product's cost to
+    the average of what was on hand and what was just paid."""
+
+    # Numbered 1, 2, 3… per business. Shown as P-000001.
+    number = models.PositiveIntegerField()
+    # Optional: stock bought at a market stall has no supplier worth keeping.
+    supplier = models.ForeignKey(Supplier, null=True, blank=True, on_delete=models.PROTECT, related_name="purchases")
+    location = models.ForeignKey(Location, null=True, on_delete=models.SET_NULL, related_name="+")
+    # The supplier's own bill or invoice number.
+    reference = models.CharField(max_length=60, blank=True)
+    note = models.CharField(max_length=300, blank=True)
+    purchased_at = models.DateTimeField(default=timezone.now)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-purchased_at", "-id"]
+        indexes = [models.Index(fields=["business", "purchased_at"])]
+        constraints = [models.UniqueConstraint(fields=["business", "number"], name="unique_purchase_no_per_business")]
+
+    @property
+    def code(self):
+        return f"P-{self.number:06d}"
+
+
+class PurchaseItem(models.Model):
+    """One product on a purchase, at the price paid for it. Keeps the name, so
+    deleting the product later doesn't empty the record."""
+
+    purchase = models.ForeignKey(Purchase, on_delete=models.CASCADE, related_name="items")
+    product = models.ForeignKey(Product, null=True, on_delete=models.SET_NULL, related_name="+")
+    product_name = models.CharField(max_length=200)
+    quantity = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    unit_cost = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
+
+    class Meta:
+        ordering = ["id"]
+
+    @property
+    def amount(self):
+        return self.unit_cost * self.quantity

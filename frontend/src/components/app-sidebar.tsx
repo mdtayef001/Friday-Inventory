@@ -7,10 +7,12 @@ import {
   Boxes,
   CalendarClock,
   CreditCard,
+  Factory,
   HandCoins,
   History,
   LayoutDashboard,
   Package,
+  PackagePlus,
   Receipt,
   ScanBarcode,
   Settings,
@@ -55,6 +57,13 @@ const NAV = [
       { href: "/inventory", label: "Stock Levels", icon: Boxes },
       { href: "/locations", label: "Warehouses & Shops", icon: Warehouse },
       { href: "/transfers", label: "Transfers", icon: ArrowLeftRight },
+    ],
+  },
+  {
+    label: "Buying",
+    items: [
+      { href: "/purchases", label: "Purchases", icon: PackagePlus },
+      { href: "/suppliers", label: "Suppliers", icon: Factory },
     ],
   },
   {

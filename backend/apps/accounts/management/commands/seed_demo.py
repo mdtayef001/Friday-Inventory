@@ -14,7 +14,9 @@ from django.utils import timezone
 
 from apps.accounts.models import Business, User, default_settings
 from apps.billing.models import Payment
-from apps.inventory.models import Activity, Client, Location, Product, Rental, Shipment, ShipmentEvent, StockLevel, Transfer
+from apps.inventory.models import (
+    Activity, Client, Location, Product, Purchase, PurchaseItem, Rental, Shipment, ShipmentEvent, StockLevel, Supplier, Transfer,
+)
 
 DEMO_EMAILS = ["super@friday.app", "owner@friday.app", "manager@friday.app", "staff@friday.app", "seller@friday.app", "stocker@friday.app", "cafe@friday.app", "urban@friday.app"]
 
@@ -75,6 +77,21 @@ RENTALS = [
     ("RNT-61E9D8", "prd-4", 2, "cl-1", "uptown", "weekly", 60, 14, 5, "active"),
     ("RNT-F24B55", "prd-8", 12, "cl-2", "main", "fixed", 150, 2, 20, "returned"),
     ("RNT-0D93AA", "prd-11", 1, "cl-3", "main", "monthly", 450, 30, 4, "active"),
+]
+
+SUPPLIERS = [
+    ("sp-1", "Rahim Traders", "Rahim Traders Ltd.", "+1 555 0301", "orders@rahimtraders.com", "14 Wholesale Market"),
+    ("sp-2", "TechSource", "TechSource Distribution", "+1 555 0302", "sales@techsource.io", "200 Harbour Road"),
+    ("sp-3", "Office Mart", "", "+1 555 0303", "", "9 Paper Lane"),
+]
+
+# supplier, location, bill no., days ago, [(product, qty, unit cost)]. Paid at the products' current cost,
+# so the seeded costs stay as they are. A record of where the stock came from; the stock itself is seeded above.
+PURCHASES = [
+    ("sp-2", "main", "TS-4410", 40, [("prd-1", 30, 52), ("prd-3", 40, 41), ("prd-11", 6, 300)]),
+    ("sp-1", "main", "RT-1182", 25, [("prd-4", 10, 78), ("prd-6", 8, 90), ("prd-14", 12, 11)]),
+    ("sp-3", "downtown", "", 9, [("prd-12", 20, 21), ("prd-13", 50, 4)]),
+    ("sp-2", "main", "TS-4528", 3, [("prd-2", 6, 240)]),
 ]
 
 
@@ -182,6 +199,8 @@ class Command(BaseCommand):
         Transfer.objects.filter(pk=t1.pk).update(created_at=ago(1))
         Transfer.objects.filter(pk=t2.pk).update(created_at=ago(8))
 
+        self.purchases(demo, locs, products, owner)
+
         for hours, who, action, detail in [
             (1, staff, "Stock added", "+20 Thermal Label Roll at Main Warehouse"),
             (5, manager, "Shipment created", "SHP-C4E911 · 25 × A4 Copy Paper (Box) to Rafi Ahmed"),
@@ -219,6 +238,21 @@ class Command(BaseCommand):
             ("cafe@friday.app", "cafe1234"), ("urban@friday.app", "urban123"),
         ]:
             self.stdout.write(f"  {email} / {password}")
+
+    def purchases(self, business, locs, products, by):
+        suppliers = {
+            key: Supplier.objects.create(business=business, name=name, company=company, phone=phone, email=email, address=address)
+            for key, name, company, phone, email, address in SUPPLIERS
+        }
+        for number, (supplier, loc, reference, days, items) in enumerate(PURCHASES, start=1):
+            purchase = Purchase.objects.create(
+                business=business, number=number, supplier=suppliers[supplier], location=locs[loc], reference=reference,
+                purchased_at=self.ago(days), created_by=by,
+            )
+            for product, qty, cost in items:
+                PurchaseItem.objects.create(
+                    purchase=purchase, product=products[product], product_name=products[product].name, quantity=qty, unit_cost=cost
+                )
 
     def ago(self, days):
         return self.now - timedelta(days=days)

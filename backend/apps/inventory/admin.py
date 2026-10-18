@@ -1,8 +1,10 @@
 from django.contrib import admin
 
-from .models import Activity, Client, Location, Product, Rental, Sale, Shipment, StockLevel, StockRequest, Transfer
+from .models import (
+    Activity, Client, Location, Product, Purchase, PurchaseItem, Rental, Sale, Shipment, StockLevel, StockRequest, Supplier, Transfer,
+)
 
-admin.site.register([Location, Client, StockLevel, Shipment, Rental, Transfer, StockRequest])
+admin.site.register([Location, Client, StockLevel, Shipment, Rental, Transfer, StockRequest, Supplier])
 
 
 @admin.register(Product)
@@ -20,3 +22,14 @@ class ActivityAdmin(admin.ModelAdmin):
 class SaleAdmin(admin.ModelAdmin):
     list_display = ["sold_at", "business", "channel", "product_name", "quantity", "unit_price", "discount", "refunded_at"]
     list_filter = ["channel"]
+
+
+class PurchaseItemInline(admin.TabularInline):
+    model = PurchaseItem
+    extra = 0
+
+
+@admin.register(Purchase)
+class PurchaseAdmin(admin.ModelAdmin):
+    list_display = ["number", "purchased_at", "business", "supplier", "location", "reference"]
+    inlines = [PurchaseItemInline]

@@ -14,7 +14,9 @@ from .permissions import creatable_roles
 # Currencies a business can choose. One picked before the list was narrowed can still be kept.
 CURRENCIES = ["BDT", "USD"]
 MODULES = ["rentals", "tracking", "transfers", "trackingLinks"]
-PERMISSIONS = ["managerUsers", "managerActivity", "managerProducts", "managerLocations", "staffCreateProducts", "managerProfit"]
+PERMISSIONS = [
+    "managerUsers", "managerActivity", "managerProducts", "managerLocations", "staffCreateProducts", "managerProfit", "managerPurchases",
+]
 
 
 class LoginSerializer(TokenObtainPairSerializer):

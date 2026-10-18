@@ -58,6 +58,7 @@ export interface Permissions {
   managerProducts: boolean
   managerLocations: boolean
   staffCreateProducts: boolean
+  managerPurchases: boolean
 }
 export type PermissionId = keyof Permissions
 
@@ -181,6 +182,52 @@ export interface Client {
     /** Paid, not refunded, at the user's locations. */
     lifetimeValue: number
   }
+}
+
+/** Who the business buys stock from. */
+export interface Supplier {
+  id: string
+  name: string
+  company?: string
+  phone?: string
+  email?: string
+  address?: string
+  createdAt: string
+  /** Only when the list is asked for ?stats=1, for the suppliers page. At the user's locations. */
+  stats?: {
+    purchaseCount: number
+    spent: number
+    lastPurchaseAt: string | null
+  }
+}
+
+export type SupplierBrief = Pick<Supplier, "id" | "name" | "company">
+
+/** One product on a purchase, at the price paid. productId is null once the product is deleted. */
+export interface PurchaseItem {
+  productId: string | null
+  productName: string
+  quantity: number
+  unitCost: number
+  amount: number
+}
+
+/** Stock bought in: one supplier's bill, received at one location. */
+export interface Purchase {
+  id: string
+  /** "P-000012" */
+  code: string
+  /** Null when bought without a supplier on record. */
+  supplier: SupplierBrief | null
+  locationId: string | null
+  /** The supplier's own bill or invoice number. */
+  reference: string
+  note: string
+  purchasedAt: string
+  createdBy: string
+  createdAt: string
+  items: PurchaseItem[]
+  total: number
 }
 
 /** The client shown on an order or rental. Null when the client was deleted. */

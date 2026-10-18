@@ -6,7 +6,7 @@ from rest_framework.test import APITestCase
 
 from apps.accounts.models import Business, User
 
-from .models import Location, Product, Rental, Shipment, StockLevel
+from .models import Location, Product, Rental, Shipment, StockLevel, Supplier
 
 PASSWORD = "a-long-test-password-1"
 
@@ -989,3 +989,95 @@ class ListingTests(ApiTestCase):
         self.assertEqual(len(self.client.get("/api/stock-requests/", {"search": "weekend"}).json()), 1)
         self.assertEqual(len(self.client.get("/api/stock-requests/", {"location": self.warehouse.id}).json()), 0)
         self.assertEqual(self.client.get("/api/stock-requests/", {"status": "lost"}).status_code, 400)
+
+
+class PurchaseTests(SalesBase):
+    """Stock bought from suppliers: stock goes up, cost is averaged, managers need the owner's switch."""
+
+    def setUp(self):
+        super().setUp()
+        self.supplier_id = self.client.post("/api/suppliers/", {"name": "Rahim Traders", "phone": "01711"}, format="json").json()["id"]
+
+    def buy(self, items=None, **body):
+        item = {"productId": self.product.id, "quantity": 10, "unitCost": "360"}
+        item.update({k: body.pop(k) for k in list(body) if k in item})
+        data = {"supplierId": self.supplier_id, "locationId": self.warehouse.id, "items": [item] if items is None else items, **body}
+        return self.client.post("/api/purchases/", data, format="json")
+
+    def test_purchase_adds_stock_and_averages_the_cost(self):
+        # 10 on hand at 300, 10 more at 360: cost 330.
+        res = self.buy(reference=" INV-77 ")
+        self.assertEqual(res.status_code, 201, res.content)
+        p = res.json()
+        self.assertEqual((p["code"], p["reference"], p["total"], p["supplier"]["name"]), ("P-000001", "INV-77", 3600, "Rahim Traders"))
+        self.assertEqual(p["items"], [{"productId": str(self.product.id), "productName": "TV", "quantity": 10, "unitCost": 360, "amount": 3600}])
+        self.assertEqual(self.qty(self.warehouse), 20)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.cost, 330)
+        # Sales from now on carry the new cost.
+        self.assertEqual(self.sell(quantity=1, unitPrice="500").json()["cost"], 330)
+        self.assertEqual(self.buy(quantity=1).json()["code"], "P-000002")
+
+    def test_cost_is_what_was_paid_when_nothing_is_on_hand(self):
+        radio = Product.objects.create(business=self.biz, sku="RD", name="Radio", cost=999)
+        self.buy(items=[{"productId": radio.id, "quantity": 4, "unitCost": "40"}], supplierId=None)
+        radio.refresh_from_db()
+        self.assertEqual(radio.cost, 40)
+        self.assertEqual(StockLevel.objects.get(product=radio, location=self.warehouse).quantity, 4)
+
+    def test_bad_purchases_change_nothing(self):
+        self.assertEqual(self.buy(items=[]).status_code, 400)
+        self.assertEqual(self.buy(quantity=0).status_code, 400)
+        self.assertEqual(self.buy(unitCost="-1").status_code, 400)
+        self.assertEqual(self.buy(purchasedAt=(timezone.now() + timedelta(days=2)).isoformat()).status_code, 400)
+        foreign = Supplier.objects.create(business=self.other_biz, name="Theirs")
+        self.assertEqual(self.buy(supplierId=foreign.id).status_code, 400)
+        self.assertEqual(self.qty(self.warehouse), 10)
+        self.assertEqual(self.client.get("/api/purchases/").json(), [])
+
+    def test_list_filters_search_and_summary(self):
+        self.buy(reference="INV-1")
+        self.buy(quantity=2, supplierId=None, purchasedAt=(timezone.now() - timedelta(days=3)).isoformat())
+        self.assertEqual([p["code"] for p in self.client.get("/api/purchases/").json()], ["P-000001", "P-000002"])  # newest bought first
+        for term in ("P-000002", "p2", "2"):
+            self.assertEqual([p["code"] for p in self.client.get("/api/purchases/", {"search": term}).json()], ["P-000002"], term)
+        self.assertEqual(len(self.client.get("/api/purchases/", {"search": "rahim"}).json()), 1)
+        self.assertEqual(len(self.client.get("/api/purchases/", {"supplier": self.supplier_id}).json()), 1)
+        self.assertEqual(len(self.client.get("/api/purchases/", {"product": self.product.id}).json()), 2)
+        self.assertEqual(self.client.get("/api/purchases/summary/").json(), {"count": 2, "total": 4320.0})
+        stats = self.client.get("/api/suppliers/", {"stats": "1"}).json()[0]["stats"]
+        self.assertEqual((stats["purchaseCount"], stats["spent"]), (1, 3600.0))
+
+    def test_supplier_with_purchases_cannot_be_deleted(self):
+        self.buy()
+        self.assertEqual(self.client.delete(f"/api/suppliers/{self.supplier_id}/").status_code, 400)
+        spare = self.client.post("/api/suppliers/", {"name": "Spare"}, format="json").json()["id"]
+        self.assertEqual(self.client.delete(f"/api/suppliers/{spare}/").status_code, 204)
+
+    def test_deleting_the_product_keeps_the_purchase(self):
+        self.buy()
+        StockLevel.objects.filter(product=self.product).delete()
+        self.assertEqual(self.client.delete(f"/api/products/{self.product.id}/").status_code, 204)
+        item = self.client.get("/api/purchases/").json()[0]["items"][0]
+        self.assertEqual((item["productId"], item["productName"]), (None, "TV"))
+
+    def test_managers_need_the_switch_and_only_buy_for_their_shops(self):
+        manager = self.make_user("manager@a.com", User.Role.MANAGER, self.biz)
+        manager.locations.set([self.outlet])
+        self.buy()  # the owner's, at the warehouse
+        self.client.credentials()
+        self.login("manager@a.com")
+        self.assertEqual(self.client.get("/api/purchases/").status_code, 403)
+        self.assertEqual(self.client.get("/api/suppliers/").status_code, 403)
+        self.biz.settings["permissions"]["managerPurchases"] = True
+        self.biz.save()
+        self.assertEqual(self.client.get("/api/purchases/").json(), [])  # not their location
+        self.assertEqual(self.buy().status_code, 403)
+        self.assertEqual(self.buy(locationId=self.outlet.id).status_code, 201)
+        self.assertEqual(len(self.client.get("/api/purchases/").json()), 1)
+
+    def test_staff_cannot_buy(self):
+        self.client.credentials()
+        self.login("staff@a.com")
+        self.assertEqual(self.buy(locationId=self.outlet.id).status_code, 403)
+        self.assertEqual(self.client.get("/api/suppliers/").status_code, 403)

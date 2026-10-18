@@ -49,6 +49,7 @@ export const PERMISSIONS: Record<PermissionId, { label: string; description: str
   managerLocations: { label: "Edit their shop details", description: "Change name, address and phone of shops they run.", role: "manager" },
   managerActivity: { label: "See the activity log", description: "Who did what, and when.", role: "manager" },
   managerProfit: { label: "See cost and profit", description: "On the Sales page and when selling. Otherwise they see prices only.", role: "manager" },
+  managerPurchases: { label: "Handle purchases", description: "Record stock bought from suppliers at their shops. They see what you paid.", role: "manager" },
   staffCreateProducts: { label: "Create new products", description: "When a scanned code is unknown. Otherwise staff only add stock.", role: "staff" },
 }
 
@@ -67,6 +68,7 @@ export function defaultSettings(): BusinessSettings {
       managerProducts: true,
       managerLocations: false,
       staffCreateProducts: true,
+      managerPurchases: false,
     },
     payments: { mobile: false, card: false },
   }

@@ -91,6 +91,7 @@ out, or that is suspended, gets 403 on every tenant endpoint.
 | `GET sales/export/` (same filters) | owner, manager; CSV, profit columns only for those allowed to see profit |
 | `sales/` (`POST` to sell) | everyone sells at their own shops; owners and managers list; cost and profit for owners only |
 | `stock-requests/` + `POST {id}/approve/` · `{id}/decline/` · `{id}/cancel/` | managers ask; owner or a manager of the sending location decides |
+| `suppliers/` (`?stats=1`) · `purchases/` + `GET summary/` | owners; managers when `managerPurchases` is on, at their locations. A purchase adds stock and averages the price paid into the product's cost |
 | `GET track/{token}/` | public; a client's order status, nothing internal |
 | `POST billing/sslcommerz/{result}/` | public; the frontend forwards SSLCommerz's callbacks, Django validates them |
 | `platform/businesses/` + `POST {id}/suspend/`, `DELETE`, `platform/payments/`, `POST platform/users/{id}/password/` | super admin |

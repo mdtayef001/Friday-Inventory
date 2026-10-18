@@ -14,6 +14,8 @@ router.register("transfers", views.TransferViewSet, basename="transfer")
 router.register("activity", views.ActivityViewSet, basename="activity")
 router.register("sales", views.SaleViewSet, basename="sale")
 router.register("stock-requests", views.StockRequestViewSet, basename="stock-request")
+router.register("suppliers", views.SupplierViewSet, basename="supplier")
+router.register("purchases", views.PurchaseViewSet, basename="purchase")
 
 urlpatterns = [
     path("overview/", views.OverviewView.as_view()),

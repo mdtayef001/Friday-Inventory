@@ -52,6 +52,10 @@ Demo accounts (created by `seed_demo`, also listed on the login page in developm
 - **Rentals by scanning**: **Scan out** needs no day count (expected days are optional, for the due date only);
   **Scan in** counts the real days out, takes off holidays typed by staff (per-day plan only), and shows what to
   collect after the deposit. Staff can rent at their own shops if they may sell.
+- **Purchases**: stock bought from suppliers (Buying → Purchases). One bill with several products, received at one
+  location: the stock goes in and each product's cost becomes the average of what was on hand and what was just paid,
+  so profit on later sales is real. Suppliers show how much was bought from each. Owners always; managers only when the
+  owner turns on "Handle purchases". No accounting beyond that on purpose.
 - **Stock requests**: a manager asks for stock (Transfers or the dashboard's low-stock list); the owner or a manager of
   the sending location approves and picks where it ships from, which creates the transfer.
 - **Payment methods**: each business chooses in Business Settings: cash (always), mobile banking (staff enter the

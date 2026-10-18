@@ -9,13 +9,15 @@ import secrets
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Max, Sum
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from apps.accounts.models import Business
 
-from .models import Activity, Rental, Sale, Shipment, ShipmentEvent, StockLevel, StockRequest, Transfer, tracking_token
+from .models import (
+    Activity, Product, Purchase, PurchaseItem, Rental, Sale, Shipment, ShipmentEvent, StockLevel, StockRequest, Transfer, tracking_token,
+)
 
 
 def ref_code(prefix):
@@ -85,6 +87,11 @@ def check_location_deletable(location):
     in_transit = Transfer.objects.filter(status=Transfer.Status.IN_TRANSIT)
     if in_transit.filter(from_location=location).exists() or in_transit.filter(to_location=location).exists():
         raise ValidationError("This location has transfers in transit.")
+
+
+def check_supplier_deletable(supplier):
+    if supplier.purchases.exists():
+        raise ValidationError("This supplier has purchases. It stays so those records still say who sold them.")
 
 
 def check_client_deletable(client):
@@ -441,6 +448,54 @@ def record_rental_income(user, rental, payment_method=Sale.Method.CASH):
         payment_method=payment_method,
     )
     return number_receipt(sale)
+
+
+# ---------- Purchases ----------
+# Stock bought in. The product's cost becomes the average of what was on hand and
+# what was just paid, so sales after this one carry a fair cost and profit.
+
+
+def average_cost(product, quantity, unit_cost):
+    """The product's cost once `quantity` more arrive at `unit_cost`. Call before the stock goes up."""
+    on_hand = StockLevel.objects.filter(product=product).aggregate(n=Sum("quantity"))["n"] or 0
+    if on_hand <= 0:
+        return unit_cost
+    total = product.cost * on_hand + unit_cost * quantity
+    return (total / (on_hand + quantity)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+@transaction.atomic
+def record_purchase(user, *, location, items, supplier=None, reference="", note="", purchased_at=None):
+    """One supplier's bill: every item goes into stock at `location`, and each
+    product's cost is averaged in. Returns the purchase."""
+    if not items:
+        raise ValidationError("Add at least one product.")
+    # Locking the business row makes two purchases at the same moment wait for each other's number.
+    Business.objects.select_for_update().filter(pk=user.business_id).first()
+    last = Purchase.objects.filter(business=user.business).aggregate(n=Max("number"))["n"] or 0
+    purchase = Purchase.objects.create(
+        business=user.business,
+        number=last + 1,
+        supplier=supplier,
+        location=location,
+        reference=reference.strip(),
+        note=note.strip(),
+        purchased_at=purchased_at or timezone.now(),
+        created_by=user,
+    )
+    for item in items:
+        product = Product.objects.select_for_update().get(pk=item["product"].pk)
+        product.cost = average_cost(product, item["quantity"], item["unit_cost"])
+        product.save(update_fields=["cost"])
+        change_stock(product, location, item["quantity"])
+        PurchaseItem.objects.create(
+            purchase=purchase, product=product, product_name=product.name, quantity=item["quantity"], unit_cost=item["unit_cost"]
+        )
+    lines = list(purchase.items.all())
+    total = sum(i.amount for i in lines)
+    who = f" from {supplier.name}" if supplier else ""
+    log(user, "Stock bought", f"{purchase.code}{who}: {describe(lines)} at {location.name} for {total:.2f}")
+    return purchase
 
 
 # ---------- Stock requests ----------

@@ -1,7 +1,7 @@
 "use client"
 
 import { request } from "@/lib/api/client"
-import type { Client, Location, PaymentMethod, Product, Rental, Sale, Shipment, ShipmentStatus, StockRequest, Transfer } from "@/lib/types"
+import type { Client, Location, PaymentMethod, Product, Purchase, Rental, Sale, Shipment, ShipmentStatus, StockRequest, Supplier, Transfer } from "@/lib/types"
 import { getQueryClient } from "./query-client"
 
 // Every change goes to Django first; it does the stock maths, permission checks
@@ -10,7 +10,18 @@ import { getQueryClient } from "./query-client"
 // with an Error carrying a readable message (e.g. not enough stock); callers
 // show it as a toast.
 
-type Collection = "locations" | "products" | "stock" | "clients" | "shipments" | "rentals" | "transfers" | "stock-requests" | "sales"
+type Collection =
+  | "locations"
+  | "products"
+  | "stock"
+  | "clients"
+  | "shipments"
+  | "rentals"
+  | "transfers"
+  | "stock-requests"
+  | "sales"
+  | "suppliers"
+  | "purchases"
 
 export type ProductInput = Omit<Product, "id" | "createdAt" | "createdBy" | "stock" | "total">
 
@@ -75,6 +86,30 @@ export const actions = {
   },
   async deleteClient(id: string) {
     await call(`clients/${id}/`, "DELETE", undefined, "clients")
+  },
+
+  addSupplier(input: Omit<Supplier, "id" | "createdAt" | "stats">) {
+    return call<Supplier>("suppliers/", "POST", input, "suppliers")
+  },
+  async updateSupplier(id: string, patch: Partial<Omit<Supplier, "id" | "createdAt" | "stats">>) {
+    // Purchases show the supplier's name too.
+    await call(`suppliers/${id}/`, "PATCH", blanks(patch, ["company", "phone", "email", "address"]), "suppliers", "purchases")
+  },
+  async deleteSupplier(id: string) {
+    await call(`suppliers/${id}/`, "DELETE", undefined, "suppliers")
+  },
+  /** Stock bought in: it goes into stock at the location, and each product's cost is averaged in. */
+  recordPurchase(input: {
+    supplierId: string | null
+    locationId: string
+    items: { productId: string; quantity: number; unitCost: number }[]
+    reference?: string
+    note?: string
+    purchasedAt?: string
+  }) {
+    if (input.items.length === 0) throw new Error("Add at least one product.")
+    for (const item of input.items) positiveInt(item.quantity)
+    return call<Purchase>("purchases/", "POST", input, ...STOCK, "purchases", "suppliers")
   },
 
   /** A checkout: one or more items from one shop, one discount on the whole bill, one payment, one receipt. */

@@ -19,6 +19,7 @@ def default_settings():
             "managerLocations": False,
             "staffCreateProducts": True,
             "managerProfit": False,
+            "managerPurchases": False,
         },
         # How customers can pay. Cash always works; the rest are the owner's choice.
         "payments": {"mobile": False, "card": False},

@@ -1,8 +1,12 @@
+from django.utils import timezone
 from rest_framework import serializers
 
 from apps.api import IdField, tenant_field
 
-from .models import Activity, Client, Location, Product, Rental, Sale, Shipment, ShipmentEvent, StockLevel, StockRequest, Transfer
+from .models import (
+    Activity, Client, Location, Product, Purchase, PurchaseItem, Rental, Sale, Shipment, ShipmentEvent, StockLevel, StockRequest,
+    Supplier, Transfer,
+)
 
 # Field names follow frontend/src/lib/types.ts (camelCased on the wire).
 
@@ -449,3 +453,81 @@ class ApproveRequestSerializer(serializers.Serializer):
 
 class DeclineRequestSerializer(serializers.Serializer):
     note = serializers.CharField(required=False, allow_blank=True, max_length=300)
+
+
+class SupplierSerializer(serializers.ModelSerializer):
+    id = IdField()
+
+    class Meta:
+        model = Supplier
+        fields = ["id", "name", "company", "phone", "email", "address", "created_at"]
+        read_only_fields = ["created_at"]
+
+    def validate_name(self, value):
+        value = value.strip()
+        if len(value) < 2:
+            raise serializers.ValidationError("Enter at least 2 characters.")
+        return value
+
+    def to_representation(self, supplier):
+        data = super().to_representation(supplier)
+        if hasattr(supplier, "purchase_count"):
+            data["stats"] = {
+                "purchase_count": supplier.purchase_count,
+                "spent": float(supplier.spent or 0),
+                "last_purchase_at": supplier.last_purchase_at,
+            }
+        return data
+
+
+class PurchaseItemSerializer(serializers.ModelSerializer):
+    product_id = IdField()
+    amount = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = PurchaseItem
+        fields = ["product_id", "product_name", "quantity", "unit_cost", "amount"]
+
+
+class PurchaseSerializer(serializers.ModelSerializer):
+    id = IdField()
+    code = serializers.CharField(read_only=True)
+    supplier = serializers.SerializerMethodField()
+    location_id = IdField()
+    created_by = serializers.CharField(source="created_by.name", read_only=True, default="")
+    items = PurchaseItemSerializer(many=True, read_only=True)
+    total = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Purchase
+        fields = ["id", "code", "supplier", "location_id", "reference", "note", "purchased_at", "created_by", "created_at", "items", "total"]
+
+    def get_supplier(self, purchase):
+        s = purchase.supplier
+        return {"id": str(s.id), "name": s.name, "company": s.company} if s else None
+
+    def get_total(self, purchase):
+        return float(sum(i.amount for i in purchase.items.all()))
+
+
+class PurchaseItemInputSerializer(serializers.Serializer):
+    product_id = tenant_field(Product, source="product")
+    quantity = serializers.IntegerField(min_value=1)
+    unit_cost = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0)
+
+
+class PurchaseCreateSerializer(serializers.Serializer):
+    """A supplier's bill: the products bought, all received at one location."""
+
+    supplier_id = tenant_field(Supplier, source="supplier", required=False, allow_null=True)
+    location_id = tenant_field(Location, source="location")
+    items = PurchaseItemInputSerializer(many=True, allow_empty=False, max_length=200)
+    reference = serializers.CharField(max_length=60, required=False, allow_blank=True, default="")
+    note = serializers.CharField(max_length=300, required=False, allow_blank=True, default="")
+    # When it was bought, if not now. Never in the future.
+    purchased_at = serializers.DateTimeField(required=False, allow_null=True)
+
+    def validate_purchased_at(self, value):
+        if value and value > timezone.now():
+            raise serializers.ValidationError("The purchase date can't be in the future.")
+        return value

@@ -11,12 +11,14 @@ import type {
   Overview,
   Page,
   Product,
+  Purchase,
   Rental,
   RentalSummary,
   Shipment,
   ShipmentCounts,
   StockRequest,
   StockSummary,
+  Supplier,
   Transfer,
 } from "@/lib/types"
 
@@ -172,5 +174,15 @@ export const useTransfers = (params: Params & { page: number }, options?: { page
   usePage<Transfer>("transfers/", params, options)
 export const useStockRequests = (params: Params & { page: number }, options?: { pageSize?: number; enabled?: boolean }) =>
   usePage<StockRequest>("stock-requests/", params, options)
+export const useSuppliers = (params: Params & { page: number }, options?: { pageSize?: number; enabled?: boolean }) =>
+  usePage<Supplier>("suppliers/", params, options)
+export const usePurchases = (params: Params & { page: number }, options?: { pageSize?: number; enabled?: boolean }) =>
+  usePage<Purchase>("purchases/", params, options)
+
+/** How many purchases match the filters, and their total. */
+export function usePurchaseSummary(params: Params = {}) {
+  return useQuery({ ...apiQuery<{ count: number; total: number }>("purchases/summary/", params), placeholderData: keepPreviousData })
+}
+
 export const useActivity = (params: Params & { page: number }, options?: { pageSize?: number; enabled?: boolean }) =>
   usePage<Activity>("activity/", params, options)
