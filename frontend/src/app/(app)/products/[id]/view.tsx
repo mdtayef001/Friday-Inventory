@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react"
 import Link from "next/link"
-import { ArrowLeft, Boxes, CalendarClock, Banknote, PackageX, Pencil, Printer, ShoppingCart, Truck, Warehouse } from "lucide-react"
+import { ArrowLeft, Boxes, CalendarClock, Banknote, PackageX, Pencil, Plus, Printer, ShoppingCart, Truck, Warehouse } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { EmptyState, ListSkeleton, PageBody, PageHeader, Pill, QueryError, StatCard, MoneyTotal } from "@/components/common"
 import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { RentalStatusPill, ShipmentStatusPill, StockPill } from "@/components/status"
+import { useAddToCart } from "@/components/cart"
 import { SellDialog } from "@/components/sell-dialog"
 import { StockAdjustDialog } from "@/components/stock-adjust-dialog"
 import { ApiError } from "@/lib/api/errors"
@@ -29,6 +30,7 @@ export function ProductDetailView({ id }: { id: string }) {
   const rentalSummary = useRentalSummary({ product: id }, showRentals).data
   const [adjust, setAdjust] = useState<{ locationId?: string; key: number } | null>(null)
   const [selling, setSelling] = useState(false)
+  const addToCart = useAddToCart()
   const qrRef = useRef<HTMLDivElement>(null)
 
   if (error && !(error instanceof ApiError && error.status === 404)) {
@@ -100,6 +102,10 @@ export function ProductDetailView({ id }: { id: string }) {
             <Button variant="outline" onClick={() => setAdjust({ key: Date.now() })}>
               <Boxes />
               Update stock
+            </Button>
+            <Button variant="outline" onClick={() => addToCart(product)} disabled={total === 0}>
+              <Plus />
+              Add to cart
             </Button>
             <Button onClick={() => setSelling(true)} disabled={total === 0}>
               <ShoppingCart />

@@ -339,6 +339,8 @@ export interface Sale {
   receiptToken: string | null
   /** Only right after starting an online payment: the SSLCommerz page to pay on. */
   paymentUrl?: string
+  /** Only right after a checkout: every item sold with this one, this one first. */
+  sales?: Sale[]
 }
 
 /** What SSLCommerz has on record for an online sale, as its API names the fields. */
@@ -371,14 +373,19 @@ export interface Receipt {
   reference: string
   /** Phone and email on the team's copy only, for sending it. */
   client: { name: string; company: string; phone?: string; email?: string } | null
-  items: { name: string; quantity: number; unitPrice: number; amount: number }[]
+  /** Every item of the checkout; `returned` once that item came back. */
+  items: { name: string; quantity: number; unitPrice: number; amount: number; returned: boolean }[]
   subtotal: number
+  /** The discount on the whole bill. */
   discount: number
   total: number
+  /** What went back to the buyer for returned items. */
+  refunded: number
   paymentMethod: PaymentMethod | ""
   paymentLabel: string
   gatewayMethod: string
   paymentReference: string
+  /** Once every item came back. */
   refundedAt: string | null
   /** Team. */
   id?: string

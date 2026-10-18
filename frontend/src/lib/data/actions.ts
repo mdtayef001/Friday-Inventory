@@ -77,17 +77,16 @@ export const actions = {
     await call(`clients/${id}/`, "DELETE", undefined, "clients")
   },
 
+  /** A checkout: one or more items from one shop, one discount on the whole bill, one payment, one receipt. */
   sell(input: {
-    productId: string
     locationId: string
-    quantity: number
-    unitPrice: number
+    items: { productId: string; quantity: number; unitPrice: number }[]
     discount: number
     clientId?: string
     paymentMethod: Sale["paymentMethod"]
     paymentReference?: string
   }) {
-    positiveInt(input.quantity)
+    for (const item of input.items) positiveInt(item.quantity)
     return call<Sale>("sales/", "POST", input, ...STOCK, "sales", "clients")
   },
   /** The current state of an online payment, for the waiting screen. */

@@ -15,6 +15,7 @@ import { request } from "@/lib/api/client"
 import { actions } from "@/lib/data/actions"
 import { qtyAt, useActivity, useProduct, withParams } from "@/lib/data/queries"
 import { timeAgo } from "@/lib/format"
+import { useAddToCart } from "@/components/cart"
 import { SellDialog } from "@/components/sell-dialog"
 import type { Page, Product } from "@/lib/types"
 
@@ -216,6 +217,7 @@ function FoundProduct({ product: found, locationId, onDone }: { product: Product
   const product = useProduct(found.id).data ?? found
   const [quantity, setQuantity] = useState(1)
   const [selling, setSelling] = useState(false)
+  const addToCart = useAddToCart()
   const current = qtyAt(product, locationId)
 
   const [run, pending] = useAttempt()
@@ -269,12 +271,27 @@ function FoundProduct({ product: found, locationId, onDone }: { product: Product
             <Plus />
           </Button>
         </div>
-        <div className="flex w-full gap-2 sm:w-auto">
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           {canSell && (
-            <Button size="lg" variant={canAddStock ? "outline" : "default"} className="h-12 flex-1 px-6 text-base" onClick={() => setSelling(true)} disabled={current === 0}>
-              <ShoppingCart />
-              Sell
-            </Button>
+            <>
+              <Button
+                size="lg"
+                variant="outline"
+                className="h-12 flex-1 px-6 text-base"
+                onClick={() => {
+                  addToCart(product, Math.min(quantity, current), locationId)
+                  onDone()
+                }}
+                disabled={current === 0}
+              >
+                <Plus />
+                Add to cart
+              </Button>
+              <Button size="lg" variant={canAddStock ? "outline" : "default"} className="h-12 flex-1 px-6 text-base" onClick={() => setSelling(true)} disabled={current === 0}>
+                <ShoppingCart />
+                Sell
+              </Button>
+            </>
           )}
           {canAddStock && (
             <Button size="lg" className="h-12 flex-1 px-6 text-base" onClick={add} disabled={pending}>

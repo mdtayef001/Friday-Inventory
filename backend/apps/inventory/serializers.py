@@ -282,11 +282,17 @@ class SaleSerializer(serializers.ModelSerializer):
         return data
 
 
-class SellSerializer(serializers.Serializer):
+class SellItemSerializer(serializers.Serializer):
     product_id = tenant_field(Product, source="product")
-    location_id = tenant_field(Location, source="location")
     quantity = serializers.IntegerField(min_value=1)
     unit_price = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0)
+
+
+class SellSerializer(serializers.Serializer):
+    """A checkout: the items in the cart, all from one shop, with one discount on the whole bill and one payment."""
+
+    location_id = tenant_field(Location, source="location")
+    items = SellItemSerializer(many=True, allow_empty=False, max_length=100)
     discount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0, required=False, default=0)
     client_id = tenant_field(Client, source="client", required=False, allow_null=True)
     payment_method = serializers.ChoiceField(choices=Sale.Method.choices, required=False, default=Sale.Method.CASH)
@@ -301,7 +307,7 @@ class SellSerializer(serializers.Serializer):
 
 
 class ReceiptSerializer(serializers.ModelSerializer):
-    """A paid sale as the buyer's receipt. Never cost or profit. The team's copy
+    """A paid sale, with every item sold with it at the same checkout, as the buyer's receipt. Never cost or profit. The team's copy
     (`internal` in the context) adds who served and the client's contact
     details for sending it; the buyer's public link leaves those out."""
 
@@ -313,7 +319,10 @@ class ReceiptSerializer(serializers.ModelSerializer):
     reference = serializers.SerializerMethodField()
     items = serializers.SerializerMethodField()
     subtotal = serializers.SerializerMethodField()
-    total = serializers.DecimalField(source="revenue", max_digits=14, decimal_places=2)
+    discount = serializers.SerializerMethodField()
+    total = serializers.SerializerMethodField()
+    refunded = serializers.SerializerMethodField()
+    refunded_at = serializers.SerializerMethodField()
     payment_label = serializers.CharField(source="get_payment_method_display")
     sold_by = serializers.CharField(source="sold_by.name", default="")
 
@@ -321,7 +330,7 @@ class ReceiptSerializer(serializers.ModelSerializer):
         model = Sale
         fields = [
             "id", "receipt_no", "receipt_token", "business_name", "currency", "shop", "sold_at", "channel", "reference",
-            "client", "items", "subtotal", "discount", "total", "payment_method", "payment_label", "gateway_method",
+            "client", "items", "subtotal", "discount", "total", "refunded", "payment_method", "payment_label", "gateway_method",
             "payment_reference", "refunded_at", "sold_by",
         ]
 
@@ -349,18 +358,46 @@ class ReceiptSerializer(serializers.ModelSerializer):
             return sale.rental.code
         return ""
 
+    def lines(self, sale):
+        """Every item of the checkout. Cached, since several fields read it."""
+        if getattr(self, "_lines_for", None) != sale.pk:
+            self._lines_for, self._lines = sale.pk, list(sale.receipt_sales())
+        return self._lines
+
     def get_items(self, sale):
-        # One line for now; a checkout with several items will group sales under one receipt.
         money = serializers.DecimalField(max_digits=14, decimal_places=2)
-        return [{
-            "name": sale.product_name,
-            "quantity": sale.quantity,
-            "unit_price": money.to_representation(sale.unit_price),
-            "amount": money.to_representation(sale.unit_price * sale.quantity),
-        }]
+        return [
+            {
+                "name": s.product_name,
+                "quantity": s.quantity,
+                "unit_price": money.to_representation(s.unit_price),
+                "amount": money.to_representation(s.unit_price * s.quantity),
+                "returned": s.refunded_at is not None,
+            }
+            for s in self.lines(sale)
+        ]
 
     def get_subtotal(self, sale):
-        return serializers.DecimalField(max_digits=14, decimal_places=2).to_representation(sale.unit_price * sale.quantity)
+        return self.money(sum(s.unit_price * s.quantity for s in self.lines(sale)))
+
+    def get_discount(self, sale):
+        return self.money(sum(s.discount for s in self.lines(sale)))
+
+    def get_total(self, sale):
+        return self.money(sum(s.revenue for s in self.lines(sale)))
+
+    def get_refunded(self, sale):
+        """What went back to the buyer for returned items."""
+        return self.money(sum(s.revenue for s in self.lines(sale) if s.refunded_at))
+
+    def get_refunded_at(self, sale):
+        """When the last item came back, once every item has. Partly returned receipts stay paid."""
+        dates = [s.refunded_at for s in self.lines(sale)]
+        return serializers.DateTimeField().to_representation(max(dates)) if all(dates) else None
+
+    @staticmethod
+    def money(value):
+        return serializers.DecimalField(max_digits=14, decimal_places=2).to_representation(value)
 
     def to_representation(self, sale):
         data = super().to_representation(sale)

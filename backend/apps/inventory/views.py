@@ -717,6 +717,7 @@ class PublicReceiptView(APIView):
         sale = (
             Sale.objects.select_related("business", "location", "client", "shipment", "rental")
             .filter(receipt_token=token, receipt_no__isnull=False)
+            .order_by("id")
             .first()
         )
         if not sale or not sale.business.is_open:
@@ -965,8 +966,10 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixi
             # Staff can't see the client list, so they can't pick one either.
             data["client"] = None
         self.check_location(data["location"])
-        sale = services.sell(request.user, **data)
-        body = self.get_serializer(sale).data
+        sales = services.sell(request.user, **data)
+        sale = sales[0]
+        # The first item, with every item of the checkout for the till's screen.
+        body = {**self.get_serializer(sale).data, "sales": self.get_serializer(sales, many=True).data}
         if sale.payment_status == Sale.PaymentStatus.PENDING:
             url, error = services.open_online_payment(sale)
             if error:

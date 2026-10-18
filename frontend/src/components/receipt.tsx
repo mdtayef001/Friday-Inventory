@@ -6,7 +6,7 @@ import type { Receipt } from "@/lib/types"
 const REFERENCE_LABEL = { store: "", order: "Order", rental: "Rental" } as const
 
 /**
- * The buyer's receipt for one paid sale. Rendered on the server for both the
+ * The buyer's receipt for one paid checkout, with every item on it. Rendered on the server for both the
  * team's printable copy (/receipt/[id]) and the buyer's link (/r/[token]), so
  * it formats money in the business's own currency rather than through <StoreGate>.
  */
@@ -78,7 +78,10 @@ export function ReceiptDocument({ receipt: r }: { receipt: Receipt }) {
           <tbody>
             {r.items.map((item, i) => (
               <tr key={i} className="border-b align-top">
-                <td className="py-3 pr-2 font-medium">{item.name}</td>
+                <td className="py-3 pr-2 font-medium">
+                  {item.name}
+                  {item.returned && <span className="block text-xs font-normal text-red-700 dark:text-red-400">Returned</span>}
+                </td>
                 <td className="py-3 text-right tabular-nums">{item.quantity}</td>
                 <td className="py-3 pl-2 text-right tabular-nums whitespace-nowrap">{money(item.unitPrice)}</td>
                 <td className="py-3 pl-2 text-right tabular-nums whitespace-nowrap">{money(item.amount)}</td>
@@ -102,6 +105,18 @@ export function ReceiptDocument({ receipt: r }: { receipt: Receipt }) {
             <span>{r.refundedAt ? "Total (refunded)" : "Total paid"}</span>
             <span className="tabular-nums">{money(r.total)}</span>
           </div>
+          {r.refunded > 0 && !r.refundedAt && (
+            <>
+              <div className="flex justify-between text-red-700 dark:text-red-400">
+                <span>Refunded for returns</span>
+                <span className="tabular-nums">−{money(r.refunded)}</span>
+              </div>
+              <div className="flex justify-between font-medium">
+                <span>Kept</span>
+                <span className="tabular-nums">{money(r.total - r.refunded)}</span>
+              </div>
+            </>
+          )}
         </div>
 
         <footer className="mt-8 border-t pt-4 text-center text-xs text-muted-foreground">
@@ -148,7 +163,10 @@ function TillReceipt({ receipt: r, rows, money }: { receipt: Receipt; rows: [str
       <div className={rule} />
       {r.items.map((item, i) => (
         <div key={i} className="mb-[1mm]">
-          <p className="font-bold break-words">{item.name}</p>
+          <p className="font-bold break-words">
+            {item.name}
+            {item.returned && " (RETURNED)"}
+          </p>
           <div className="flex justify-between gap-2 tabular-nums">
             <span>
               {item.quantity} × {money(item.unitPrice)}
@@ -172,6 +190,18 @@ function TillReceipt({ receipt: r, rows, money }: { receipt: Receipt; rows: [str
         <span>{r.refundedAt ? "REFUNDED" : "TOTAL PAID"}</span>
         <span>{money(r.total)}</span>
       </div>
+      {r.refunded > 0 && !r.refundedAt && (
+        <>
+          <div className="flex justify-between tabular-nums">
+            <span>Refunded for returns</span>
+            <span>−{money(r.refunded)}</span>
+          </div>
+          <div className="flex justify-between font-bold tabular-nums">
+            <span>KEPT</span>
+            <span>{money(r.total - r.refunded)}</span>
+          </div>
+        </>
+      )}
       <div className={rule} />
       <p className="text-center">
         {r.refundedAt ? `Refunded on ${formatDateTime(r.refundedAt)}. ` : ""}Thank you for shopping with {r.businessName}.

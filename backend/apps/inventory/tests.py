@@ -228,8 +228,11 @@ class SalesBase(ApiTestCase):
         self.login("owner@a.com")
         self.client_id = self.client.post("/api/clients/", {"name": "Rahim"}, format="json").json()["id"]
 
-    def sell(self, **body):
-        data = {"productId": self.product.id, "locationId": self.warehouse.id, "quantity": 2, "unitPrice": "480", **body}
+    def sell(self, items=None, **body):
+        """One item (productId, quantity, unitPrice in `body`) unless `items` lists several."""
+        item = {"productId": self.product.id, "quantity": 2, "unitPrice": "480"}
+        item.update({k: body.pop(k) for k in list(body) if k in item})
+        data = {"locationId": self.warehouse.id, "items": [item] if items is None else items, **body}
         return self.client.post("/api/sales/", data, format="json")
 
 
@@ -765,7 +768,7 @@ class ReceiptTests(PaymentsBase):
         self.assertEqual(res.status_code, 200, res.content)
         r = res.json()
         self.assertEqual((r["receiptNo"], r["businessName"], r["shop"]["name"]), ("R-000001", "Shop A", "Main"))
-        self.assertEqual(r["items"], [{"name": "TV", "quantity": 2, "unitPrice": 480, "amount": 960}])
+        self.assertEqual(r["items"], [{"name": "TV", "quantity": 2, "unitPrice": 480, "amount": 960, "returned": False}])
         self.assertEqual((r["subtotal"], r["discount"], r["total"], r["paymentLabel"]), (960, 60, 900, "Cash"))
         self.assertEqual((r["soldBy"], r["client"]["name"], r["receiptToken"]), ("owner@a.com", "Rahim", sale["receiptToken"]))
         for private in ("unitCost", "cost", "profit"):
@@ -824,6 +827,87 @@ class ReceiptTests(PaymentsBase):
         self.client.post(f"/api/rentals/{rental['id']}/return/")
         sale = self.client.get("/api/sales/").json()[0]
         self.assertEqual((sale["paymentMethod"], sale["receiptNo"]), ("cash", "R-000001"))
+
+
+class CheckoutTests(PaymentsBase):
+    """Several items on one bill: one discount, one payment, one receipt, each item still its own sale."""
+
+    def setUp(self):
+        super().setUp()
+        self.radio = Product.objects.create(business=self.biz, sku="RD-1", name="Radio", price=100, cost=40)
+        StockLevel.objects.create(business=self.biz, product=self.radio, location=self.warehouse, quantity=5)
+
+    def cart(self, **body):
+        items = [
+            {"productId": self.product.id, "quantity": 2, "unitPrice": "500"},  # 1000
+            {"productId": self.radio.id, "quantity": 3, "unitPrice": "100"},  # 300
+        ]
+        return self.sell(items=items, **body)
+
+    def radio_qty(self):
+        return StockLevel.objects.get(product=self.radio, location=self.warehouse).quantity
+
+    def test_one_receipt_and_the_discount_shared_by_amount(self):
+        res = self.cart(discount="130")
+        self.assertEqual(res.status_code, 201, res.content)
+        sales = res.json()["sales"]
+        self.assertEqual([s["productName"] for s in sales], ["TV", "Radio"])
+        self.assertEqual(len({s["receiptNo"] for s in sales} | {s["receiptToken"] for s in sales}), 2)  # one number, one token
+        self.assertEqual([(s["discount"], s["revenue"], s["profit"]) for s in sales], [(100, 900, 300), (30, 270, 150)])
+        self.assertEqual((self.qty(self.warehouse), self.radio_qty()), (8, 2))
+        s = self.client.get("/api/sales/summary/").json()
+        self.assertEqual((s["count"], s["revenue"], s["unitsSold"]), (2, 1170, 5))
+        r = self.client.get(f"/api/sales/{sales[1]['id']}/receipt/").json()
+        self.assertEqual((r["receiptNo"], len(r["items"]), r["subtotal"], r["discount"], r["total"]), ("R-000001", 2, 1300, 130, 1170))
+        self.assertEqual(self.client.get(f"/api/receipts/{sales[0]['receiptToken']}/").json()["total"], 1170)
+        self.assertEqual(self.sell(quantity=1).json()["receiptNo"], "R-000002")
+
+    def test_discount_rounding_adds_up(self):
+        items = [{"productId": self.radio.id, "quantity": 1, "unitPrice": "100"} for _ in range(3)]
+        sales = self.sell(items=items, discount="10").json()["sales"]
+        self.assertEqual(sum(s["discount"] for s in sales), 10)
+        self.assertEqual(sorted(s["discount"] for s in sales), [3.33, 3.33, 3.34])
+
+    def test_one_item_short_sells_nothing(self):
+        items = [{"productId": self.product.id, "quantity": 1, "unitPrice": "500"}, {"productId": self.radio.id, "quantity": 6, "unitPrice": "100"}]
+        self.assertEqual(self.sell(items=items).status_code, 400)
+        self.assertEqual(self.cart(discount="1301").status_code, 400)
+        self.assertEqual(self.sell(items=[]).status_code, 400)
+        self.assertEqual((self.qty(self.warehouse), self.radio_qty()), (10, 5))
+        self.assertEqual(self.client.get("/api/sales/").json(), [])
+
+    def test_one_online_payment_for_the_whole_cart(self):
+        from unittest import mock
+
+        from .models import Sale
+
+        self.save_merchant()
+        self.settings_with(online=True)
+        with mock.patch("apps.billing.sslcommerz.open_session", return_value=("https://pay/x", None)) as opened:
+            res = self.cart(paymentMethod="online").json()
+        self.assertEqual((opened.call_args.kwargs["amount"], opened.call_args.kwargs["product_name"]), (1300, "2 x TV, 3 x Radio"))
+        tran = Sale.objects.get(pk=res["id"]).tran_id
+        with mock.patch("apps.billing.sslcommerz.check", return_value=(True, "BKASH-BKash", "BANK1")) as check:
+            self.client.post("/api/sale-payments/success/", {"tranId": tran, "valId": "VAL1"}, format="json")
+        self.assertEqual(check.call_args.kwargs["amount"], 1300)
+        self.assertEqual({(s.payment_status, s.receipt_no) for s in Sale.objects.all()}, {("paid", 1)})
+        # Returning one item refunds just that item.
+        with mock.patch("apps.billing.sslcommerz.refund", return_value=("REF1", None)) as refund:
+            self.client.post(f"/api/sales/{res['sales'][1]['id']}/return/", {"reason": "Broken"}, format="json")
+        self.assertEqual(refund.call_args.kwargs["amount"], 300)
+        r = self.client.get(f"/api/sales/{res['id']}/receipt/").json()
+        self.assertEqual(([i["returned"] for i in r["items"]], r["refunded"], r["refundedAt"]), ([False, True], 300, None))
+
+    def test_cancelling_an_online_cart_puts_every_item_back(self):
+        from unittest import mock
+
+        self.save_merchant()
+        self.settings_with(online=True)
+        with mock.patch("apps.billing.sslcommerz.open_session", return_value=("https://pay/x", None)):
+            res = self.cart(paymentMethod="online").json()
+        self.assertEqual((self.qty(self.warehouse), self.radio_qty()), (8, 2))
+        self.client.post(f"/api/sales/{res['id']}/cancel-payment/")
+        self.assertEqual((self.qty(self.warehouse), self.radio_qty()), (10, 5))
 
 
 class ReturnTests(PaymentsBase):

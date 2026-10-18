@@ -7,6 +7,7 @@ raised as ValidationError with a readable message the frontend shows as a toast.
 
 import secrets
 from datetime import timedelta
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.conf import settings
 from django.db import transaction
@@ -16,7 +17,7 @@ from rest_framework.exceptions import ValidationError
 
 from apps.accounts.models import Business
 
-from .models import Activity, Rental, Sale, Shipment, ShipmentEvent, StockLevel, StockRequest, Transfer
+from .models import Activity, Rental, Sale, Shipment, ShipmentEvent, StockLevel, StockRequest, Transfer, tracking_token
 
 
 def ref_code(prefix):
@@ -260,20 +261,42 @@ def enabled_methods(business):
 
 
 def number_receipt(sale):
-    """Gives a paid sale the business's next receipt number. Call inside a transaction.
-    Locking the business row makes two sales at the same moment wait for each other."""
+    """Gives a paid sale, and every item sold with it, the business's next receipt number.
+    Call inside a transaction. Locking the business row makes two sales at the same moment wait for each other."""
     Business.objects.select_for_update().filter(pk=sale.business_id).first()
     last = Sale.objects.filter(business_id=sale.business_id).aggregate(n=Max("receipt_no"))["n"] or 0
     sale.receipt_no = last + 1
-    sale.save(update_fields=["receipt_no"])
+    sale.receipt_sales().update(receipt_no=sale.receipt_no)
     return sale
 
 
+def split_discount(amounts, discount):
+    """One discount on the whole bill, shared across the items by how much each costs,
+    so each item's profit stays right. Rounding is settled on the most expensive item."""
+    total = sum(amounts)
+    if not discount or not total:
+        return [Decimal(0)] * len(amounts)
+    shares = [(discount * a / total).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) for a in amounts]
+    biggest = amounts.index(max(amounts))
+    shares[biggest] += discount - sum(shares)
+    return shares
+
+
+def describe(sales):
+    return ", ".join(f"{s.quantity} × {s.product_name}" for s in sales)
+
+
 @transaction.atomic
-def sell(user, *, product, location, quantity, unit_price, discount=0, client=None, payment_method=Sale.Method.CASH, payment_reference=""):
-    """A walk-in sale at a shop: takes the stock and records the money. An online
-    payment waits for SSLCommerz: the stock is held, and the sale only counts once paid."""
-    if discount > unit_price * quantity:
+def sell(user, *, location, items, discount=0, client=None, payment_method=Sale.Method.CASH, payment_reference=""):
+    """A walk-in checkout at a shop: one or more items, one discount on the whole bill,
+    one payment, one receipt. Each item is still its own sale (so profit per product
+    keeps working), grouped under one receipt token and number. Takes the stock and
+    records the money. An online payment waits for SSLCommerz: the stock is held, and
+    the sales only count once paid. Returns the sales in the order rung up."""
+    if not items:
+        raise ValidationError("Add at least one item.")
+    amounts = [item["unit_price"] * item["quantity"] for item in items]
+    if discount > sum(amounts):
         raise ValidationError("The discount can't be more than the total.")
     if payment_method not in enabled_methods(user.business):
         raise ValidationError("This payment method isn't turned on for your business.")
@@ -281,31 +304,38 @@ def sell(user, *, product, location, quantity, unit_price, discount=0, client=No
     if payment_reference and Sale.objects.filter(business=user.business, payment_reference__iexact=payment_reference).exists():
         raise ValidationError("This transaction ID is already on another sale.")
     online = payment_method == Sale.Method.ONLINE
-    change_stock(product, location, -quantity)
-    sale = Sale.objects.create(
-        payment_method=payment_method,
-        payment_reference=payment_reference,
-        payment_status=Sale.PaymentStatus.PENDING if online else Sale.PaymentStatus.PAID,
-        tran_id=f"FRS{secrets.token_hex(8).upper()}" if online else None,
-        business=user.business,
-        channel=Sale.Channel.STORE,
-        product=product,
-        product_name=product.name,
-        quantity=quantity,
-        unit_price=unit_price,
-        unit_cost=product.cost,
-        discount=discount,
-        location=location,
-        client=client,
-        sold_by=user,
-    )
-    if not online:
-        number_receipt(sale)
+    token, tran_id = tracking_token(), f"FRS{secrets.token_hex(8).upper()}" if online else None
+    sales = []
+    for item, share in zip(items, split_discount(amounts, discount)):
+        product = item["product"]
+        change_stock(product, location, -item["quantity"])
+        sales.append(Sale.objects.create(
+            payment_method=payment_method,
+            payment_reference=payment_reference,
+            payment_status=Sale.PaymentStatus.PENDING if online else Sale.PaymentStatus.PAID,
+            tran_id=tran_id,
+            receipt_token=token,
+            business=user.business,
+            channel=Sale.Channel.STORE,
+            product=product,
+            product_name=product.name,
+            quantity=item["quantity"],
+            unit_price=item["unit_price"],
+            unit_cost=product.cost,
+            discount=share,
+            location=location,
+            client=client,
+            sold_by=user,
+        ))
+    total = sum(s.revenue for s in sales)
     if online:
-        log(user, "Online payment started", f"{quantity} × {product.name} at {location.name} for {sale.revenue:.2f}")
+        log(user, "Online payment started", f"{describe(sales)} at {location.name} for {total:.2f}")
     else:
-        log(user, "Sold", f"{quantity} × {product.name} at {location.name} for {sale.revenue:.2f} ({sale.get_payment_method_display()})")
-    return sale
+        number_receipt(sales[0])
+        for s in sales[1:]:
+            s.receipt_no = sales[0].receipt_no
+        log(user, "Sold", f"{describe(sales)} at {location.name} for {total:.2f} ({sales[0].get_payment_method_display()})")
+    return sales
 
 
 # ---------- Online payments at the counter (the business's own SSLCommerz account) ----------
@@ -314,17 +344,18 @@ PENDING_MINUTES = 30
 
 
 def open_online_payment(sale):
-    """Starts the SSLCommerz checkout for a waiting sale. Returns (url, error)."""
+    """Starts the SSLCommerz checkout for a waiting sale and the items sold with it. Returns (url, error)."""
     from apps.billing import sslcommerz
 
     account = sslcommerz.merchant_account(sale.business)
     if not account:
         return None, "Online payments aren't set up. The owner adds the SSLCommerz account in Business Settings."
     client = sale.client
+    sales = list(sale.receipt_sales())
     return sslcommerz.open_session(
         account,
         tran_id=sale.tran_id,
-        amount=sale.revenue,
+        amount=sum(s.revenue for s in sales),
         currency=sale.business.settings.get("currency", "BDT"),
         callback_base=f"{settings.FRONTEND_URL.rstrip('/')}/api/sale-payments/sslcommerz",
         customer={
@@ -333,7 +364,7 @@ def open_online_payment(sale):
             "phone": client.phone if client else "",
             "address": client.address if client else sale.business.name,
         },
-        product_name=f"{sale.quantity} x {sale.product_name}",
+        product_name=describe(sales).replace("×", "x")[:255],
         product_category="Retail",
         value_a=str(sale.business_id),
     )
@@ -341,29 +372,30 @@ def open_online_payment(sale):
 
 @transaction.atomic
 def confirm_online_payment(tran_id, val_id):
-    """Called with what SSLCommerz posted back. Only marks the sale paid after
-    SSLCommerz confirms it directly. Safe to call twice (redirect and IPN)."""
+    """Called with what SSLCommerz posted back. Only marks the sales paid after
+    SSLCommerz confirms it directly. Safe to call twice (redirect and IPN).
+    Returns the first sale of the checkout."""
     from apps.billing import sslcommerz
 
-    sale = Sale.objects.select_for_update().select_related("business").filter(tran_id=tran_id).first()
-    if not sale:
+    sales = list(Sale.objects.select_for_update().select_related("business").filter(tran_id=tran_id).order_by("id"))
+    if not sales:
         return None
+    sale = sales[0]
     if sale.payment_status != Sale.PaymentStatus.PENDING:
         return sale
     account = sslcommerz.merchant_account(sale.business)
     if not account:
         return sale
     ok, method, bank_tran_id = sslcommerz.check(
-        account, val_id, tran_id=tran_id, amount=sale.revenue, currency=sale.business.settings.get("currency", "BDT")
+        account, val_id, tran_id=tran_id, amount=sum(s.revenue for s in sales), currency=sale.business.settings.get("currency", "BDT")
     )
     if ok:
-        sale.payment_status = Sale.PaymentStatus.PAID
-        sale.gateway_method = method
-        sale.val_id = val_id
-        sale.bank_tran_id = bank_tran_id
-        sale.save(update_fields=["payment_status", "gateway_method", "val_id", "bank_tran_id"])
+        Sale.objects.filter(tran_id=tran_id).update(
+            payment_status=Sale.PaymentStatus.PAID, gateway_method=method, val_id=val_id, bank_tran_id=bank_tran_id
+        )
+        sale.refresh_from_db()
         number_receipt(sale)
-        Activity.objects.create(business=sale.business, user=sale.sold_by, action="Paid online", detail=f"{sale.quantity} × {sale.product_name} · {method}")
+        Activity.objects.create(business=sale.business, user=sale.sold_by, action="Paid online", detail=f"{describe(sales)} · {method}"[:500])
     return sale
 
 
@@ -472,15 +504,18 @@ def check_online_payment(sale):
 
 @transaction.atomic
 def release_online_payment(sale, status=Sale.PaymentStatus.CANCELLED):
-    """The payment failed, was cancelled, or ran out of time: put the stock back."""
-    sale = Sale.objects.select_for_update().get(pk=sale.pk)
-    if sale.payment_status != Sale.PaymentStatus.PENDING:
-        return sale
-    if sale.product and sale.location:
-        change_stock(sale.product, sale.location, sale.quantity)
-    sale.payment_status = status
-    sale.save(update_fields=["payment_status"])
-    return sale
+    """The payment failed, was cancelled, or ran out of time: put the stock back
+    for every item paid with it."""
+    rows = Sale.objects.filter(tran_id=sale.tran_id) if sale.tran_id else Sale.objects.filter(pk=sale.pk)
+    sales = list(rows.select_for_update().order_by("id"))
+    for s in sales:
+        if s.payment_status != Sale.PaymentStatus.PENDING:
+            continue
+        if s.product_id and s.location_id:
+            change_stock(s.product, s.location, s.quantity)
+        s.payment_status = status
+        s.save(update_fields=["payment_status"])
+    return next(s for s in sales if s.pk == sale.pk)
 
 
 def expire_online_payments(business):

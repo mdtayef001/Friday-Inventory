@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import { AppHeader } from "@/components/app-header"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SubscriptionBanner } from "@/components/billing"
+import { CartProvider } from "@/components/cart"
 import { SessionProvider } from "@/components/session-provider"
 import { PageSkeleton, StoreGate } from "@/components/store-gate"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
@@ -27,14 +28,16 @@ async function AuthenticatedShell({ children }: { children: React.ReactNode }) {
   return (
     <SessionProvider user={user} business={business}>
       <StoreGate user={user} business={business}>
-        <SidebarProvider>
-          <AppSidebar />
-          <SidebarInset className="min-w-0">
-            <AppHeader />
-            <SubscriptionBanner />
-            <main className="flex-1">{children}</main>
-          </SidebarInset>
-        </SidebarProvider>
+        <CartProvider>
+          <SidebarProvider>
+            <AppSidebar />
+            <SidebarInset className="min-w-0">
+              <AppHeader />
+              <SubscriptionBanner />
+              <main className="flex-1">{children}</main>
+            </SidebarInset>
+          </SidebarProvider>
+        </CartProvider>
       </StoreGate>
     </SessionProvider>
   )

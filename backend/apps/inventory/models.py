@@ -318,7 +318,8 @@ class Sale(TenantModel):
     payment_method = models.CharField(max_length=10, choices=Method.choices, blank=True)
     # Only paid sales count. Online sales wait for SSLCommerz; the stock is held meanwhile.
     payment_status = models.CharField(max_length=10, choices=PaymentStatus.choices, default=PaymentStatus.PAID)
-    tran_id = models.CharField(max_length=40, null=True, blank=True, unique=True)
+    # Shared by every item paid in one SSLCommerz payment.
+    tran_id = models.CharField(max_length=40, null=True, blank=True, db_index=True)
     # The bKash / Nagad transaction ID staff copy from the customer's payment, for mobile sales.
     payment_reference = models.CharField(max_length=60, blank=True)
     # From SSLCommerz once paid, e.g. "BKASH-BKash".
@@ -326,15 +327,19 @@ class Sale(TenantModel):
     val_id = models.CharField(max_length=100, blank=True)
     bank_tran_id = models.CharField(max_length=100, blank=True)
     # Numbered 1, 2, 3… per business once the sale is paid, so unpaid online
-    # payments leave no gaps. Shown as R-000001.
+    # payments leave no gaps. Shown as R-000001. Every item of one checkout
+    # shares the number and the token.
     receipt_no = models.PositiveIntegerField(null=True, blank=True)
-    # For the buyer's public receipt link.
-    receipt_token = models.CharField(max_length=32, unique=True, default=tracking_token)
+    # For the buyer's public receipt link. Also what groups a checkout's items.
+    receipt_token = models.CharField(max_length=32, db_index=True, default=tracking_token)
 
     class Meta:
         ordering = ["-sold_at"]
-        indexes = [models.Index(fields=["business", "sold_at"])]
-        constraints = [models.UniqueConstraint(fields=["business", "receipt_no"], name="unique_receipt_no_per_business")]
+        indexes = [models.Index(fields=["business", "sold_at"]), models.Index(fields=["business", "receipt_no"])]
+
+    def receipt_sales(self):
+        """Every item sold with this one at the same checkout, this one included, in the order rung up."""
+        return Sale.objects.filter(business_id=self.business_id, receipt_token=self.receipt_token).order_by("id")
 
     @property
     def receipt_code(self):
