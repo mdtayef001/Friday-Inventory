@@ -1047,7 +1047,7 @@ class PurchaseTests(PurchaseBase):
         self.assertEqual(len(self.client.get("/api/purchases/", {"search": "rahim"}).json()), 1)
         self.assertEqual(len(self.client.get("/api/purchases/", {"supplier": self.supplier_id}).json()), 1)
         self.assertEqual(len(self.client.get("/api/purchases/", {"product": self.product.id}).json()), 2)
-        self.assertEqual(self.client.get("/api/purchases/summary/").json(), {"count": 2, "total": 4320.0})
+        self.assertEqual(self.client.get("/api/purchases/summary/").json(), {"count": 2, "total": 4320.0, "due": 0.0})
         stats = self.client.get("/api/suppliers/", {"stats": "1"}).json()[0]["stats"]
         self.assertEqual((stats["purchaseCount"], stats["spent"]), (1, 3600.0))
 
@@ -1205,3 +1205,79 @@ class SupplierReturnTests(PurchaseBase):
         item = PurchaseItem.objects.create(purchase=theirs, product=other, product_name="X", quantity=5, unit_cost=1)
         res = self.client.post("/api/supplier-returns/", {"itemId": item.id, "quantity": 1, "reason": "x"}, format="json")
         self.assertEqual(res.status_code, 400)
+
+
+class SupplierPaymentTests(PurchaseBase):
+    """Buying on credit and paying later: payments go to the oldest bills first."""
+
+    def pay(self, amount, **body):
+        data = {"supplierId": self.supplier_id, "amount": str(amount), "method": "cash", **body}
+        return self.client.post("/api/supplier-payments/", data, format="json")
+
+    def owed(self):
+        return self.client.get(f"/api/suppliers/{self.supplier_id}/statement/").json()["owed"]
+
+    def test_paid_in_full_unless_told_otherwise(self):
+        p = self.buy().json()
+        self.assertEqual((p["total"], p["paidAmount"], p["due"], p["paymentStatus"]), (3600, 3600, 0, "paid"))
+        self.assertEqual(self.owed(), 0)
+        self.assertEqual(self.pay(1).status_code, 400)  # nothing owed
+
+    def test_credit_purchases_and_oldest_first_payments(self):
+        old = self.buy(paidAmount="1000", dueDate=(timezone.localdate() - timedelta(days=1)).isoformat(),
+                       purchasedAt=(timezone.now() - timedelta(days=5)).isoformat()).json()
+        new = self.buy(quantity=2, paidAmount="0").json()  # 720 on credit
+        self.assertEqual((old["due"], old["paymentStatus"], new["due"], new["paymentStatus"]), (2600, "partly_paid", 720, "unpaid"))
+        statement = self.client.get(f"/api/suppliers/{self.supplier_id}/statement/").json()
+        self.assertEqual((statement["owed"], statement["overdue"]), (3320, 2600))
+        self.assertEqual(self.client.get("/api/supplier-payments/summary/").json(), {"owed": 3320.0, "overdue": 2600.0, "supplierCount": 1})
+        self.assertEqual([p["code"] for p in self.client.get("/api/purchases/", {"payment": "overdue"}).json()], [old["code"]])
+        self.assertEqual(self.client.get("/api/suppliers/", {"stats": "1"}).json()[0]["stats"]["owed"], 3320.0)
+
+        self.assertEqual(self.pay(5000).status_code, 400)  # more than owed
+        res = self.pay(3000, method="mobile", note="bKash")
+        self.assertEqual(res.status_code, 201, res.content)
+        allocations = [(a["purchaseCode"], a["amount"]) for a in res.json()["allocations"]]
+        self.assertEqual(allocations, [(old["code"], 2600), (new["code"], 400)])
+        self.assertEqual(self.owed(), 320)
+        rows = {p["code"]: p for p in self.client.get("/api/purchases/").json()}
+        self.assertEqual((rows[old["code"]]["paymentStatus"], rows[new["code"]]["due"]), ("paid", 320))
+
+        # The statement runs oldest to newest: bill, its payment, bill, payment.
+        entries = self.client.get(f"/api/suppliers/{self.supplier_id}/statement/").json()["entries"][::-1]
+        self.assertEqual([(e["kind"], e["balance"]) for e in entries], [("purchase", 3600), ("payment", 2600), ("purchase", 3320), ("payment", 320)])
+
+        # A payment made by mistake: deleting it makes the bills owed again.
+        self.assertEqual(self.client.delete(f"/api/supplier-payments/{res.json()['id']}/").status_code, 204)
+        self.assertEqual(self.owed(), 3320)
+
+    def test_credit_needs_a_supplier_and_no_more_than_the_bill(self):
+        self.assertEqual(self.buy(paidAmount="0", supplierId=None).status_code, 400)
+        self.assertEqual(self.buy(paidAmount="4000").status_code, 400)
+        self.assertEqual(self.client.get("/api/purchases/").json(), [])
+
+    def test_a_return_can_come_off_what_is_owed(self):
+        p = self.buy(paidAmount="0").json()  # owe 3600
+        ret = self.client.post("/api/supplier-returns/", {"itemId": p["items"][0]["id"], "quantity": 2, "reason": "Broken"}, format="json").json()
+        r = self.client.post(f"/api/supplier-returns/{ret['id']}/credit/", {"amount": "720"}, format="json").json()
+        self.assertEqual((r["creditedAmount"], r["outstanding"], r["status"]), (720, 0, "settled"))
+        self.assertEqual(self.owed(), 2880)
+        credit = self.client.get("/api/supplier-payments/").json()[0]
+        self.assertEqual((credit["method"], credit["returnCode"], credit["amount"]), ("credit", "SR-000001", 720))
+        self.assertEqual(self.client.delete(f"/api/supplier-payments/{credit['id']}/").status_code, 400)
+
+    def test_only_owners_handle_payments(self):
+        self.buy(paidAmount="0")
+        manager = self.make_user("manager@a.com", User.Role.MANAGER, self.biz)
+        manager.locations.set([self.warehouse])
+        self.biz.settings["permissions"]["managerPurchases"] = True
+        self.biz.save()
+        self.client.credentials()
+        self.login("manager@a.com")
+        self.assertEqual(self.client.get("/api/supplier-payments/").status_code, 403)
+        self.assertEqual(self.pay(100).status_code, 403)
+        self.assertEqual(self.client.get(f"/api/suppliers/{self.supplier_id}/statement/").status_code, 403)
+        self.assertNotIn("owed", self.client.get("/api/suppliers/", {"stats": "1"}).json()[0]["stats"])
+        # They still buy on credit at their shops, and see what each bill owes.
+        res = self.buy(quantity=1, paidAmount="100")
+        self.assertEqual((res.status_code, res.json()["due"]), (201, 260))

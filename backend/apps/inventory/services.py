@@ -9,15 +9,15 @@ import secrets
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import transaction
-from django.db.models import Max, Sum
+from django.db.models import F, Max, Sum
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from apps.accounts.models import Business
 
 from .models import (
-    Activity, Product, Purchase, PurchaseItem, Rental, Sale, Shipment, ShipmentEvent, StockLevel, StockRequest, SupplierReturn, Transfer,
-    tracking_token,
+    Activity, PaymentAllocation, Product, Purchase, PurchaseItem, Rental, Sale, Shipment, ShipmentEvent, StockLevel, StockRequest,
+    SupplierPayment, SupplierReturn, Transfer, tracking_token,
 )
 
 
@@ -490,20 +490,27 @@ def create_product_for_purchase(user, new):
     return product
 
 
+def next_number(model, business):
+    """The business's next number for purchases, returns or payments. Call inside a
+    transaction: locking the business row makes two at the same moment wait for each other."""
+    Business.objects.select_for_update().filter(pk=business.pk).first()
+    return (model.objects.filter(business=business).aggregate(n=Max("number"))["n"] or 0) + 1
+
+
 @transaction.atomic
-def record_purchase(user, *, location, items, supplier=None, reference="", note="", purchased_at=None):
+def record_purchase(
+    user, *, location, items, supplier=None, reference="", note="", purchased_at=None, paid_amount=None, payment_method="cash", due_date=None
+):
     """One supplier's bill: every item goes into stock at `location`, and each
     product's cost is averaged in. Items with `new_product` instead of `product`
     are created first, in the same transaction, so a refused purchase leaves no
-    half-made products behind. Returns the purchase."""
+    half-made products behind. `paid_amount` is what was paid now (all of it when
+    not given); the rest is owed to the supplier. Returns the purchase."""
     if not items:
         raise ValidationError("Add at least one product.")
-    # Locking the business row makes two purchases at the same moment wait for each other's number.
-    Business.objects.select_for_update().filter(pk=user.business_id).first()
-    last = Purchase.objects.filter(business=user.business).aggregate(n=Max("number"))["n"] or 0
     purchase = Purchase.objects.create(
         business=user.business,
-        number=last + 1,
+        number=next_number(Purchase, user.business),
         supplier=supplier,
         location=location,
         reference=reference.strip(),
@@ -523,9 +530,88 @@ def record_purchase(user, *, location, items, supplier=None, reference="", note=
         )
     lines = list(purchase.items.all())
     total = sum(i.amount for i in lines)
+    paid = total if paid_amount is None else paid_amount
+    if paid > total:
+        raise ValidationError({"paid_amount": f"That's more than the bill ({total:.2f})."})
+    if paid < total and not supplier:
+        raise ValidationError({"paid_amount": "Choose the supplier to buy on credit, so the app knows who you owe."})
+    purchase.total = total
+    purchase.due_date = due_date if paid < total else None
+    purchase.save(update_fields=["total", "due_date"])
+    if paid > 0:
+        payment = SupplierPayment.objects.create(
+            business=user.business, number=next_number(SupplierPayment, user.business), supplier=supplier, amount=paid,
+            method=payment_method, paid_at=purchase.purchased_at, created_by=user,
+        )
+        allocate(payment, [purchase])
     who = f" from {supplier.name}" if supplier else ""
-    log(user, "Stock bought", f"{purchase.code}{who}: {describe(lines)} at {location.name} for {total:.2f}")
+    owed = f" · {total - paid:.2f} on credit" if paid < total else ""
+    log(user, "Stock bought", f"{purchase.code}{who}: {describe(lines)} at {location.name} for {total:.2f}{owed}")
     return purchase
+
+
+# ---------- Paying suppliers ----------
+# What's owed is each purchase's total less what was paid on it. A payment is given
+# to the oldest unpaid bills first, the way shops pay a wholesaler off.
+
+
+def allocate(payment, purchases):
+    """Spreads the payment over `purchases` in order, filling each one's due. Call inside a transaction."""
+    left = payment.amount
+    for purchase in purchases:
+        if left <= 0:
+            break
+        share = min(left, purchase.due)
+        if share <= 0:
+            continue
+        PaymentAllocation.objects.create(payment=payment, purchase=purchase, amount=share)
+        purchase.paid_amount += share
+        purchase.save(update_fields=["paid_amount"])
+        left -= share
+
+
+def unpaid_purchases(supplier):
+    """The supplier's purchases with something still owed, oldest first, locked."""
+    return list(
+        Purchase.objects.select_for_update()
+        .filter(supplier=supplier, paid_amount__lt=F("total"))
+        .order_by("purchased_at", "id")
+    )
+
+
+def owed_to(supplier):
+    return sum((p.due for p in Purchase.objects.filter(supplier=supplier, paid_amount__lt=F("total"))), Decimal(0))
+
+
+@transaction.atomic
+def pay_supplier(user, supplier, amount, method, paid_at=None, note=""):
+    """Money paid to a supplier against what's owed. Returns the payment."""
+    owed = owed_to(supplier)
+    if owed <= 0:
+        raise ValidationError("You don't owe this supplier anything.")
+    if amount > owed:
+        raise ValidationError({"amount": f"You only owe {supplier.name} {owed:.2f}."})
+    payment = SupplierPayment.objects.create(
+        business=user.business, number=next_number(SupplierPayment, user.business), supplier=supplier, amount=amount,
+        method=method, paid_at=paid_at or timezone.now(), note=note.strip(), created_by=user,
+    )
+    allocate(payment, unpaid_purchases(supplier))
+    log(user, "Supplier paid", f"{payment.code} · {amount:.2f} to {supplier.name} ({payment.get_method_display()}) · {owed - amount:.2f} still owed")
+    return payment
+
+
+@transaction.atomic
+def delete_payment(user, payment):
+    """A payment recorded by mistake: the bills it paid are owed again."""
+    payment = SupplierPayment.objects.select_for_update().get(pk=payment.pk)
+    if payment.method == SupplierPayment.Method.CREDIT:
+        raise ValidationError("This came from a return. It can't be deleted here.")
+    for a in payment.allocations.select_related("purchase"):
+        purchase = Purchase.objects.select_for_update().get(pk=a.purchase_id)
+        purchase.paid_amount -= a.amount
+        purchase.save(update_fields=["paid_amount"])
+    log(user, "Supplier payment deleted", f"{payment.code} · {payment.amount:.2f}{f' to {payment.supplier.name}' if payment.supplier else ''}")
+    payment.delete()
 
 
 # ---------- Returns to suppliers ----------
@@ -549,11 +635,9 @@ def return_to_supplier(user, item, quantity, reason):
         left = item.quantity - already
         raise ValidationError(f"Only {left} of this product {'is' if left == 1 else 'are'} left to return from {purchase.code}.")
     change_stock(item.product, purchase.location, -quantity)
-    Business.objects.select_for_update().filter(pk=user.business_id).first()
-    last = SupplierReturn.objects.filter(business=user.business).aggregate(n=Max("number"))["n"] or 0
     ret = SupplierReturn.objects.create(
         business=user.business,
-        number=last + 1,
+        number=next_number(SupplierReturn, user.business),
         purchase=purchase,
         item=item,
         supplier=purchase.supplier,
@@ -610,6 +694,33 @@ def receive_refund(user, ret, amount, method):
     _finish_if_settled(ret)
     ret.save(update_fields=["refunded_amount", "refund_method", "status", "finished_at"])
     log(user, "Refund received", f"{ret.code} · {amount:.2f} ({ret.get_refund_method_display()})")
+    return ret
+
+
+@transaction.atomic
+def credit_return(user, ret, amount):
+    """Settles the return by taking it off what the business owes the supplier.
+    The return's own purchase is paid down first, then the oldest bills."""
+    ret = _open_return(ret)
+    if not ret.supplier:
+        raise ValidationError("This purchase has no supplier to owe.")
+    if amount > ret.outstanding:
+        raise ValidationError(f"The supplier only owes {ret.outstanding:.2f} on this return.")
+    owed = owed_to(ret.supplier)
+    if amount > owed:
+        raise ValidationError(f"You only owe {ret.supplier.name} {owed:.2f}. Take a refund for the rest.")
+    payment = SupplierPayment.objects.create(
+        business=user.business, number=next_number(SupplierPayment, user.business), supplier=ret.supplier, amount=amount,
+        method=SupplierPayment.Method.CREDIT, note=f"{ret.code} · {ret.quantity} × {ret.product_name}"[:300], supplier_return=ret,
+        created_by=user,
+    )
+    bills = unpaid_purchases(ret.supplier)
+    bills.sort(key=lambda p: p.pk != ret.purchase_id)  # its own purchase first, the rest oldest first
+    allocate(payment, bills)
+    ret.credited_amount += amount
+    _finish_if_settled(ret)
+    ret.save(update_fields=["credited_amount", "status", "finished_at"])
+    log(user, "Return taken off what's owed", f"{ret.code} · {amount:.2f} off what's owed to {ret.supplier.name}")
     return ret
 
 

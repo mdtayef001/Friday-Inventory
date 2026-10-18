@@ -103,9 +103,9 @@ export function ReturnToSupplierDialog({ purchase, item, onClose }: { purchase: 
   )
 }
 
-export type SettleMode = "replacement" | "refund" | "close"
+export type SettleMode = "replacement" | "refund" | "credit" | "close"
 
-/** The supplier settles a return: new units, money back, or the owner gives up on the rest. */
+/** The supplier settles a return: new units, money back, taken off what's owed, or the owner gives up on the rest. */
 export function SettleReturnDialog({ ret: r, mode, onClose }: { ret: SupplierReturn; mode: SettleMode; onClose: () => void }) {
   const [run, pending] = useAttempt()
   const [quantity, setQuantity] = useState(r.unitsToReplace)
@@ -118,7 +118,7 @@ export function SettleReturnDialog({ ret: r, mode, onClose }: { ret: SupplierRet
   const valid =
     mode === "replacement"
       ? Number.isInteger(quantity) && quantity > 0 && quantity <= r.unitsToReplace
-      : mode === "refund"
+      : mode === "refund" || mode === "credit"
         ? amount !== "" && money > 0 && money <= r.outstanding
         : true
 
@@ -128,13 +128,19 @@ export function SettleReturnDialog({ ret: r, mode, onClose }: { ret: SupplierRet
     const done = {
       replacement: () => actions.receiveReplacement(r.id, quantity),
       refund: () => actions.receiveRefund(r.id, money, method),
+      credit: () => actions.creditReturn(r.id, money),
       close: () => actions.closeReturn(r.id, note.trim()),
     }[mode]
-    const message = { replacement: "Replacement received. The stock is back in.", refund: "Refund recorded.", close: "Return closed." }[mode]
+    const message = {
+      replacement: "Replacement received. The stock is back in.",
+      refund: "Refund recorded.",
+      credit: `Taken off what you owe ${r.supplier?.name ?? "the supplier"}.`,
+      close: "Return closed.",
+    }[mode]
     if (await run(done, message)) onClose()
   }
 
-  const title = { replacement: "Replacement received", refund: "Refund received", close: "Close without settling" }[mode]
+  const title = { replacement: "Replacement received", refund: "Refund received", credit: "Take off what I owe", close: "Close without settling" }[mode]
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-md">
@@ -185,6 +191,27 @@ export function SettleReturnDialog({ ret: r, mode, onClose }: { ret: SupplierRet
               </Field>
             </div>
           )}
+          {mode === "credit" && (
+            <>
+              <Field label="Amount" htmlFor="set-credit" hint={`Up to ${formatMoney(r.outstanding)}.`}>
+                <Input
+                  id="set-credit"
+                  type="number"
+                  inputMode="decimal"
+                  min="0.01"
+                  max={r.outstanding}
+                  step="0.01"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  autoFocus
+                />
+              </Field>
+              <p className="text-sm text-muted-foreground">
+                Instead of money back, you owe {r.supplier?.name ?? "the supplier"} this much less. It comes off {r.purchaseCode} first, then the oldest
+                unpaid bills.
+              </p>
+            </>
+          )}
           {mode === "close" && (
             <>
               <p className="text-sm">
@@ -201,7 +228,7 @@ export function SettleReturnDialog({ ret: r, mode, onClose }: { ret: SupplierRet
             </Button>
             <Button type="submit" variant={mode === "close" ? "destructive" : "default"} disabled={!valid || pending}>
               {pending && <Loader2 className="animate-spin" />}
-              {{ replacement: "Put back in stock", refund: "Record refund", close: "Close return" }[mode]}
+              {{ replacement: "Put back in stock", refund: "Record refund", credit: "Take it off", close: "Close return" }[mode]}
             </Button>
           </DialogFooter>
         </form>

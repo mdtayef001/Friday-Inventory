@@ -17,12 +17,27 @@ import { request } from "@/lib/api/client"
 import { actions, type NewProductInput } from "@/lib/data/actions"
 import { withParams } from "@/lib/data/queries"
 import { formatMoney } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import type { Page, Product, SupplierBrief } from "@/lib/types"
 
 /**
  * One product on the bill: an existing one, or a new one that's created when the
  * purchase is saved. The cost is kept as typed, so the field can be cleared while editing.
  */
+type PayMode = "full" | "part" | "credit"
+type PayMethod = "cash" | "mobile" | "bank"
+
+const PAY_MODES: { value: PayMode; label: string }[] = [
+  { value: "full", label: "Paid in full" },
+  { value: "part", label: "Paid part" },
+  { value: "credit", label: "On credit" },
+]
+export const PAY_METHODS: { value: PayMethod; label: string }[] = [
+  { value: "cash", label: "Cash" },
+  { value: "mobile", label: "Mobile banking" },
+  { value: "bank", label: "Bank" },
+]
+
 type PurchaseLine = { key: string; quantity: number; unitCost: string } & ({ product: Product; draft?: never } | { draft: NewProductInput; product?: never })
 
 const today = () => format(new Date(), "yyyy-MM-dd")
@@ -45,6 +60,11 @@ export function PurchaseDialog({ onClose, supplier: initialSupplier = null }: { 
   const [date, setDate] = useState(today)
   const [note, setNote] = useState("")
   const [creating, setCreating] = useState<NewProductInput | null>(null)
+  // What was paid now. The rest is owed to the supplier.
+  const [payMode, setPayMode] = useState<PayMode>("full")
+  const [partPaid, setPartPaid] = useState("")
+  const [payMethod, setPayMethod] = useState<PayMethod>("cash")
+  const [dueDate, setDueDate] = useState("")
   // Scans are looked up one at a time, so a fast USB scanner can't add the same product twice.
   const queue = useRef(Promise.resolve())
   const linesNow = useRef(lines)
@@ -88,12 +108,18 @@ export function PurchaseDialog({ onClose, supplier: initialSupplier = null }: { 
   }
 
   const total = lines.reduce((sum, l) => sum + l.quantity * Number(l.unitCost), 0)
+  const paidNow = payMode === "full" ? total : payMode === "part" ? Number(partPaid) : 0
+  const owed = Number.isFinite(total) && Number.isFinite(paidNow) ? Math.max(total - paidNow, 0) : 0
+  // Credit needs someone to owe; part payment must be some but not all of the bill.
+  const paymentOk =
+    payMode === "full" || (!!supplier && (payMode === "credit" || (partPaid !== "" && paidNow > 0 && paidNow < total)) && (!dueDate || dueDate >= today()))
   const valid =
     !!locationId &&
     lines.length > 0 &&
     lines.every((l) => Number.isInteger(l.quantity) && l.quantity > 0 && l.unitCost !== "" && Number(l.unitCost) >= 0) &&
     !!date &&
-    date <= today()
+    date <= today() &&
+    paymentOk
   const newCount = lines.filter((l) => l.draft).length
 
   async function submit(e: React.FormEvent) {
@@ -112,6 +138,9 @@ export function PurchaseDialog({ onClose, supplier: initialSupplier = null }: { 
           note: note.trim(),
           // Today means now; an earlier day is recorded at midday so time zones can't move it a day.
           purchasedAt: date === today() ? undefined : new Date(`${date}T12:00:00`).toISOString(),
+          paidAmount: payMode === "full" ? undefined : paidNow,
+          paymentMethod: payMethod,
+          dueDate: payMode !== "full" && dueDate ? dueDate : undefined,
         }),
       newCount ? `Purchase saved with ${newCount} new product${newCount > 1 ? "s" : ""}. The stock is in.` : "Purchase saved. The stock is in.",
     )
@@ -173,9 +202,54 @@ export function PurchaseDialog({ onClose, supplier: initialSupplier = null }: { 
               </Field>
             </div>
 
-            <div className="flex justify-between rounded-xl border bg-muted/30 p-3 text-sm font-medium">
-              <span>Total paid</span>
-              <span className="tabular-nums">{Number.isFinite(total) ? formatMoney(total) : "—"}</span>
+            <div className="grid gap-3 rounded-xl border bg-muted/30 p-3">
+              <div className="flex justify-between text-sm font-medium">
+                <span>Bill total</span>
+                <span className="tabular-nums">{Number.isFinite(total) ? formatMoney(total) : "—"}</span>
+              </div>
+              <div role="radiogroup" aria-label="Payment" className="grid grid-cols-3 gap-2">
+                {PAY_MODES.map((m) => (
+                  <button
+                    key={m.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={payMode === m.value}
+                    onClick={() => setPayMode(m.value)}
+                    className={cn(
+                      "rounded-lg border bg-background px-2 py-1.5 text-xs font-medium transition-colors",
+                      payMode === m.value ? "border-primary bg-primary/5 text-primary ring-1 ring-primary" : "hover:bg-muted",
+                    )}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {payMode === "part" && (
+                  <Field label="Paid now" htmlFor="pur-paid">
+                    <Input id="pur-paid" type="number" inputMode="decimal" min="0.01" step="0.01" value={partPaid} onChange={(e) => setPartPaid(e.target.value)} />
+                  </Field>
+                )}
+                {payMode !== "credit" && (
+                  <Field label="Paid with" htmlFor="pur-method">
+                    <SimpleSelect id="pur-method" value={payMethod} onChange={(v) => setPayMethod(v as PayMethod)} options={PAY_METHODS} />
+                  </Field>
+                )}
+                {payMode !== "full" && (
+                  <Field label="Rest due by" htmlFor="pur-due" hint="Optional.">
+                    <Input id="pur-due" type="date" value={dueDate} min={today()} onChange={(e) => setDueDate(e.target.value)} />
+                  </Field>
+                )}
+              </div>
+              {payMode !== "full" &&
+                (supplier ? (
+                  <p className="text-sm">
+                    You&apos;ll owe {supplier.name} <strong className="tabular-nums">{formatMoney(owed)}</strong>.
+                    {payMode === "part" && partPaid !== "" && paidNow >= total && <span className="text-destructive"> That&apos;s all of it: choose Paid in full.</span>}
+                  </p>
+                ) : (
+                  <p className="text-sm text-destructive">Choose the supplier above to buy on credit, so the app knows who you owe.</p>
+                ))}
             </div>
 
             <DialogFooter>

@@ -3,7 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { Ban, Banknote, MoreHorizontal, PackageCheck, PackageX } from "lucide-react"
+import { Ban, Banknote, MoreHorizontal, PackageCheck, PackageX, Wallet } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -133,12 +133,13 @@ export function SupplierReturnsView() {
                     <TableCell className="text-right tabular-nums">{formatMoney(r.value)}</TableCell>
                     <TableCell className="text-xs whitespace-nowrap">
                       {r.replacedQuantity > 0 && <div>{r.replacedQuantity} replaced</div>}
+                      {r.creditedAmount > 0 && <div>{formatMoney(r.creditedAmount)} off what you owe</div>}
                       {r.refundedAmount > 0 && (
                         <div>
                           {formatMoney(r.refundedAmount)} refunded{r.refundMethod ? ` (${REFUND_METHODS[r.refundMethod].toLowerCase()})` : ""}
                         </div>
                       )}
-                      {!r.replacedQuantity && !r.refundedAmount && <span className="text-muted-foreground">Nothing yet</span>}
+                      {!r.replacedQuantity && !r.refundedAmount && !r.creditedAmount && <span className="text-muted-foreground">Nothing yet</span>}
                     </TableCell>
                     <TableCell className="text-right font-medium tabular-nums">
                       {r.status === "open" ? formatMoney(r.outstanding) : <span className="text-muted-foreground">—</span>}
@@ -182,6 +183,12 @@ function ReturnActions({ ret: r, onSettle }: { ret: SupplierReturn; onSettle: (m
           <DropdownMenuItem onClick={() => onSettle("refund")}>
             <Banknote />
             Refund received…
+          </DropdownMenuItem>
+        )}
+        {role === "owner" && r.outstanding > 0 && r.supplier && (
+          <DropdownMenuItem onClick={() => onSettle("credit")}>
+            <Wallet />
+            Take off what I owe…
           </DropdownMenuItem>
         )}
         {role === "owner" && (

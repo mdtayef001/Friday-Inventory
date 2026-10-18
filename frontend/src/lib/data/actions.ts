@@ -14,6 +14,7 @@ import type {
   ShipmentStatus,
   StockRequest,
   Supplier,
+  SupplierPayment,
   SupplierReturn,
   Transfer,
 } from "@/lib/types"
@@ -38,6 +39,7 @@ type Collection =
   | "suppliers"
   | "purchases"
   | "supplier-returns"
+  | "supplier-payments"
 
 export type ProductInput = Omit<Product, "id" | "createdAt" | "createdBy" | "stock" | "total">
 
@@ -134,10 +136,25 @@ export const actions = {
     reference?: string
     note?: string
     purchasedAt?: string
+    /** What was paid now; the rest is owed. Left out means all of it. */
+    paidAmount?: number
+    paymentMethod?: "cash" | "mobile" | "bank"
+    /** "YYYY-MM-DD", when the rest is due. */
+    dueDate?: string
   }) {
     if (input.items.length === 0) throw new Error("Add at least one product.")
     for (const item of input.items) positiveInt(item.quantity)
-    return call<Purchase>("purchases/", "POST", input, ...STOCK, "purchases", "suppliers")
+    return call<Purchase>("purchases/", "POST", input, ...STOCK, "purchases", "suppliers", "supplier-payments")
+  },
+
+  /** Owners and admins: money paid to a supplier, given to their oldest unpaid bills first. */
+  paySupplier(input: { supplierId: string; amount: number; method: "cash" | "mobile" | "bank"; paidAt?: string; note?: string }) {
+    if (!(input.amount > 0)) throw new Error("Enter how much you paid.")
+    return call<SupplierPayment>("supplier-payments/", "POST", input, "supplier-payments", "suppliers", "purchases")
+  },
+  /** A payment recorded by mistake: the bills it paid are owed again. */
+  async deleteSupplierPayment(id: string) {
+    await call(`supplier-payments/${id}/`, "DELETE", undefined, "supplier-payments", "suppliers", "purchases")
   },
 
   /** Sends broken or wrong stock from a purchase back. It leaves stock now. */
@@ -154,6 +171,11 @@ export const actions = {
   receiveRefund(id: string, amount: number, method: RefundMethod) {
     if (!(amount > 0)) throw new Error("Enter the amount the supplier gave back.")
     return call<SupplierReturn>(`supplier-returns/${id}/refund/`, "POST", { amount, method }, "suppliers", "supplier-returns")
+  },
+  /** Owners and admins: settles the return by taking it off what's owed to the supplier. */
+  creditReturn(id: string, amount: number) {
+    if (!(amount > 0)) throw new Error("Enter the amount to take off.")
+    return call<SupplierReturn>(`supplier-returns/${id}/credit/`, "POST", { amount }, "suppliers", "supplier-returns", "supplier-payments", "purchases")
   },
   /** Owners and admins: the supplier won't settle the rest. */
   closeReturn(id: string, note: string) {

@@ -7,7 +7,7 @@ from apps.api import IdField, tenant_field
 
 from .models import (
     Activity, Client, Location, Product, Purchase, PurchaseItem, Rental, Sale, Shipment, ShipmentEvent, StockLevel, StockRequest,
-    Supplier, SupplierReturn, Transfer,
+    Supplier, SupplierPayment, SupplierReturn, Transfer,
 )
 
 # Field names follow frontend/src/lib/types.ts (camelCased on the wire).
@@ -481,6 +481,9 @@ class SupplierSerializer(serializers.ModelSerializer):
                 # Open returns: what they still owe back, as money or replacements.
                 "owed_back": float(supplier.owed_back or 0),
             }
+            # What the business owes them. Owners and admins only, since payments are theirs to make.
+            if self.context.get("show_owed"):
+                data["stats"]["owed"] = float(supplier.owed or 0)
         return data
 
 
@@ -503,18 +506,19 @@ class PurchaseSerializer(serializers.ModelSerializer):
     location_id = IdField()
     created_by = serializers.CharField(source="created_by.name", read_only=True, default="")
     items = PurchaseItemSerializer(many=True, read_only=True)
-    total = serializers.SerializerMethodField()
+    due = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    payment_status = serializers.CharField(read_only=True)
 
     class Meta:
         model = Purchase
-        fields = ["id", "code", "supplier", "location_id", "reference", "note", "purchased_at", "created_by", "created_at", "items", "total"]
+        fields = [
+            "id", "code", "supplier", "location_id", "reference", "note", "purchased_at", "created_by", "created_at", "items", "total",
+            "paid_amount", "due", "payment_status", "due_date",
+        ]
 
     def get_supplier(self, purchase):
         s = purchase.supplier
         return {"id": str(s.id), "name": s.name, "company": s.company} if s else None
-
-    def get_total(self, purchase):
-        return float(sum(i.amount for i in purchase.items.all()))
 
 
 class NewProductSerializer(serializers.Serializer):
@@ -544,6 +548,10 @@ class PurchaseItemInputSerializer(serializers.Serializer):
     unit_cost = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0)
 
 
+# How a supplier can be paid. "credit" only comes from a return.
+PAYMENT_METHODS = [c for c in SupplierPayment.Method.choices if c[0] != SupplierPayment.Method.CREDIT]
+
+
 class PurchaseCreateSerializer(serializers.Serializer):
     """A supplier's bill: the products bought, all received at one location."""
 
@@ -554,6 +562,11 @@ class PurchaseCreateSerializer(serializers.Serializer):
     note = serializers.CharField(max_length=300, required=False, allow_blank=True, default="")
     # When it was bought, if not now. Never in the future.
     purchased_at = serializers.DateTimeField(required=False, allow_null=True)
+    # What was paid now. Left out means all of it; less means the rest is bought on credit.
+    paid_amount = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=0, required=False, allow_null=True)
+    payment_method = serializers.ChoiceField(choices=PAYMENT_METHODS, required=False, default=SupplierPayment.Method.CASH)
+    # When the rest is due. Optional.
+    due_date = serializers.DateField(required=False, allow_null=True)
 
     def validate_purchased_at(self, value):
         if value and value > timezone.now():
@@ -597,7 +610,7 @@ class SupplierReturnSerializer(serializers.ModelSerializer):
         model = SupplierReturn
         fields = [
             "id", "code", "purchase_id", "purchase_code", "supplier", "location_id", "product_id", "product_name", "quantity",
-            "unit_cost", "reason", "status", "replaced_quantity", "refunded_amount", "refund_method", "closed_note", "value",
+            "unit_cost", "reason", "status", "replaced_quantity", "refunded_amount", "credited_amount", "refund_method", "closed_note", "value",
             "outstanding", "units_to_replace", "created_by", "created_at", "finished_at",
         ]
 
@@ -624,3 +637,44 @@ class RefundSerializer(serializers.Serializer):
 
 class CloseReturnSerializer(serializers.Serializer):
     note = serializers.CharField(max_length=300, required=False, allow_blank=True, default="")
+
+
+class CreditSerializer(serializers.Serializer):
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
+
+
+class SupplierPaymentSerializer(serializers.ModelSerializer):
+    id = IdField()
+    code = serializers.CharField(read_only=True)
+    supplier = serializers.SerializerMethodField()
+    return_code = serializers.CharField(source="supplier_return.code", read_only=True, default=None)
+    created_by = serializers.CharField(source="created_by.name", read_only=True, default="")
+    # Which bills it paid, and how much of each.
+    allocations = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SupplierPayment
+        fields = ["id", "code", "supplier", "amount", "method", "paid_at", "note", "return_code", "created_by", "created_at", "allocations"]
+
+    def get_supplier(self, payment):
+        s = payment.supplier
+        return {"id": str(s.id), "name": s.name, "company": s.company} if s else None
+
+    def get_allocations(self, payment):
+        return [
+            {"purchase_id": str(a.purchase_id), "purchase_code": a.purchase.code, "amount": float(a.amount)}
+            for a in payment.allocations.all()
+        ]
+
+
+class SupplierPaymentCreateSerializer(serializers.Serializer):
+    supplier_id = tenant_field(Supplier, source="supplier")
+    amount = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
+    method = serializers.ChoiceField(choices=PAYMENT_METHODS)
+    paid_at = serializers.DateTimeField(required=False, allow_null=True)
+    note = serializers.CharField(max_length=300, required=False, allow_blank=True, default="")
+
+    def validate_paid_at(self, value):
+        if value and value > timezone.now():
+            raise serializers.ValidationError("The payment date can't be in the future.")
+        return value

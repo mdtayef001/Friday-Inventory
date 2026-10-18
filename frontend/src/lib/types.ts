@@ -200,6 +200,8 @@ export interface Supplier {
     lastPurchaseAt: string | null
     /** Open returns: what they still owe back, as money or replacements. */
     owedBack: number
+    /** What the business owes them. Owners and admins only. */
+    owed?: number
   }
 }
 
@@ -241,6 +243,8 @@ export interface SupplierReturn {
   status: SupplierReturnStatus
   replacedQuantity: number
   refundedAmount: number
+  /** Taken off what the business owes the supplier. */
+  creditedAmount: number
   refundMethod: RefundMethod | ""
   closedNote: string
   /** quantity × unitCost */
@@ -270,6 +274,47 @@ export interface Purchase {
   createdAt: string
   items: PurchaseItem[]
   total: number
+  /** Paid when bought plus later payments given to it. */
+  paidAmount: number
+  /** Still owed to the supplier. */
+  due: number
+  paymentStatus: PurchasePaymentStatus
+  /** When the rest is due, for stock bought on credit. "YYYY-MM-DD". */
+  dueDate: string | null
+}
+
+export type PurchasePaymentStatus = "paid" | "partly_paid" | "unpaid"
+/** How a supplier was paid. "credit" is a return taken off what's owed; "" is from before payments were tracked. */
+export type SupplierPaymentMethod = "cash" | "mobile" | "bank" | "credit"
+
+/** Money paid to a supplier, given to their oldest unpaid bills first. */
+export interface SupplierPayment {
+  id: string
+  /** "SP-000004" */
+  code: string
+  supplier: SupplierBrief | null
+  amount: number
+  method: SupplierPaymentMethod | ""
+  paidAt: string
+  note: string
+  /** For a return credit: the return it came from. */
+  returnCode: string | null
+  createdBy: string
+  createdAt: string
+  /** Which bills it paid, and how much of each. */
+  allocations: { purchaseId: string; purchaseCode: string; amount: number }[]
+}
+
+/** One line of a supplier's statement, newest first, with what was owed after it. */
+export type StatementEntry = { id: string; code: string; at: string; amount: number; balance: number } & (
+  | { kind: "purchase"; reference: string; dueDate: string | null; status: PurchasePaymentStatus }
+  | { kind: "payment"; method: SupplierPaymentMethod | ""; note: string; returnCode: string | null }
+)
+
+export interface SupplierStatement {
+  owed: number
+  overdue: number
+  entries: StatementEntry[]
 }
 
 /** The client shown on an order or rental. Null when the client was deleted. */

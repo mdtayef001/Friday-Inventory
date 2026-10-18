@@ -3,13 +3,14 @@
 import { useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
+import { format } from "date-fns"
 import Link from "next/link"
 import { PackagePlus, Plus, Undo2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { EmptyState, ListSkeleton, PageBody, PageHeader, Pager, QueryError, SearchInput, SimpleSelect } from "@/components/common"
+import { EmptyState, ListSkeleton, PageBody, PageHeader, Pager, Pill, QueryError, SearchInput, SimpleSelect } from "@/components/common"
 import { PurchaseDialog } from "@/components/purchase-dialog"
 import { useScope } from "@/components/session-provider"
 import { SupplierPicker } from "@/components/supplier-dialog"
@@ -26,6 +27,7 @@ export function PurchasesView() {
 
   const [query, setQuery] = useState("")
   const [locationId, setLocationId] = useState("")
+  const [payment, setPayment] = useState(params.get("payment") ?? "")
   // Opened from the Suppliers page with ?supplier=<id>: load that supplier for the filter.
   const supplierParam = params.get("supplier")
   const linked = useQuery({ ...apiQuery<Supplier>(`suppliers/${supplierParam}/`), enabled: !!supplierParam }).data
@@ -38,12 +40,12 @@ export function PurchasesView() {
   const [opened, setOpen] = useState<Purchase | null>(null)
 
   const search = useDebounced(query.trim())
-  const filters = { search, supplier: supplierId, location: locationId }
-  const paging = usePaging(search, supplierId, locationId)
+  const filters = { search, supplier: supplierId, location: locationId, payment }
+  const paging = usePaging(search, supplierId, locationId, payment)
   const { data, error, isPending, isPlaceholderData, refetch } = usePurchases({ page: paging.page, ...filters }, { pageSize: paging.pageSize })
   const summary = usePurchaseSummary(filters).data
   const rows = data?.results ?? []
-  const filtered = !!(search || supplierId || locationId)
+  const filtered = !!(search || supplierId || locationId || payment)
   const open = opened && (rows.find((p) => p.id === opened.id) ?? opened)
 
   return (
@@ -59,7 +61,7 @@ export function PurchasesView() {
         }
       />
 
-      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,16rem)_12rem]">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,16rem)_11rem_11rem]">
         <SearchInput value={query} onChange={setQuery} placeholder="Search P-000012, bill number, supplier…" />
         <SupplierPicker value={supplier} onChange={setPicked} allowNone noneLabel="All suppliers" canAdd={false} />
         <SimpleSelect
@@ -67,6 +69,7 @@ export function PurchasesView() {
           onChange={(v) => setLocationId(v === "all" ? "" : v)}
           options={[{ value: "all", label: "All locations" }, ...locations.map((l) => ({ value: l.id, label: l.name }))]}
         />
+        <SimpleSelect value={payment || "all"} onChange={(v) => setPayment(v === "all" ? "" : v)} options={PAYMENT_FILTERS} />
       </div>
 
       {summary && summary.count > 0 && (
@@ -76,8 +79,14 @@ export function PurchasesView() {
               <span className="text-muted-foreground">Purchases</span> <span className="font-medium tabular-nums">{formatNumber(summary.count)}</span>
             </span>
             <span>
-              <span className="text-muted-foreground">Total paid</span> <span className="font-medium tabular-nums">{formatMoney(summary.total)}</span>
+              <span className="text-muted-foreground">Bills</span> <span className="font-medium tabular-nums">{formatMoney(summary.total)}</span>
             </span>
+            {summary.due > 0 && (
+              <span>
+                <span className="text-muted-foreground">Still owed</span>{" "}
+                <span className="font-medium tabular-nums text-amber-700 dark:text-amber-400">{formatMoney(summary.due)}</span>
+              </span>
+            )}
           </CardContent>
         </Card>
       )}
@@ -111,7 +120,8 @@ export function PurchasesView() {
                   <TableHead>Supplier</TableHead>
                   <TableHead>Arrived at</TableHead>
                   <TableHead>Products</TableHead>
-                  <TableHead className="pr-4 text-right">Total</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="pr-4">Payment</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -129,7 +139,10 @@ export function PurchasesView() {
                     <TableCell className="max-w-72 text-sm">
                       <span className="line-clamp-2">{p.items.map((i) => `${i.quantity} × ${i.productName}`).join(", ")}</span>
                     </TableCell>
-                    <TableCell className="pr-4 text-right font-medium tabular-nums">{formatMoney(p.total)}</TableCell>
+                    <TableCell className="text-right font-medium tabular-nums">{formatMoney(p.total)}</TableCell>
+                    <TableCell className="pr-4">
+                      <PaymentStatus purchase={p} />
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -145,6 +158,28 @@ export function PurchasesView() {
   )
 }
 
+const PAYMENT_FILTERS = [
+  { value: "all", label: "Any payment" },
+  { value: "unpaid", label: "Still owed" },
+  { value: "overdue", label: "Overdue" },
+  { value: "paid", label: "Paid" },
+]
+
+const isOverdue = (p: Purchase) => p.due > 0 && !!p.dueDate && p.dueDate < format(new Date(), "yyyy-MM-dd")
+
+/** "Paid", or what's still owed on the bill, in red once it's past its due date. */
+function PaymentStatus({ purchase: p }: { purchase: Purchase }) {
+  if (p.paymentStatus === "paid") return <Pill tone="green">Paid</Pill>
+  return (
+    <div className="grid justify-items-start gap-0.5">
+      <Pill tone={isOverdue(p) ? "red" : "amber"}>{isOverdue(p) ? "Overdue" : p.paymentStatus === "unpaid" ? "Unpaid" : "Partly paid"}</Pill>
+      <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
+        {formatMoney(p.due)} owed{p.dueDate ? ` · due ${formatDate(p.dueDate)}` : ""}
+      </span>
+    </div>
+  )
+}
+
 function PurchaseDetail({ purchase: p, location, onClose }: { purchase: Purchase; location: string; onClose: () => void }) {
   const [returning, setReturning] = useState<PurchaseItem | null>(null)
   const returned = p.items.reduce((n, i) => n + i.returned, 0)
@@ -153,6 +188,8 @@ function PurchaseDetail({ purchase: p, location, onClose }: { purchase: Purchase
     ["Supplier", p.supplier ? (p.supplier.company ? `${p.supplier.name} · ${p.supplier.company}` : p.supplier.name) : "None"],
     ["Arrived at", location],
     ["Bought on", formatDate(p.purchasedAt)],
+    ["Paid", p.due > 0 ? `${formatMoney(p.paidAmount)} of ${formatMoney(p.total)}` : "In full"],
+    ...(p.due > 0 ? ([["Still owed", `${formatMoney(p.due)}${p.dueDate ? ` · due ${formatDate(p.dueDate)}` : ""}`]] as [string, string][]) : []),
     ["Supplier's bill", p.reference || "—"],
     ["Recorded by", `${p.createdBy || "—"} · ${formatDateTime(p.createdAt)}`],
   ]

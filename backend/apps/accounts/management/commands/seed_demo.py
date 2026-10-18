@@ -15,7 +15,8 @@ from django.utils import timezone
 from apps.accounts.models import Business, User, default_settings
 from apps.billing.models import Payment
 from apps.inventory.models import (
-    Activity, Client, Location, Product, Purchase, PurchaseItem, Rental, Shipment, ShipmentEvent, StockLevel, Supplier, Transfer,
+    Activity, Client, Location, PaymentAllocation, Product, Purchase, PurchaseItem, Rental, Shipment, ShipmentEvent, StockLevel, Supplier,
+    SupplierPayment, Transfer,
 )
 
 DEMO_EMAILS = ["super@friday.app", "owner@friday.app", "manager@friday.app", "staff@friday.app", "seller@friday.app", "stocker@friday.app", "cafe@friday.app", "urban@friday.app"]
@@ -85,13 +86,14 @@ SUPPLIERS = [
     ("sp-3", "Office Mart", "", "+1 555 0303", "", "9 Paper Lane"),
 ]
 
-# supplier, location, bill no., days ago, [(product, qty, unit cost)]. Paid at the products' current cost,
-# so the seeded costs stay as they are. A record of where the stock came from; the stock itself is seeded above.
+# supplier, location, bill no., days ago, [(product, qty, unit cost)], paid when bought (None: all), due in days.
+# Bought at the products' current cost, so the seeded costs stay as they are. A record of where the stock came
+# from; the stock itself is seeded above. Two are on credit: one partly paid, one overdue.
 PURCHASES = [
-    ("sp-2", "main", "TS-4410", 40, [("prd-1", 30, 52), ("prd-3", 40, 41), ("prd-11", 6, 300)]),
-    ("sp-1", "main", "RT-1182", 25, [("prd-4", 10, 78), ("prd-6", 8, 90), ("prd-14", 12, 11)]),
-    ("sp-3", "downtown", "", 9, [("prd-12", 20, 21), ("prd-13", 50, 4)]),
-    ("sp-2", "main", "TS-4528", 3, [("prd-2", 6, 240)]),
+    ("sp-2", "main", "TS-4410", 40, [("prd-1", 30, 52), ("prd-3", 40, 41), ("prd-11", 6, 300)], None, None),
+    ("sp-1", "main", "RT-1182", 25, [("prd-4", 10, 78), ("prd-6", 8, 90), ("prd-14", 12, 11)], 1000, 30),
+    ("sp-3", "downtown", "", 9, [("prd-12", 20, 21), ("prd-13", 50, 4)], None, None),
+    ("sp-2", "main", "TS-4528", 3, [("prd-2", 6, 240)], 0, 2),
 ]
 
 
@@ -244,15 +246,26 @@ class Command(BaseCommand):
             key: Supplier.objects.create(business=business, name=name, company=company, phone=phone, email=email, address=address)
             for key, name, company, phone, email, address in SUPPLIERS
         }
-        for number, (supplier, loc, reference, days, items) in enumerate(PURCHASES, start=1):
+        payments = 0
+        for number, (supplier, loc, reference, days, items, paid, due_in) in enumerate(PURCHASES, start=1):
+            total = sum(qty * cost for _, qty, cost in items)
+            paid = total if paid is None else paid
             purchase = Purchase.objects.create(
                 business=business, number=number, supplier=suppliers[supplier], location=locs[loc], reference=reference,
-                purchased_at=self.ago(days), created_by=by,
+                purchased_at=self.ago(days), created_by=by, total=total, paid_amount=paid,
+                due_date=(self.ago(days) + timedelta(days=due_in)).date() if due_in is not None else None,
             )
             for product, qty, cost in items:
                 PurchaseItem.objects.create(
                     purchase=purchase, product=products[product], product_name=products[product].name, quantity=qty, unit_cost=cost
                 )
+            if paid:
+                payments += 1
+                payment = SupplierPayment.objects.create(
+                    business=business, number=payments, supplier=suppliers[supplier], amount=paid, method="cash",
+                    paid_at=self.ago(days), created_by=by,
+                )
+                PaymentAllocation.objects.create(payment=payment, purchase=purchase, amount=paid)
 
     def ago(self, days):
         return self.now - timedelta(days=days)

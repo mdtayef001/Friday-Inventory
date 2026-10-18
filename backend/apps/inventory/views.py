@@ -25,8 +25,8 @@ from apps.api import Pagination
 
 from . import services
 from .models import (
-    Activity, Client, Location, Product, Purchase, PurchaseItem, Rental, Sale, Shipment, StockLevel, StockRequest, Supplier, SupplierReturn,
-    Transfer,
+    Activity, Client, Location, Product, Purchase, PurchaseItem, Rental, Sale, Shipment, StockLevel, StockRequest, Supplier, SupplierPayment,
+    SupplierReturn, Transfer,
 )
 from .serializers import (
     ActivitySerializer,
@@ -34,6 +34,7 @@ from .serializers import (
     DeclineRequestSerializer,
     ClientSerializer,
     CloseReturnSerializer,
+    CreditSerializer,
     LocationSerializer,
     ProductCreateSerializer,
     ProductSerializer,
@@ -52,6 +53,8 @@ from .serializers import (
     StockAdjustSerializer,
     StockLevelSerializer,
     StockRequestSerializer,
+    SupplierPaymentCreateSerializer,
+    SupplierPaymentSerializer,
     SupplierReturnCreateSerializer,
     SupplierReturnSerializer,
     SupplierSerializer,
@@ -431,7 +434,50 @@ class SupplierViewSet(PurchasesFeature, TenantViewSet, viewsets.ModelViewSet):
                 Subquery(open_returns.values("supplier").annotate(v=Sum(owed)).values("v"), output_field=money),
                 Value(0, output_field=money),
             ),
+            owed=Coalesce(
+                Subquery(
+                    purchases.filter(paid_amount__lt=F("total")).values("supplier").annotate(v=Sum(F("total") - F("paid_amount"))).values("v"),
+                    output_field=money,
+                ),
+                Value(0, output_field=money),
+            ),
         )
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), "show_owed": self.request.user.role == User.Role.OWNER}
+
+    @action(detail=True)
+    def statement(self, request, pk=None):
+        """Owners and admins: every bill and payment with this supplier, oldest first, with
+        what's owed after each. Plus the total owed now and how much of it is overdue."""
+        if request.user.role != User.Role.OWNER:
+            raise PermissionDenied()
+        supplier = self.get_object()
+        purchases = Purchase.objects.filter(supplier=supplier)
+        payments = SupplierPayment.objects.filter(supplier=supplier).select_related("supplier_return")
+        rows = [
+            {"kind": "purchase", "id": str(p.id), "code": p.code, "at": p.purchased_at, "reference": p.reference, "amount": p.total,
+             "due_date": p.due_date, "status": p.payment_status}
+            for p in purchases
+        ] + [
+            {"kind": "payment", "id": str(p.id), "code": p.code, "at": p.paid_at, "method": p.method, "note": p.note, "amount": p.amount,
+             "return_code": p.supplier_return.code if p.supplier_return else None}
+            for p in payments
+        ]
+        # Same moment: the bill before what was paid on it.
+        rows.sort(key=lambda r: (r["at"], r["kind"] == "payment"))
+        balance = Decimal(0)
+        for row in rows:
+            balance += row["amount"] if row["kind"] == "purchase" else -row["amount"]
+            row["balance"] = float(balance)
+            row["amount"] = float(row["amount"])
+        due = purchases.filter(paid_amount__lt=F("total"))
+        overdue = due.filter(due_date__lt=timezone.localdate()).aggregate(v=Sum(F("total") - F("paid_amount")))["v"] or 0
+        return Response({
+            "owed": float(due.aggregate(v=Sum(F("total") - F("paid_amount")))["v"] or 0),
+            "overdue": float(overdue),
+            "entries": rows[::-1],
+        })
 
     def perform_create(self, serializer):
         supplier = serializer.save(business=self.request.user.business)
@@ -472,6 +518,15 @@ class PurchaseViewSet(PurchasesFeature, TenantViewSet, mixins.ListModelMixin, mi
                 if when is None:
                     raise ValidationError({name: "Use an ISO date and time."})
                 qs = qs.filter(**{lookup: when})
+        payment = params.get("payment")
+        if payment == "unpaid":
+            qs = qs.filter(paid_amount__lt=F("total"))
+        elif payment == "overdue":
+            qs = qs.filter(paid_amount__lt=F("total"), due_date__lt=timezone.localdate())
+        elif payment == "paid":
+            qs = qs.filter(paid_amount__gte=F("total"))
+        elif payment:
+            raise ValidationError({"payment": "Use paid, unpaid or overdue."})
         term = params.get("search", "").strip()
         if term:
             # A purchase number as printed ("P-000012") or just the number ("12").
@@ -484,12 +539,11 @@ class PurchaseViewSet(PurchasesFeature, TenantViewSet, mixins.ListModelMixin, mi
 
     @action(detail=False)
     def summary(self, request):
-        """How many purchases match the filters, and what they cost in total."""
+        """How many purchases match the filters, what they cost in total, and how much of that is still owed."""
         qs = self.filter_queryset(self.get_queryset())
-        money = DecimalField(max_digits=16, decimal_places=2)
-        amount = ExpressionWrapper(F("unit_cost") * F("quantity"), output_field=money)
-        total = PurchaseItem.objects.filter(purchase__in=qs.values("pk")).aggregate(v=Sum(amount))["v"] or 0
-        return Response({"count": qs.count(), "total": float(total)})
+        totals = qs.aggregate(total=Sum("total"), paid=Sum("paid_amount"))
+        total, paid = totals["total"] or 0, totals["paid"] or 0
+        return Response({"count": qs.count(), "total": float(total), "due": float(total - paid)})
 
     def create(self, request):
         body = PurchaseCreateSerializer(data=request.data, context={"request": request})
@@ -504,6 +558,42 @@ class PurchaseViewSet(PurchasesFeature, TenantViewSet, mixins.ListModelMixin, mi
         return Response(self.get_serializer(purchase).data, status=status.HTTP_201_CREATED)
 
 
+class SupplierPaymentViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, mixins.DestroyModelMixin):
+    """Money paid to suppliers, newest first. Owners and admins only.
+    List filters: ?supplier=. A payment is given to the supplier's oldest unpaid bills."""
+
+    model = SupplierPayment
+    serializer_class = SupplierPaymentSerializer
+    allowed_roles = (User.Role.OWNER,)
+
+    def get_queryset(self):
+        return super().get_queryset().select_related("supplier", "supplier_return", "created_by").prefetch_related("allocations__purchase")
+
+    def filter_queryset(self, qs):
+        return self.filter_by_ids(qs, supplier="supplier_id")
+
+    @action(detail=False)
+    def summary(self, request):
+        """What the business owes all its suppliers, how much is overdue, and to how many."""
+        due = Purchase.objects.filter(business=request.user.business, paid_amount__lt=F("total"))
+        left = F("total") - F("paid_amount")
+        overdue = due.filter(due_date__lt=timezone.localdate()).aggregate(v=Sum(left))["v"] or 0
+        return Response({
+            "owed": float(due.aggregate(v=Sum(left))["v"] or 0),
+            "overdue": float(overdue),
+            "supplier_count": due.values("supplier").distinct().count(),
+        })
+
+    def create(self, request):
+        body = SupplierPaymentCreateSerializer(data=request.data, context={"request": request})
+        body.is_valid(raise_exception=True)
+        payment = services.pay_supplier(request.user, **body.validated_data)
+        return Response(self.get_serializer(self.get_queryset().get(pk=payment.pk)).data, status=status.HTTP_201_CREATED)
+
+    def perform_destroy(self, payment):
+        services.delete_payment(self.request.user, payment)
+
+
 class SupplierReturnViewSet(PurchasesFeature, TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin):
     """Stock sent back to suppliers, newest first. Managers see their own locations only.
     List filters: ?status=open|settled|closed, ?supplier=, ?purchase=, ?search= (SR-000003, product, supplier)."""
@@ -515,7 +605,9 @@ class SupplierReturnViewSet(PurchasesFeature, TenantViewSet, mixins.ListModelMix
     def owed_expression():
         """What the supplier still owes on a return, in the database."""
         money = DecimalField(max_digits=16, decimal_places=2)
-        return ExpressionWrapper(F("unit_cost") * (F("quantity") - F("replaced_quantity")) - F("refunded_amount"), output_field=money)
+        return ExpressionWrapper(
+            F("unit_cost") * (F("quantity") - F("replaced_quantity")) - F("refunded_amount") - F("credited_amount"), output_field=money
+        )
 
     def get_queryset(self):
         qs = super().get_queryset().select_related("supplier", "purchase", "created_by")
@@ -570,6 +662,13 @@ class SupplierReturnViewSet(PurchasesFeature, TenantViewSet, mixins.ListModelMix
     def refund(self, request, pk=None):
         """The supplier gave money back."""
         return self.settle(RefundSerializer, services.receive_refund)
+
+    @action(detail=True, methods=["post"])
+    def credit(self, request, pk=None):
+        """Taken off what the business owes the supplier. Owners and admins, who handle payments."""
+        if request.user.role != User.Role.OWNER:
+            raise PermissionDenied("Only the owner or an admin can take a return off what's owed.")
+        return self.settle(CreditSerializer, services.credit_return)
 
     @action(detail=True, methods=["post"])
     def close(self, request, pk=None):

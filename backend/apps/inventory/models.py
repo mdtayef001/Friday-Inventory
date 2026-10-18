@@ -391,6 +391,12 @@ class Purchase(TenantModel):
     reference = models.CharField(max_length=60, blank=True)
     note = models.CharField(max_length=300, blank=True)
     purchased_at = models.DateTimeField(default=timezone.now)
+    # The bill's total, kept so what's owed can be filtered and added up in the database.
+    total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # How much of it is paid: paid when bought, plus later payments given to it (PaymentAllocation).
+    paid_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # When the rest is due, for stock bought on credit. Optional.
+    due_date = models.DateField(null=True, blank=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -402,6 +408,17 @@ class Purchase(TenantModel):
     @property
     def code(self):
         return f"P-{self.number:06d}"
+
+    @property
+    def due(self):
+        return max(self.total - self.paid_amount, 0)
+
+    @property
+    def payment_status(self):
+        """paid | partly_paid | unpaid"""
+        if self.paid_amount >= self.total:
+            return "paid"
+        return "partly_paid" if self.paid_amount > 0 else "unpaid"
 
 
 class PurchaseItem(models.Model):
@@ -454,6 +471,8 @@ class SupplierReturn(TenantModel):
     # How it was settled so far: units sent again, and money given back.
     replaced_quantity = models.PositiveIntegerField(default=0)
     refunded_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Taken off what the business owes the supplier instead (see SupplierPayment.Method.CREDIT).
+    credited_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     # How the last refund came, for the record.
     refund_method = models.CharField(max_length=10, choices=RefundMethod.choices, blank=True)
     closed_note = models.CharField(max_length=300, blank=True)
@@ -476,8 +495,8 @@ class SupplierReturn(TenantModel):
 
     @property
     def outstanding(self):
-        """What the supplier still owes: the value less what was replaced and refunded."""
-        return max(self.value - self.unit_cost * self.replaced_quantity - self.refunded_amount, 0)
+        """What the supplier still owes: the value less what was replaced, refunded and credited."""
+        return max(self.value - self.unit_cost * self.replaced_quantity - self.refunded_amount - self.credited_amount, 0)
 
     @property
     def units_to_replace(self):
@@ -486,3 +505,49 @@ class SupplierReturn(TenantModel):
         if self.unit_cost <= 0:
             return left
         return min(left, int(self.outstanding // self.unit_cost))
+
+
+class SupplierPayment(TenantModel):
+    """Money paid to a supplier: when a purchase is made, or later against what's owed.
+    It's given to that purchase, or to the supplier's oldest unpaid bills first
+    (see PaymentAllocation). A return taken off what's owed is a payment too, of the
+    method "credit"."""
+
+    class Method(models.TextChoices):
+        CASH = "cash", "Cash"
+        MOBILE = "mobile", "Mobile banking"
+        BANK = "bank", "Bank"
+        CREDIT = "credit", "Return credit"
+
+    # Numbered 1, 2, 3… per business. Shown as SP-000001.
+    number = models.PositiveIntegerField()
+    # Empty only for a purchase bought without a supplier, which is paid in full.
+    supplier = models.ForeignKey(Supplier, null=True, blank=True, on_delete=models.PROTECT, related_name="payments")
+    amount = models.DecimalField(max_digits=14, decimal_places=2, validators=[MinValueValidator(0)])
+    # Empty for payments recorded before payments were tracked.
+    method = models.CharField(max_length=10, choices=Method.choices, blank=True)
+    paid_at = models.DateTimeField(default=timezone.now)
+    note = models.CharField(max_length=300, blank=True)
+    # For a return credit: the return it came from.
+    supplier_return = models.ForeignKey("SupplierReturn", null=True, blank=True, on_delete=models.PROTECT, related_name="credits")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-paid_at", "-id"]
+        constraints = [models.UniqueConstraint(fields=["business", "number"], name="unique_supplier_payment_no_per_business")]
+
+    @property
+    def code(self):
+        return f"SP-{self.number:06d}"
+
+
+class PaymentAllocation(models.Model):
+    """The part of a payment that went to one purchase."""
+
+    payment = models.ForeignKey(SupplierPayment, on_delete=models.CASCADE, related_name="allocations")
+    purchase = models.ForeignKey(Purchase, on_delete=models.PROTECT, related_name="allocations")
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+
+    class Meta:
+        ordering = ["id"]

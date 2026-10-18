@@ -19,7 +19,9 @@ import type {
   StockRequest,
   StockSummary,
   Supplier,
+  SupplierPayment,
   SupplierReturn,
+  SupplierStatement,
   Transfer,
 } from "@/lib/types"
 
@@ -188,9 +190,31 @@ export function useSupplierReturnSummary() {
   return useQuery(apiQuery<{ openCount: number; owed: number }>("supplier-returns/summary/"))
 }
 
-/** How many purchases match the filters, and their total. */
+/** How many purchases match the filters, their total, and how much of it is still owed. */
 export function usePurchaseSummary(params: Params = {}) {
-  return useQuery({ ...apiQuery<{ count: number; total: number }>("purchases/summary/", params), placeholderData: keepPreviousData })
+  return useQuery({ ...apiQuery<{ count: number; total: number; due: number }>("purchases/summary/", params), placeholderData: keepPreviousData })
+}
+
+export const useSupplierPayments = (params: Params & { page: number }, options?: { pageSize?: number; enabled?: boolean }) =>
+  usePage<SupplierPayment>("supplier-payments/", params, options)
+
+/** Owners and admins: what's owed to all suppliers, how much is overdue, and to how many. */
+export function useSupplierPaymentSummary(enabled = true) {
+  return useQuery({ ...apiQuery<{ owed: number; overdue: number; supplierCount: number }>("supplier-payments/summary/"), enabled })
+}
+
+export function useSupplier(id: string) {
+  return useQuery(apiQuery<Supplier>(`suppliers/${id}/`, { stats: true }))
+}
+
+/** Owners and admins: every bill and payment with the supplier, newest first, with the balance after each. */
+export function useSupplierStatement(id: string, enabled = true) {
+  // Keyed under "supplier-payments" too, so a purchase, payment or return credit refreshes it.
+  return useQuery({
+    queryKey: ["supplier-payments", "statement", id],
+    queryFn: ({ signal }) => request<SupplierStatement>(`suppliers/${id}/statement/`, { signal }),
+    enabled,
+  })
 }
 
 export const useActivity = (params: Params & { page: number }, options?: { pageSize?: number; enabled?: boolean }) =>

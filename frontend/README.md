@@ -56,6 +56,13 @@ Demo accounts (created by `seed_demo`, also listed on the login page in developm
   location: the stock goes in and each product's cost becomes the average of what was on hand and what was just paid,
   so profit on later sales is real. Suppliers show how much was bought from each. Owners always; managers only when the
   owner turns on "Handle purchases". No accounting beyond that on purpose.
+  - New products can be created right in the purchase form (by name, or by scanning an unknown barcode); they're
+    saved together with the purchase.
+  - **Returns to suppliers**: broken or wrong stock from a purchase goes back and leaves stock at once. The supplier
+    settles it with replacements, a refund, or by taking it off what's owed; the owner can close it as a loss.
+  - **Buying on credit**: a purchase can be paid in full, in part or not at all, with an optional due date. Owners
+    pay suppliers later from the supplier's page; a payment goes to the oldest unpaid bills first. The supplier page
+    has a statement of bills and payments with the balance after each.
 - **Stock requests**: a manager asks for stock (Transfers or the dashboard's low-stock list); the owner or a manager of
   the sending location approves and picks where it ships from, which creates the transfer.
 - **Payment methods**: each business chooses in Business Settings: cash (always), mobile banking (staff enter the

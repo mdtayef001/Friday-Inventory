@@ -5,14 +5,15 @@ import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { Factory, Mail, Pencil, Phone, Plus, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { attempt, ConfirmAction, EmptyState, ListSkeleton, PageBody, PageHeader, Pager, QueryError, SearchInput } from "@/components/common"
+import { useSessionUser } from "@/components/session-provider"
 import { SupplierDialog } from "@/components/supplier-dialog"
 import { initials } from "@/components/user-menu"
 import { actions } from "@/lib/data/actions"
-import { useDebounced, usePaging, useSuppliers } from "@/lib/data/queries"
+import { useDebounced, usePaging, useSupplierPaymentSummary, useSuppliers } from "@/lib/data/queries"
 import { formatDate, formatMoney } from "@/lib/format"
 import type { Supplier } from "@/lib/types"
 
@@ -24,6 +25,8 @@ export function SuppliersView() {
   const paging = usePaging(search)
   const { data, error, isPending, isPlaceholderData, refetch } = useSuppliers({ page: paging.page, search, stats: true }, { pageSize: paging.pageSize })
   const rows = data?.results ?? []
+  const isOwner = useSessionUser().role === "owner"
+  const owing = useSupplierPaymentSummary(isOwner).data
 
   return (
     <PageBody>
@@ -37,6 +40,33 @@ export function SuppliersView() {
           </Button>
         }
       />
+
+      {owing && (
+        <Card size="sm">
+          <CardContent className="flex flex-wrap gap-x-8 gap-y-1 text-sm">
+            {owing.owed > 0 ? (
+              <>
+                <span>
+                  <span className="text-muted-foreground">You owe suppliers</span>{" "}
+                  <span className="font-medium tabular-nums text-amber-700 dark:text-amber-400">{formatMoney(owing.owed)}</span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · {owing.supplierCount} supplier{owing.supplierCount === 1 ? "" : "s"}
+                  </span>
+                </span>
+                {owing.overdue > 0 && (
+                  <Link href="/purchases?payment=overdue" className="underline-offset-2 hover:underline">
+                    <span className="text-muted-foreground">Overdue</span>{" "}
+                    <span className="font-medium tabular-nums text-destructive">{formatMoney(owing.overdue)}</span>
+                  </Link>
+                )}
+              </>
+            ) : (
+              <span className="text-muted-foreground">You don&apos;t owe any supplier. Every bill is paid.</span>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <SearchInput value={query} onChange={setQuery} placeholder="Search name, company, phone, email…" className="max-w-md" />
 
@@ -56,6 +86,7 @@ export function SuppliersView() {
                   <TableHead>Contact</TableHead>
                   <TableHead>Purchases</TableHead>
                   <TableHead className="text-right">Bought in total</TableHead>
+                  {isOwner && <TableHead className="text-right">You owe</TableHead>}
                   <TableHead className="w-24 pr-4" />
                 </TableRow>
               </TableHeader>
@@ -70,7 +101,9 @@ export function SuppliersView() {
                             <AvatarFallback className="bg-primary/10 text-xs text-primary">{initials(s.name)}</AvatarFallback>
                           </Avatar>
                           <div>
-                            <div className="font-medium">{s.name}</div>
+                            <Link href={`/suppliers/${s.id}`} className="font-medium underline-offset-2 hover:underline">
+                              {s.name}
+                            </Link>
                             {s.company && <div className="text-xs text-muted-foreground">{s.company}</div>}
                           </div>
                         </div>
@@ -107,6 +140,17 @@ export function SuppliersView() {
                           </Link>
                         ) : null}
                       </TableCell>
+                      {isOwner && (
+                        <TableCell className="text-right tabular-nums">
+                          {stats?.owed ? (
+                            <Link href={`/suppliers/${s.id}`} className="font-medium text-amber-700 underline-offset-2 hover:underline dark:text-amber-400">
+                              {formatMoney(stats.owed)}
+                            </Link>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      )}
                       <TableCell className="pr-4">
                         <div className="flex justify-end gap-1">
                           <Button variant="ghost" size="icon-sm" onClick={() => setEditing(s)} aria-label="Edit">
