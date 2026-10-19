@@ -5,16 +5,16 @@ import { AlertTriangle, CalendarClock, CheckCircle2, FileText, FlaskConical } fr
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { PageBody, PageHeader } from "@/components/common"
-import { PayForm } from "@/components/billing"
+import { ManualPaymentNotice, PayOptions } from "@/components/billing"
 import { BusinessStatusPill, PaymentsTable } from "@/components/platform"
 import { useBusiness } from "@/components/session-provider"
 import { PRICE_LABEL, REMINDER_DAYS, accessEndsAt, daysLeft } from "@/lib/business"
 import { formatDate } from "@/lib/format"
-import type { Payment } from "@/lib/types"
+import type { BillingConfig, Payment } from "@/lib/types"
 
 type Notice = { kind: "success"; paymentId: string; invoiceNo: string } | { kind: "failed" | "cancelled" } | null
 
-export function BillingView({ payments, notice, testGateway }: { payments: Payment[]; notice: Notice; testGateway: boolean }) {
+export function BillingView({ payments, notice, config }: { payments: Payment[]; notice: Notice; config: BillingConfig }) {
   const business = useBusiness()
   const endsAt = accessEndsAt(business)
   const left = daysLeft(endsAt)
@@ -22,7 +22,7 @@ export function BillingView({ payments, notice, testGateway }: { payments: Payme
 
   return (
     <PageBody className="max-w-5xl">
-      <PageHeader title="Billing" description={`Your subscription is ${PRICE_LABEL}, everything included. Pay with SSLCommerz.`} />
+      <PageHeader title="Billing" description={`Your subscription is ${PRICE_LABEL}, everything included.`} />
 
       {notice?.kind === "success" && (
         <Alert className="border-green-600/30 bg-green-600/5">
@@ -45,6 +45,8 @@ export function BillingView({ payments, notice, testGateway }: { payments: Payme
           </AlertDescription>
         </Alert>
       )}
+
+      <ManualPaymentNotice payments={payments} />
 
       <div className="grid gap-6 lg:grid-cols-5">
         <Card className="lg:col-span-3">
@@ -84,13 +86,13 @@ export function BillingView({ payments, notice, testGateway }: { payments: Payme
             <CardDescription>{PRICE_LABEL}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {testGateway && (
+            {config.testGateway && (
               <p className="flex items-start gap-2 rounded-lg bg-muted p-2 text-xs text-muted-foreground">
                 <FlaskConical className="mt-0.5 size-3.5 shrink-0" />
                 SSLCommerz isn&apos;t connected yet, so this opens a test payment page. No real money moves.
               </p>
             )}
-            <PayForm />
+            <PayOptions config={config} />
           </CardContent>
         </Card>
       </div>

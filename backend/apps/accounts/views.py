@@ -12,7 +12,8 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from apps.billing.serializers import PaymentSerializer
+from apps.billing import services as billing_services
+from apps.billing.serializers import GrantSerializer, PaymentSerializer
 
 from .models import Business, User
 from .permissions import IsSuperAdmin, IsTenantMember, ManagerNeedsPermission
@@ -161,6 +162,14 @@ class PlatformBusinessViewSet(
                 "payments": PaymentSerializer(business.payments.all(), many=True).data,
             }
         )
+
+    @action(detail=True, methods=["post"])
+    def grant(self, request, pk=None):
+        """Give months of access by hand: paid by bank or cash, or free."""
+        serializer = GrantSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payment = billing_services.grant(self.get_object(), **serializer.validated_data)
+        return Response(PaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"])
     def suspend(self, request, pk=None):

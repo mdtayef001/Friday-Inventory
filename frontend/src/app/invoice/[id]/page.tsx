@@ -32,7 +32,7 @@ async function Invoice({ params }: Pick<PageProps<"/invoice/[id]">, "params">) {
     ["Invoice no.", payment.invoiceNo!],
     ["Date paid", formatDateTime(payment.paidAt!)],
     ["Payment method", payment.method || "SSLCommerz"],
-    ["Transaction ID", payment.tranId],
+    ["Transaction ID", payment.reference || payment.tranId],
     ...(payment.bankTranId ? ([["Bank reference", payment.bankTranId]] as [string, string][]) : []),
   ]
 
@@ -94,7 +94,9 @@ async function Invoice({ params }: Pick<PageProps<"/invoice/[id]">, "params">) {
               <tr className="border-b">
                 <td className="py-4">
                   <p className="font-medium">{PLATFORM.name} subscription</p>
-                  <p className="text-muted-foreground">Monthly plan, everything included</p>
+                  <p className="text-muted-foreground">
+                    {payment.months > 1 ? `${payment.months} months of the monthly plan` : "Monthly plan"}, everything included
+                  </p>
                 </td>
                 <td className="py-4 whitespace-nowrap">
                   {formatDate(payment.periodStart!)} – {formatDate(payment.periodEnd!)}
@@ -119,7 +121,8 @@ async function Invoice({ params }: Pick<PageProps<"/invoice/[id]">, "params">) {
         </div>
 
         <footer className="mt-10 border-t pt-4 text-xs text-muted-foreground">
-          Paid online through SSLCommerz. This invoice was generated automatically and is valid without a signature.
+          {payment.channel === "manual" ? (payment.amount > 0 ? "Paid directly and confirmed by Friday." : "Given free of charge.") : "Paid online through SSLCommerz."} This invoice
+          was generated automatically and is valid without a signature.
         </footer>
       </article>
     </div>

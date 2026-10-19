@@ -3,7 +3,7 @@
 import { z } from "zod"
 import { api, apiOrNull, toResult, type ActionResult } from "@/lib/api/server"
 import { ApiError } from "@/lib/api/errors"
-import type { BusinessSummary, ManagedUser, Payment } from "@/lib/types"
+import type { BusinessSummary, ManagedUser, Payment, PaymentAccounts } from "@/lib/types"
 import { requireRole } from "./dal"
 
 // Super admin only. Every action re-checks the role here, and Django again.
@@ -66,4 +66,29 @@ export async function resetOwnerPassword(userId: string, password: string): Prom
 export async function deleteBusiness(id: string): Promise<ActionResult> {
   await requireSuper()
   return toResult(() => api(businessPath(id), { method: "DELETE" }))
+}
+
+/** Approve a payment sent by hand once the money arrived, or reject it with a reason for the owner. */
+export async function reviewPayment(id: string, decision: "approve" | "reject", note = ""): Promise<ActionResult> {
+  await requireSuper()
+  if (decision !== "approve" && decision !== "reject") return { ok: false, error: "Invalid request." }
+  return toResult(() => api(`platform/payments/${encodeURIComponent(id)}/${decision}/`, { method: "POST", body: { note } }))
+}
+
+export type GrantInput = { months: number; amount: number; method: string; reference: string; note: string }
+
+/** Give a business months of access by hand: paid by bank or cash, or free. */
+export async function grantAccess(id: string, input: GrantInput): Promise<ActionResult> {
+  await requireSuper()
+  return toResult(() => api(`${businessPath(id)}grant/`, { method: "POST", body: input }))
+}
+
+export async function getPaymentAccounts(): Promise<PaymentAccounts> {
+  await requireSuper()
+  return api("platform/payment-accounts/")
+}
+
+export async function savePaymentAccounts(input: PaymentAccounts): Promise<ActionResult> {
+  await requireSuper()
+  return toResult(() => api("platform/payment-accounts/", { method: "PUT", body: input }))
 }

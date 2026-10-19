@@ -92,7 +92,8 @@ export interface Business {
   settings: BusinessSettings
 }
 
-export type PaymentStatus = "pending" | "paid" | "failed" | "cancelled"
+/** "awaiting": sent by hand (bKash, bank...), waiting for the super admin to approve it. */
+export type PaymentStatus = "pending" | "awaiting" | "paid" | "failed" | "cancelled" | "rejected"
 
 export interface Payment {
   id: string
@@ -115,6 +116,31 @@ export interface Payment {
   valId?: string
   bankTranId?: string
   payer: { name: string; email: string; phone: string }
+  /** "online" through SSLCommerz, or "manual": sent by hand, or months given by the super admin. */
+  channel: "online" | "manual"
+  months: number
+  /** Sent by hand: the TrxID or bank reference, and the number or account it came from. */
+  reference: string
+  sentFrom: string
+  /** The super admin's note, e.g. why it was rejected. */
+  note: string
+  reviewedAt: string | null
+}
+
+/** Where owners send money by hand. Set by the super admin. */
+export interface PaymentAccounts {
+  bkash: string
+  nagad: string
+  rocket: string
+  bank: string
+  contact: string
+}
+
+export interface BillingConfig {
+  testGateway: boolean
+  /** SSLCommerz is connected, or the test gateway is on. */
+  online: boolean
+  accounts: PaymentAccounts
 }
 
 export interface BusinessSummary extends Business {

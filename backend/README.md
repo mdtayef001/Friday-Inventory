@@ -59,7 +59,7 @@ reads the database, and the Data API would otherwise expose its tables over HTTP
 | `apps/accounts/` | `Business` (tenant), `User` (role + locations), JWT login, role permissions |
 | `apps/inventory/` | Locations, products, stock, clients, shipments, rentals, transfers, activity log |
 | `apps/inventory/services.py` | Every stock-changing action, atomic and logged |
-| `apps/billing/` | Subscription payments: checkout, SSLCommerz validation, invoices |
+| `apps/billing/` | Subscription payments: SSLCommerz checkout and validation, money sent by hand and approved by the super admin, invoices |
 | `apps/api.py` | Shared serializer fields (ids go out as strings, like the frontend's types) |
 
 JSON is camelCase on the wire, matching `frontend/src/lib/types.ts`.
@@ -85,7 +85,7 @@ out, or that is suspended, gets 403 on every tenant endpoint.
 | `shipments/` + `POST {id}/status/` | owner, manager (tracking module) |
 | `rentals/` + `POST {id}/return/` | owner, manager (rentals module) |
 | `transfers/` + `POST {id}/receive/` · `{id}/cancel/` | owner, manager (transfers module) |
-| `GET billing/payments/` · `POST billing/checkout/` | owner (even while locked) |
+| `GET billing/payments/` · `POST billing/checkout/` · `POST billing/manual/` · `GET billing/config/` | owner (even while locked); `manual` records money sent by bKash/Nagad/Rocket/bank, waiting for the super admin |
 | `GET billing/payments/{id}/` | that business's owner, super admin (invoices) |
 | `GET sales/summary/` (filters: `from`, `to`, `location`, `product`, `seller`, `channel`; includes the chart series and top products) | owner, manager |
 | `GET sales/export/` (same filters) | owner, manager; CSV, profit columns only for those allowed to see profit |
@@ -96,4 +96,4 @@ out, or that is suspended, gets 403 on every tenant endpoint.
 | `supplier-payments/` + `GET summary/` · `GET suppliers/{id}/statement/` | owners only; a payment is given to the supplier's oldest unpaid bills |
 | `GET track/{token}/` | public; a client's order status, nothing internal |
 | `POST billing/sslcommerz/{result}/` | public; the frontend forwards SSLCommerz's callbacks, Django validates them |
-| `platform/businesses/` + `POST {id}/suspend/`, `DELETE`, `platform/payments/`, `POST platform/users/{id}/password/` | super admin |
+| `platform/businesses/` + `POST {id}/suspend/` · `{id}/grant/`, `DELETE`, `platform/payments/` + `POST {id}/approve/` · `{id}/reject/`, `platform/payment-accounts/`, `POST platform/users/{id}/password/` | super admin; `grant` gives months paid outside Friday or free |

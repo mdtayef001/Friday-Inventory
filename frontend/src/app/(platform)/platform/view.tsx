@@ -1,7 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { ArrowRight, Building2, CircleDollarSign, Clock, Lock } from "lucide-react"
+import { ArrowRight, Building2, CircleDollarSign, Clock, Hourglass, Lock } from "lucide-react"
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { PageBody, PageHeader, StatCard } from "@/components/common"
@@ -22,6 +23,7 @@ export function PlatformOverview({ businesses, payments }: { businesses: Busines
   const paying = businesses.filter((b) => b.status === "active").length
   const trials = businesses.filter((b) => b.status === "trial").length
   const unpaid = businesses.filter((b) => b.status === "unpaid").length
+  const waiting = payments.filter((p) => p.status === "awaiting")
 
   return (
     <PageBody>
@@ -35,6 +37,23 @@ export function PlatformOverview({ businesses, payments }: { businesses: Busines
           </Button>
         }
       />
+
+      {waiting.length > 0 && (
+        <Alert className="border-amber-500/30 bg-amber-500/5">
+          <Hourglass className="text-amber-600" />
+          <AlertTitle>
+            {waiting.length} {waiting.length === 1 ? "payment is" : "payments are"} waiting for you
+          </AlertTitle>
+          <AlertDescription>
+            {formatTaka(waiting.reduce((sum, p) => sum + p.amount, 0))} sent by hand. Check your bKash or bank, then approve.
+          </AlertDescription>
+          <AlertAction>
+            <Button size="sm" render={<Link href="/platform/payments" />} nativeButton={false}>
+              Review
+            </Button>
+          </AlertAction>
+        </Alert>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Businesses" value={businesses.length} hint={`${paying} paying`} icon={Building2} />

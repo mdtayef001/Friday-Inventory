@@ -6,10 +6,10 @@ import { AlertTriangle, CheckCircle2, LogOut, Store } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { PayForm } from "@/components/billing"
+import { ManualPaymentNotice, PayOptions } from "@/components/billing"
 import { requireOwner } from "@/lib/auth/dal"
 import { PRICE_LABEL, accessEndsAt } from "@/lib/business"
-import { listPayments } from "@/lib/billing/queries"
+import { getBillingConfig, listPayments } from "@/lib/billing/queries"
 import { formatDate } from "@/lib/format"
 
 export const metadata: Metadata = { title: "Subscribe" }
@@ -30,7 +30,7 @@ async function Subscribe({ searchParams }: Pick<PageProps<"/subscribe">, "search
   // Not locked (e.g. a failed early renewal): the billing page handles it.
   if (!locked) redirect(payment ? `/billing?payment=${payment}` : "/billing")
 
-  const history = await listPayments()
+  const [history, config] = await Promise.all([listPayments(), getBillingConfig()])
   const everPaid = history.some((p) => p.status === "paid")
 
   return (
@@ -76,7 +76,8 @@ async function Subscribe({ searchParams }: Pick<PageProps<"/subscribe">, "search
               ))}
             </ul>
           </div>
-          <PayForm label={`Subscribe · ${PRICE_LABEL}`} />
+          <ManualPaymentNotice payments={history} />
+          <PayOptions config={config} label={`Subscribe · ${PRICE_LABEL}`} />
         </CardContent>
       </Card>
       <div className="flex items-center justify-between text-sm text-muted-foreground">

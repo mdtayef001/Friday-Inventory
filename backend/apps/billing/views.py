@@ -8,10 +8,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.models import User
+from apps.accounts.permissions import IsSuperAdmin
 
 from . import services, sslcommerz
-from .models import Payment
-from .serializers import PaymentSerializer
+from .models import Payment, PaymentAccounts
+from .serializers import ManualPaymentSerializer, PaymentAccountsSerializer, PaymentSerializer
 
 
 class IsOwner(BasePermission):
@@ -23,8 +24,17 @@ class IsOwner(BasePermission):
 
 
 class BillingConfigView(APIView):
+    """How owners can pay: online when SSLCommerz is connected (or the test gateway is on), and by hand."""
+
     def get(self, request):
-        return Response({"test_gateway": sslcommerz.is_test_gateway()})
+        test = sslcommerz.is_test_gateway()
+        return Response(
+            {
+                "test_gateway": test,
+                "online": test or bool(sslcommerz.platform_account()),
+                "accounts": PaymentAccountsSerializer(PaymentAccounts.load()).data,
+            }
+        )
 
 
 class PaymentListView(APIView):
@@ -62,6 +72,25 @@ class CheckoutView(APIView):
         if error:
             return Response({"detail": error}, status=502)
         return Response({"url": url})
+
+
+class ManualPaymentView(APIView):
+    """The owner sent money by bKash, Nagad, Rocket or bank, and gives the transaction ID to check."""
+
+    permission_classes = [IsOwner]
+
+    def post(self, request):
+        business = request.user.business
+        if business.suspended:
+            return Response({"detail": "This business is suspended. Please contact support."}, status=400)
+        serializer = ManualPaymentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payer = SimpleNamespace(name=request.user.name, email=request.user.email, phone=serializer.validated_data["sent_from"])
+        try:
+            payment = services.submit_manual(business, payer, **serializer.validated_data)
+        except services.PaymentError as err:
+            return Response({"detail": str(err)}, status=400)
+        return Response(PaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
 
 
 class GatewayResultView(APIView):
@@ -116,3 +145,36 @@ class PlatformPaymentListView(APIView):
             raise NotFound()
         payments = Payment.objects.select_related("business")
         return Response(PaymentSerializer(payments, many=True).data)
+
+
+class PlatformPaymentReviewView(APIView):
+    """Super admin approves a payment sent by hand once the money arrived, or rejects it."""
+
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request, pk, decision):
+        if decision not in ("approve", "reject"):
+            raise NotFound()
+        try:
+            if decision == "approve":
+                payment = services.approve(pk)
+            else:
+                payment = services.reject(pk, str(request.data.get("note", ""))[:300])
+        except services.PaymentError as err:
+            return Response({"detail": str(err)}, status=400)
+        return Response(PaymentSerializer(payment).data)
+
+
+class PlatformPaymentAccountsView(APIView):
+    """Super admin: the bKash/Nagad/Rocket numbers and bank details owners send money to."""
+
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request):
+        return Response(PaymentAccountsSerializer(PaymentAccounts.load()).data)
+
+    def put(self, request):
+        serializer = PaymentAccountsSerializer(PaymentAccounts.load(), data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)

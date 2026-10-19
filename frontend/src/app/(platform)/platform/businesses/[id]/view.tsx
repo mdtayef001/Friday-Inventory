@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Ban, CheckCircle2, KeyRound, Trash2 } from "lucide-react"
+import { ArrowLeft, Ban, CalendarPlus, CheckCircle2, KeyRound, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -11,14 +11,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ConfirmAction, Field, PageBody, PageHeader, Pill } from "@/components/common"
+import { ConfirmAction, Field, PageBody, PageHeader, Pill, SimpleSelect } from "@/components/common"
 import { BusinessStatusPill, PaymentsTable } from "@/components/platform"
 import { initials } from "@/components/user-menu"
-import { deleteBusiness, resetOwnerPassword, setBusinessSuspended } from "@/lib/auth/platform-actions"
+import { deleteBusiness, grantAccess, resetOwnerPassword, setBusinessSuspended } from "@/lib/auth/platform-actions"
 import type { ActionResult } from "@/lib/auth/user-actions"
 import { roleLabel } from "@/lib/auth/roles"
 import { formatDate, timeAgo } from "@/lib/format"
-import { MODULES, PERMISSIONS, PRICE_LABEL, accessEndsAt, daysLeft } from "@/lib/business"
+import { MODULES, PERMISSIONS, PRICE_LABEL, SUBSCRIPTION, accessEndsAt, daysLeft, formatTaka } from "@/lib/business"
 import type { BusinessSummary, ManagedUser, ModuleId, Payment, PermissionId } from "@/lib/types"
 
 function showResult(result: ActionResult, success: string) {
@@ -31,6 +31,7 @@ export function BusinessDetailView({ business, users, payments }: { business: Bu
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [resetting, setResetting] = useState<ManagedUser | null>(null)
+  const [granting, setGranting] = useState(false)
   const run = (fn: () => Promise<ActionResult>, success: string) => startTransition(async () => void showResult(await fn(), success))
 
   return (
@@ -89,6 +90,10 @@ export function BusinessDetailView({ business, users, payments }: { business: Bu
                 <dd className="font-medium tabular-nums">{daysLeft(accessEndsAt(business))}</dd>
               </div>
             </dl>
+            <Button variant="outline" className="w-full" onClick={() => setGranting(true)}>
+              <CalendarPlus />
+              Give access
+            </Button>
             <p className="text-xs text-muted-foreground">
               {business.status === "unpaid"
                 ? "Locked for not paying. The owner can log in only to pay; access comes back as soon as they do."
@@ -184,9 +189,9 @@ export function BusinessDetailView({ business, users, payments }: { business: Bu
       <Card className="py-0">
         <CardHeader className="pt-6">
           <CardTitle>Payments</CardTitle>
-          <CardDescription>Every payment attempt by this business through SSLCommerz.</CardDescription>
+          <CardDescription>Every payment by this business: online, sent by hand, or given by you.</CardDescription>
         </CardHeader>
-        <PaymentsTable payments={payments} />
+        <PaymentsTable payments={payments} review />
       </Card>
 
       <Card className="border-destructive/30">
@@ -216,6 +221,7 @@ export function BusinessDetailView({ business, users, payments }: { business: Bu
       </Card>
 
       {resetting && <ResetPasswordDialog user={resetting} onClose={() => setResetting(null)} />}
+      {granting && <GrantDialog business={business} onClose={() => setGranting(false)} />}
     </PageBody>
   )
 }
@@ -257,6 +263,86 @@ function ResetPasswordDialog({ user, onClose }: { user: ManagedUser; onClose: ()
             </Button>
             <Button type="submit" disabled={pending || password.length < 8}>
               Save password
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+const GRANT_METHODS = [
+  { value: "bank", label: "Bank transfer" },
+  { value: "cash", label: "Cash" },
+  { value: "bkash", label: "bKash" },
+  { value: "nagad", label: "Nagad" },
+  { value: "rocket", label: "Rocket" },
+  { value: "free", label: "Free (no payment)" },
+]
+
+/** Months given by hand: they paid you outside Friday, or you're giving them free time. */
+function GrantDialog({ business, onClose }: { business: BusinessSummary; onClose: () => void }) {
+  const [months, setMonths] = useState("1")
+  const [method, setMethod] = useState("bank")
+  const [amount, setAmount] = useState(String(SUBSCRIPTION.price))
+  const [reference, setReference] = useState("")
+  const [note, setNote] = useState("")
+  const [pending, startTransition] = useTransition()
+  const free = method === "free"
+  const n = Number(months)
+  const changeMonths = (v: string) => {
+    setMonths(v)
+    setAmount(String(SUBSCRIPTION.price * (Number(v) || 0)))
+  }
+  const valid = n >= 1 && n <= 24 && Number.isInteger(n) && (free || Number(amount) >= 0)
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <form
+          className="grid gap-4"
+          onSubmit={(e) => {
+            e.preventDefault()
+            startTransition(async () => {
+              const result = await grantAccess(business.id, { months: n, amount: free ? 0 : Number(amount), method, reference, note })
+              if (showResult(result, `${business.name} has ${n} more ${n === 1 ? "month" : "months"}`)) onClose()
+            })
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Give {business.name} access</DialogTitle>
+            <DialogDescription>
+              For money paid to you outside Friday, or free months. They start when current access ends ({formatDate(accessEndsAt(business))}), or today if
+              it already has. The owner gets an invoice.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Months" htmlFor="grant-months">
+              <Input id="grant-months" type="number" min={1} max={24} value={months} onChange={(e) => changeMonths(e.target.value)} />
+            </Field>
+            <Field label="Paid by" htmlFor="grant-method">
+              <SimpleSelect id="grant-method" value={method} onChange={setMethod} options={GRANT_METHODS} />
+            </Field>
+          </div>
+          {!free && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Amount received" htmlFor="grant-amount" hint={`${formatTaka(SUBSCRIPTION.price)} a month`}>
+                <Input id="grant-amount" type="number" min={0} step="any" value={amount} onChange={(e) => setAmount(e.target.value)} />
+              </Field>
+              <Field label="Reference (optional)" htmlFor="grant-ref" hint="TrxID or bank reference">
+                <Input id="grant-ref" value={reference} onChange={(e) => setReference(e.target.value)} maxLength={100} className="font-mono" />
+              </Field>
+            </div>
+          )}
+          <Field label="Note (optional)" htmlFor="grant-note">
+            <Input id="grant-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder={free ? "e.g. Sorry for the outage" : "e.g. Called on WhatsApp"} maxLength={300} />
+          </Field>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={pending || !valid}>
+              Give {n >= 1 ? n : ""} {n === 1 ? "month" : "months"}
             </Button>
           </DialogFooter>
         </form>

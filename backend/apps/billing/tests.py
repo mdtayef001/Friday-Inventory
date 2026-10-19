@@ -88,3 +88,92 @@ class LiveWithoutKeysTests(APITestCase):
         res = self.client.post("/api/billing/sslcommerz/success/", {"tranId": payment.tran_id, "valId": "TEST-bKash-1"}, format="json")
         self.assertEqual(res.json()["status"], "failed")
         self.assertEqual(self.client.get("/api/billing/test-gateway/T1/").status_code, 404)
+
+
+class ManualPaymentTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+        self.biz = Business.objects.create(name="Locked Co", trial_ends_at=timezone.now() - timedelta(days=1))
+        User.objects.create_user(email="owner@x.com", password=PASSWORD, name="Owner", role="owner", business=self.biz)
+        User.objects.create_user(email="staff@x.com", password=PASSWORD, name="Staff", role="staff", business=self.biz)
+        User.objects.create_superuser(email="admin@x.com", password=PASSWORD, name="Admin")
+
+    def login(self, email):
+        res = self.client.post("/api/auth/login/", {"email": email, "password": PASSWORD}, format="json")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.json()['access']}")
+
+    def send(self, **fields):
+        self.login("owner@x.com")
+        body = {"method": "bkash", "months": 1, "reference": "9AB3CD7EF1", "sentFrom": "01700000000", **fields}
+        return self.client.post("/api/billing/manual/", body, format="json")
+
+    def test_sent_payment_waits_then_approval_unlocks(self):
+        res = self.send(months=3)
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual((res.json()["status"], res.json()["amount"], res.json()["method"]), ("awaiting", 3000, "bKash"))
+        self.biz.refresh_from_db()
+        self.assertEqual(self.biz.status, "unpaid")
+
+        self.login("admin@x.com")
+        res = self.client.post(f"/api/platform/payments/{res.json()['id']}/approve/", {}, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()["status"], "paid")
+        self.assertTrue(res.json()["invoiceNo"].startswith("INV-"))
+        self.biz.refresh_from_db()
+        self.assertEqual(self.biz.status, "active")
+        self.assertGreater(self.biz.paid_until, timezone.now() + timedelta(days=88))
+
+    def test_approve_only_once(self):
+        payment_id = self.send().json()["id"]
+        self.login("admin@x.com")
+        self.client.post(f"/api/platform/payments/{payment_id}/approve/", {}, format="json")
+        self.biz.refresh_from_db()
+        paid_until = self.biz.paid_until
+        self.assertEqual(self.client.post(f"/api/platform/payments/{payment_id}/approve/", {}, format="json").status_code, 400)
+        self.biz.refresh_from_db()
+        self.assertEqual(self.biz.paid_until, paid_until)
+
+    def test_reject_keeps_it_locked_and_frees_the_reference(self):
+        payment_id = self.send().json()["id"]
+        self.assertEqual(self.send().status_code, 400)  # same TrxID twice
+        self.login("admin@x.com")
+        res = self.client.post(f"/api/platform/payments/{payment_id}/reject/", {"note": "Not received"}, format="json")
+        self.assertEqual((res.json()["status"], res.json()["note"]), ("rejected", "Not received"))
+        self.biz.refresh_from_db()
+        self.assertEqual(self.biz.status, "unpaid")
+        self.assertEqual(self.send().status_code, 201)
+
+    def test_only_owner_sends_and_only_super_admin_approves(self):
+        self.login("staff@x.com")
+        self.assertEqual(self.client.post("/api/billing/manual/", {"method": "bkash", "months": 1, "reference": "X1"}, format="json").status_code, 403)
+        payment_id = self.send().json()["id"]
+        self.assertEqual(self.client.post(f"/api/platform/payments/{payment_id}/approve/", {}, format="json").status_code, 403)
+
+    def test_odd_months_refused(self):
+        self.assertEqual(self.send(months=2).status_code, 400)
+
+    def test_super_admin_gives_months(self):
+        self.login("admin@x.com")
+        res = self.client.post(
+            f"/api/platform/businesses/{self.biz.id}/grant/",
+            {"months": 2, "amount": 2000, "method": "bank", "reference": "DBBL-778", "note": "Called on WhatsApp"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual((res.json()["status"], res.json()["method"], res.json()["payer"]["email"]), ("paid", "Bank transfer", "owner@x.com"))
+        self.biz.refresh_from_db()
+        self.assertEqual(self.biz.status, "active")
+
+    def test_free_months_cost_nothing(self):
+        self.login("admin@x.com")
+        res = self.client.post(f"/api/platform/businesses/{self.biz.id}/grant/", {"months": 1, "amount": 1000, "method": "free"}, format="json")
+        self.assertEqual(res.json()["amount"], 0)
+
+    def test_owner_sees_where_to_send(self):
+        self.login("admin@x.com")
+        res = self.client.put("/api/platform/payment-accounts/", {"bkash": "01711111111", "bank": "Friday Ltd\nDBBL 123", "contact": "01811111111"}, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        self.login("owner@x.com")
+        accounts = self.client.get("/api/billing/config/").json()["accounts"]
+        self.assertEqual((accounts["bkash"], accounts["nagad"], accounts["contact"]), ("01711111111", "", "01811111111"))
+        self.assertEqual(self.client.put("/api/platform/payment-accounts/", {"bkash": "0"}, format="json").status_code, 403)
