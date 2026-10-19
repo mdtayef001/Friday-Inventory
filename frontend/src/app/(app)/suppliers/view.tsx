@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
 import { Factory, Mail, Pencil, Phone, Plus, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -13,13 +12,12 @@ import { useSessionUser } from "@/components/session-provider"
 import { SupplierDialog } from "@/components/supplier-dialog"
 import { initials } from "@/components/user-menu"
 import { actions } from "@/lib/data/actions"
-import { useDebounced, usePaging, useSupplierPaymentSummary, useSuppliers } from "@/lib/data/queries"
+import { useDebounced, useLinkedSearch, usePaging, useSupplierPaymentSummary, useSuppliers } from "@/lib/data/queries"
 import { formatDate, formatMoney } from "@/lib/format"
 import type { Supplier } from "@/lib/types"
 
 export function SuppliersView() {
-  const params = useSearchParams()
-  const [query, setQuery] = useState(params.get("q") ?? "")
+  const [query, setQuery] = useLinkedSearch()
   const [editing, setEditing] = useState<Supplier | "new" | null>(null)
   const search = useDebounced(query.trim())
   const paging = usePaging(search)

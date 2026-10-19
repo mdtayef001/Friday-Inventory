@@ -9,13 +9,14 @@ import { PackagePlus, Plus, Undo2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { EmptyState, ListSkeleton, PageBody, PageHeader, Pager, Pill, QueryError, SearchInput, SimpleSelect } from "@/components/common"
 import { PurchaseDialog } from "@/components/purchase-dialog"
 import { useScope } from "@/components/session-provider"
 import { SupplierPicker } from "@/components/supplier-dialog"
 import { ReturnToSupplierDialog } from "@/components/supplier-return"
-import { apiQuery, useDebounced, useLocations, usePaging, usePurchases, usePurchaseSummary } from "@/lib/data/queries"
+import { apiQuery, useDebounced, useLinkedSearch, useLocations, usePaging, usePurchases, usePurchaseSummary } from "@/lib/data/queries"
 import { formatDate, formatDateTime, formatMoney, formatNumber } from "@/lib/format"
 import type { Purchase, PurchaseItem, Supplier, SupplierBrief } from "@/lib/types"
 
@@ -25,7 +26,7 @@ export function PurchasesView() {
   const allLocations = useLocations()
   const locationName = (id: string | null) => allLocations.find((l) => l.id === id)?.name ?? "Deleted location"
 
-  const [query, setQuery] = useState("")
+  const [query, setQuery] = useLinkedSearch()
   const [locationId, setLocationId] = useState("")
   const [payment, setPayment] = useState(params.get("payment") ?? "")
   // Opened from the Suppliers page with ?supplier=<id>: load that supplier for the filter.
@@ -38,6 +39,7 @@ export function PurchasesView() {
   const [adding, setAdding] = useState(false)
   // The open purchase follows the list, so it shows returns as soon as they're made.
   const [opened, setOpen] = useState<Purchase | null>(null)
+  const [returning, setReturning] = useState<{ purchase: Purchase; item: PurchaseItem } | null>(null)
 
   const search = useDebounced(query.trim())
   const filters = { search, supplier: supplierId, location: locationId, payment }
@@ -121,7 +123,10 @@ export function PurchasesView() {
                   <TableHead>Arrived at</TableHead>
                   <TableHead>Products</TableHead>
                   <TableHead className="text-right">Total</TableHead>
-                  <TableHead className="pr-4">Payment</TableHead>
+                  <TableHead>Payment</TableHead>
+                  <TableHead className="pr-4">
+                    <span className="sr-only">Return</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -136,12 +141,18 @@ export function PurchasesView() {
                     </TableCell>
                     <TableCell className="text-sm">{p.supplier ? p.supplier.name : <span className="text-muted-foreground">—</span>}</TableCell>
                     <TableCell className="text-sm">{locationName(p.locationId)}</TableCell>
-                    <TableCell className="max-w-72 text-sm">
-                      <span className="line-clamp-2">{p.items.map((i) => `${i.quantity} × ${i.productName}`).join(", ")}</span>
+                    {/* Just the first product; the rest are in the purchase when it's opened. */}
+                    <TableCell className="max-w-56 text-sm">
+                      <span className="block truncate">{p.items[0] && `${p.items[0].quantity} × ${p.items[0].productName}`}</span>
+                      {p.items.length > 1 && <span className="text-xs text-muted-foreground">and {p.items.length - 1} more</span>}
                     </TableCell>
                     <TableCell className="text-right font-medium tabular-nums">{formatMoney(p.total)}</TableCell>
-                    <TableCell className="pr-4">
+                    <TableCell>
                       <PaymentStatus purchase={p} />
+                    </TableCell>
+                    {/* Clicks here (and in the menu, which React bubbles through) mustn't open the purchase. */}
+                    <TableCell className="pr-4" onClick={(e) => e.stopPropagation()}>
+                      <ReturnButton purchase={p} onReturn={(item) => setReturning({ purchase: p, item })} />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -154,6 +165,7 @@ export function PurchasesView() {
 
       {adding && <PurchaseDialog supplier={supplier} onClose={() => setAdding(false)} />}
       {open && <PurchaseDetail purchase={open} location={locationName(open.locationId)} onClose={() => setOpen(null)} />}
+      {returning && <ReturnToSupplierDialog purchase={returning.purchase} item={returning.item} onClose={() => setReturning(null)} />}
     </PageBody>
   )
 }
@@ -177,6 +189,40 @@ function PaymentStatus({ purchase: p }: { purchase: Purchase }) {
         {formatMoney(p.due)} owed{p.dueDate ? ` · due ${formatDate(p.dueDate)}` : ""}
       </span>
     </div>
+  )
+}
+
+const canReturn = (p: Purchase, i: PurchaseItem) => !!i.productId && !!p.locationId && i.returned < i.quantity
+
+/** Return straight from the list: one product opens the return, several ask which one first. */
+function ReturnButton({ purchase: p, onReturn }: { purchase: Purchase; onReturn: (item: PurchaseItem) => void }) {
+  const items = p.items.filter((i) => canReturn(p, i))
+  if (items.length === 0) return null
+  if (items.length === 1)
+    return (
+      <Button variant="outline" size="sm" onClick={() => onReturn(items[0])} title={`Return ${items[0].productName} to the supplier`}>
+        <Undo2 />
+        Return
+      </Button>
+    )
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
+        <Undo2 />
+        Return
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-auto min-w-56">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Which product goes back?</DropdownMenuLabel>
+          {items.map((i, n) => (
+            <DropdownMenuItem key={n} onClick={() => onReturn(i)}>
+              <span className="flex-1">{i.productName}</span>
+              <span className="text-xs text-muted-foreground tabular-nums">{formatNumber(i.quantity - i.returned)} left</span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -235,7 +281,7 @@ function PurchaseDetail({ purchase: p, location, onClose }: { purchase: Purchase
                   <TableCell className="text-right tabular-nums">{formatMoney(i.unitCost)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatMoney(i.amount)}</TableCell>
                   <TableCell className="pr-3">
-                    {i.productId && p.locationId && i.returned < i.quantity && (
+                    {canReturn(p, i) && (
                       <Button variant="ghost" size="icon-sm" onClick={() => setReturning(i)} aria-label={`Return ${i.productName} to the supplier`} title="Return to supplier">
                         <Undo2 />
                       </Button>

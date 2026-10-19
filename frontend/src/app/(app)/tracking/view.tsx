@@ -31,7 +31,7 @@ import { usePermissions, useScope } from "@/components/session-provider"
 import { SHIPMENT_FLOW, SHIPMENT_STATUS, ShipmentStatusPill } from "@/components/status"
 import { TrackingLinkShare, copyTrackingLink } from "@/components/tracking-link"
 import { actions } from "@/lib/data/actions"
-import { qtyAt, useDebounced, usePaging, useShipment, useShipmentCounts, useShipments } from "@/lib/data/queries"
+import { qtyAt, useDebounced, useLinkedSearch, usePaging, useShipment, useShipmentCounts, useShipments } from "@/lib/data/queries"
 import { formatDateTime, formatMoney, timeAgo } from "@/lib/format"
 import { PAYMENT_METHODS } from "@/lib/business"
 import type { ClientBrief, PaymentMethod, Product, Shipment, ShipmentStatus } from "@/lib/types"
@@ -56,7 +56,7 @@ const NEXT_LABEL: Partial<Record<ShipmentStatus, string>> = {
 export function TrackingView() {
   const scope = useScope()
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["value"]>("all")
-  const [query, setQuery] = useState("")
+  const [query, setQuery] = useLinkedSearch()
   const [creating, setCreating] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const search = useDebounced(query.trim())

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { MapPin, Package, ScanBarcode, Search, Users } from "lucide-react"
+import { CalendarClock, Factory, MapPin, Package, PackagePlus, ScanBarcode, Search, Truck, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
@@ -16,8 +16,8 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
-import { useClients, useDebounced, useProducts } from "@/lib/data/queries"
-import { useScope, useSessionUser } from "./session-provider"
+import { useClients, useDebounced, useProducts, usePurchases, useRentals, useShipments, useSuppliers } from "@/lib/data/queries"
+import { usePermissions, useScope, useSessionUser } from "./session-provider"
 
 const TITLES: Record<string, string> = {
   dashboard: "Dashboard",
@@ -86,14 +86,22 @@ export function AppHeader() {
 function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const router = useRouter()
   const { locations } = useScope()
+  const { canOpen } = usePermissions()
   const [search, setSearch] = useState("")
   const term = useDebounced(search.trim())
-  // The server searches, so only the best few matches come back.
+  // The server searches, so only the best few matches come back. Only what this person can open.
+  const on = (path: string) => open && !!term && canOpen(path)
   const products = useProducts({ page: 1, search: term }, { pageSize: 8, enabled: open && !!term })
-  const clients = useClients({ page: 1, search: term }, { pageSize: 5, enabled: open && !!term })
+  const clients = useClients({ page: 1, search: term }, { pageSize: 5, enabled: on("/clients") })
+  const suppliers = useSuppliers({ page: 1, search: term }, { pageSize: 5, enabled: on("/suppliers") })
+  const purchases = usePurchases({ page: 1, search: term }, { pageSize: 5, enabled: on("/purchases") })
+  const orders = useShipments({ page: 1, search: term }, { pageSize: 5, enabled: on("/tracking") })
+  const rentals = useRentals({ page: 1, search: term }, { pageSize: 5, enabled: on("/rentals") })
   const q = term.toLowerCase()
   const places = locations.filter((l) => !q || `${l.name} ${l.address}`.toLowerCase().includes(q))
-  const searching = !!term && (products.isFetching || clients.isFetching)
+  const searching = !!term && [products, clients, suppliers, purchases, orders, rentals].some((r) => r.isFetching)
+  const found = <T,>(r: { data?: { results: T[] } }) => (term && r.data?.results.length ? r.data.results : null)
+  const linked = (path: string, code: string) => `${path}?q=${encodeURIComponent(code)}`
 
   const go = (href: string) => {
     onOpenChange(false)
@@ -102,14 +110,14 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
   }
 
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange} title="Search" description="Find products, clients and locations">
+    <CommandDialog open={open} onOpenChange={onOpenChange} title="Search" description="Find products, clients, suppliers, purchases, orders, rentals and locations">
       <Command shouldFilter={false}>
-        <CommandInput value={search} onValueChange={setSearch} placeholder="Search by name, SKU, barcode, client…" />
+        <CommandInput value={search} onValueChange={setSearch} placeholder="Search by name, SKU, barcode, client, P-000012…" />
         <CommandList>
           <CommandEmpty>{searching ? "Searching…" : "No results found."}</CommandEmpty>
-          {term && !!products.data?.results.length && (
+          {found(products) && (
             <CommandGroup heading="Products">
-              {products.data.results.map((p) => (
+              {found(products)!.map((p) => (
                 <CommandItem key={p.id} value={`product-${p.id}`} onSelect={() => go(`/products/${p.id}`)}>
                   <Package />
                   <span className="truncate">{p.name}</span>
@@ -118,13 +126,60 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (op
               ))}
             </CommandGroup>
           )}
-          {term && !!clients.data?.results.length && (
+          {found(clients) && (
             <CommandGroup heading="Clients">
-              {clients.data.results.map((c) => (
-                <CommandItem key={c.id} value={`client-${c.id}`} onSelect={() => go(`/clients?q=${encodeURIComponent(c.name)}`)}>
+              {found(clients)!.map((c) => (
+                <CommandItem key={c.id} value={`client-${c.id}`} onSelect={() => go(linked("/clients", c.name))}>
                   <Users />
                   <span className="truncate">{c.name}</span>
                   {c.company && <span className="ml-auto text-xs text-muted-foreground">{c.company}</span>}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
+          {found(suppliers) && (
+            <CommandGroup heading="Suppliers">
+              {found(suppliers)!.map((s) => (
+                <CommandItem key={s.id} value={`supplier-${s.id}`} onSelect={() => go(`/suppliers/${s.id}`)}>
+                  <Factory />
+                  <span className="truncate">{s.name}</span>
+                  {s.company && <span className="ml-auto text-xs text-muted-foreground">{s.company}</span>}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
+          {found(purchases) && (
+            <CommandGroup heading="Purchases">
+              {found(purchases)!.map((p) => (
+                <CommandItem key={p.id} value={`purchase-${p.id}`} onSelect={() => go(linked("/purchases", p.code))}>
+                  <PackagePlus />
+                  <span className="font-mono">{p.code}</span>
+                  <span className="truncate text-muted-foreground">{p.supplier?.name}</span>
+                  <span className="ml-auto text-xs text-muted-foreground">{p.reference && `Bill ${p.reference}`}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
+          {found(orders) && (
+            <CommandGroup heading="Orders">
+              {found(orders)!.map((o) => (
+                <CommandItem key={o.id} value={`order-${o.id}`} onSelect={() => go(linked("/tracking", o.code))}>
+                  <Truck />
+                  <span className="font-mono">{o.code}</span>
+                  <span className="truncate text-muted-foreground">{o.productName}</span>
+                  <span className="ml-auto text-xs text-muted-foreground">{o.client?.name}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
+          {found(rentals) && (
+            <CommandGroup heading="Rentals">
+              {found(rentals)!.map((r) => (
+                <CommandItem key={r.id} value={`rental-${r.id}`} onSelect={() => go(linked("/rentals", r.code))}>
+                  <CalendarClock />
+                  <span className="font-mono">{r.code}</span>
+                  <span className="truncate text-muted-foreground">{r.productName}</span>
+                  <span className="ml-auto text-xs text-muted-foreground">{r.client?.name}</span>
                 </CommandItem>
               ))}
             </CommandGroup>

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { keepPreviousData, queryOptions, useQuery } from "@tanstack/react-query"
 import { request } from "@/lib/api/client"
 import type {
@@ -106,6 +107,22 @@ export function useDebounced<T>(value: T, ms = 300) {
     return () => clearTimeout(timer)
   }, [value, ms])
   return settled
+}
+
+/**
+ * A list's search box, filled from ?q= so the main search can link to a match. Follows ?q
+ * when it changes, so picking another match while already on the page still shows it.
+ */
+export function useLinkedSearch(onLink?: (q: string) => void) {
+  const linked = useSearchParams().get("q") ?? ""
+  const [query, setQuery] = useState(linked)
+  const [seen, setSeen] = useState(linked)
+  if (linked !== seen) {
+    setSeen(linked)
+    setQuery(linked)
+    onLink?.(linked)
+  }
+  return [query, setQuery] as const
 }
 
 // ---------- Small lists ----------

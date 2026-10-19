@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { format } from "date-fns"
 import { AlertTriangle, CalendarCheck, CalendarClock, Banknote, LogIn, LogOut, Undo2 } from "lucide-react"
 import { toast } from "sonner"
@@ -34,7 +35,7 @@ import { PAYMENT_METHODS } from "@/lib/business"
 import { RentalStatusPill } from "@/components/status"
 import { request } from "@/lib/api/client"
 import { actions } from "@/lib/data/actions"
-import { qtyAt, useDebounced, usePaging, useRentalSummary, useRentals, withParams } from "@/lib/data/queries"
+import { qtyAt, useDebounced, useLinkedSearch, usePaging, useRentalSummary, useRentals, withParams } from "@/lib/data/queries"
 import { formatDate, formatMoney } from "@/lib/format"
 import { countDays, isOverdue, PLAN_LABEL, quoteRental, rentalDueDate, rentalOverdueDays } from "@/lib/rental"
 import type { ClientBrief, Page, PaymentMethod, Product, Rental, RentalPlan } from "@/lib/types"
@@ -44,8 +45,9 @@ type Filter = "active" | "overdue" | "returned" | "all"
 export function RentalsView() {
   const scope = useScope()
   const { canSell } = usePermissions()
-  const [filter, setFilter] = useState<Filter>("active")
-  const [query, setQuery] = useState("")
+  // Opened from the main search: look through every rental, returned ones too.
+  const [filter, setFilter] = useState<Filter>(useSearchParams().get("q") ? "all" : "active")
+  const [query, setQuery] = useLinkedSearch((q) => q && setFilter("all"))
   const [creating, setCreating] = useState(false)
   const [scanningIn, setScanningIn] = useState(false)
   const [returning, setReturning] = useState<Rental | null>(null)

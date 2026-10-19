@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import { useSearchParams } from "next/navigation"
 import { Mail, Pencil, Phone, Plus, Trash2, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -22,13 +21,12 @@ import {
 import { ClientDialog } from "@/components/client-dialog"
 import { initials } from "@/components/user-menu"
 import { actions } from "@/lib/data/actions"
-import { useClients, useDebounced, usePaging } from "@/lib/data/queries"
+import { useClients, useDebounced, useLinkedSearch, usePaging } from "@/lib/data/queries"
 import { formatMoney } from "@/lib/format"
 import type { Client } from "@/lib/types"
 
 export function ClientsView() {
-  const params = useSearchParams()
-  const [query, setQuery] = useState(params.get("q") ?? "")
+  const [query, setQuery] = useLinkedSearch()
   const [editing, setEditing] = useState<Client | "new" | null>(null)
   const search = useDebounced(query.trim())
   const paging = usePaging(search)
