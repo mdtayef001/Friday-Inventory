@@ -894,7 +894,7 @@ class ActivityViewSet(TenantViewSet, mixins.ListModelMixin):
 
 class OverviewView(APIView):
     """The dashboard in one call: stock totals, what's running low, open orders,
-    overdue rentals, waiting stock requests and recent activity, all limited to
+    overdue rentals, waiting stock and refund requests and recent activity, all limited to
     the user's locations and the features they can use.
 
     ?only=badges returns just the counts the sidebar shows.
@@ -924,6 +924,10 @@ class OverviewView(APIView):
             "overdue_rentals": overdue.count() if rentals_on else 0,
             "open_orders": shipments.filter(status__in=Shipment.OPEN).count() if tracking_on else 0,
             "waiting_requests": self.waiting_requests(user) if transfers_on else 0,
+            # Sales staff asked to take back; only an owner can accept them.
+            "return_requests": Sale.objects.filter(
+                business=business, return_request=Sale.ReturnRequest.REQUESTED, refunded_at__isnull=True
+            ).count() if user.role == User.Role.OWNER else 0,
         }
         if request.query_params.get("only") == "badges":
             return Response(data)

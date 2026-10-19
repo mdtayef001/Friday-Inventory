@@ -831,9 +831,12 @@ class ReturnTests(PaymentsBase):
         self.assertEqual(self.client.post(f"/api/sales/{sale['id']}/decline-return/", {}, format="json").status_code, 403)
         self.assertEqual(self.qty(self.warehouse), 8)  # nothing moves until approved
 
+        self.assertEqual(self.client.get("/api/overview/").json()["returnRequests"], 0)  # only the owner decides
+
         self.as_user("owner@a.com")
         waiting = self.client.get("/api/sales/?returns=requested").json()
         self.assertEqual([s["id"] for s in waiting], [sale["id"]])
+        self.assertEqual(self.client.get("/api/overview/").json()["returnRequests"], 1)
         declined = self.client.post(f"/api/sales/{sale['id']}/decline-return/", {"note": "Used"}, format="json").json()
         self.assertEqual((declined["returnRequest"], declined["returnDeclineNote"], declined["refundedAt"]), ("declined", "Used", None))
 
@@ -966,7 +969,7 @@ class ListingTests(ApiTestCase):
         self.assertTrue(o["recentActivity"])
         self.assertEqual([s["status"] for s in o["ordersByStatus"]], ["pending", "processing", "in_delivery"])
         badges = self.client.get("/api/overview/", {"only": "badges"}).json()
-        self.assertEqual(badges, {"overdueRentals": 1, "openOrders": 0, "waitingRequests": 0})
+        self.assertEqual(badges, {"overdueRentals": 1, "openOrders": 0, "waitingRequests": 0, "returnRequests": 0})
 
     def test_staff_see_only_their_own_activity(self):
         self.login("staff@a.com")

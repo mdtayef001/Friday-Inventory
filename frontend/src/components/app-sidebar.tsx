@@ -100,6 +100,7 @@ export function AppSidebar() {
     "/rentals": counts?.overdueRentals,
     "/tracking": counts?.openOrders,
     "/transfers": counts?.waitingRequests,
+    "/sales": counts?.returnRequests,
   }
 
   return (

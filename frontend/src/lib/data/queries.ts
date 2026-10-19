@@ -203,8 +203,8 @@ export const useSupplierReturns = (params: Params & { page: number }, options?: 
   usePage<SupplierReturn>("supplier-returns/", params, options)
 
 /** Returns still waiting on suppliers, and what they owe back in total. */
-export function useSupplierReturnSummary() {
-  return useQuery(apiQuery<{ openCount: number; owed: number }>("supplier-returns/summary/"))
+export function useSupplierReturnSummary(enabled = true) {
+  return useQuery({ ...apiQuery<{ openCount: number; owed: number }>("supplier-returns/summary/"), enabled })
 }
 
 /** How many purchases match the filters, their total, and how much of it is still owed. */

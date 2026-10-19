@@ -28,7 +28,7 @@ export function ReceiptDocument({ receipt: r }: { receipt: Receipt }) {
           <span className="mx-auto mb-2 flex size-10 items-center justify-center rounded-lg bg-primary text-primary-foreground print:border">
             <Store className="size-5" />
           </span>
-          <p className="text-lg font-semibold">{r.businessName}</p>
+          <p className="text-lg font-semibold [overflow-wrap:anywhere]">{r.businessName}</p>
           {r.shop && (
             <>
               <p className="text-sm text-muted-foreground">{r.shop.name}</p>
@@ -60,30 +60,35 @@ export function ReceiptDocument({ receipt: r }: { receipt: Receipt }) {
           {rows.map(([k, v]) => (
             <div key={k} className="contents">
               <dt className="text-muted-foreground">{k}</dt>
-              <dd className="text-right font-medium break-words">{v}</dd>
+              <dd className="min-w-0 text-right font-medium [overflow-wrap:anywhere]">{v}</dd>
             </div>
           ))}
         </dl>
 
-        <table className="w-full text-sm">
+        {/* Fixed layout so long names and big amounts wrap inside the receipt instead of pushing it wider.
+            On phones, quantity and price move under the item name. */}
+        <table className="w-full table-fixed text-sm">
           <thead>
             <tr className="border-b text-left text-muted-foreground">
               <th className="py-2 font-medium">Item</th>
-              <th className="py-2 text-right font-medium">Qty</th>
-              <th className="py-2 text-right font-medium">Price</th>
-              <th className="py-2 text-right font-medium">Amount</th>
+              <th className="hidden w-12 py-2 text-right font-medium sm:table-cell">Qty</th>
+              <th className="hidden w-24 py-2 text-right font-medium sm:table-cell">Price</th>
+              <th className="w-28 py-2 text-right font-medium">Amount</th>
             </tr>
           </thead>
           <tbody>
             {r.items.map((item, i) => (
               <tr key={i} className="border-b align-top">
-                <td className="py-3 pr-2 font-medium">
+                <td className="py-3 pr-2 font-medium [overflow-wrap:anywhere]">
                   {item.name}
+                  <span className="block text-xs font-normal text-muted-foreground tabular-nums sm:hidden">
+                    {item.quantity} × {money(item.unitPrice)}
+                  </span>
                   {item.returned && <span className="block text-xs font-normal text-red-700 dark:text-red-400">Returned</span>}
                 </td>
-                <td className="py-3 text-right tabular-nums">{item.quantity}</td>
-                <td className="py-3 pl-2 text-right tabular-nums whitespace-nowrap">{money(item.unitPrice)}</td>
-                <td className="py-3 pl-2 text-right tabular-nums whitespace-nowrap">{money(item.amount)}</td>
+                <td className="hidden py-3 text-right tabular-nums sm:table-cell">{item.quantity}</td>
+                <td className="hidden py-3 pl-2 text-right tabular-nums [overflow-wrap:anywhere] sm:table-cell">{money(item.unitPrice)}</td>
+                <td className="py-3 pl-2 text-right tabular-nums [overflow-wrap:anywhere]">{money(item.amount)}</td>
               </tr>
             ))}
           </tbody>
@@ -100,9 +105,9 @@ export function ReceiptDocument({ receipt: r }: { receipt: Receipt }) {
               <span className="tabular-nums">−{money(r.discount)}</span>
             </div>
           )}
-          <div className="flex justify-between border-t pt-2 text-base font-semibold">
+          <div className="flex justify-between gap-3 border-t pt-2 text-base font-semibold">
             <span>{r.refundedAt ? "Total (refunded)" : "Total paid"}</span>
-            <span className="tabular-nums">{money(r.total)}</span>
+            <span className="min-w-0 text-right tabular-nums [overflow-wrap:anywhere]">{money(r.total)}</span>
           </div>
           {r.refunded > 0 && !r.refundedAt && (
             <>

@@ -583,6 +583,8 @@ export interface Badges {
   overdueRentals: number
   openOrders: number
   waitingRequests: number
+  /** Sales staff asked to take back. Owners only; 0 for everyone else. */
+  returnRequests: number
 }
 
 /** The dashboard: GET overview/. Sections are left out when the feature is off or not allowed. */

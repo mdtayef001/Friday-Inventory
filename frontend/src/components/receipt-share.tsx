@@ -49,7 +49,7 @@ export function ReceiptShare({
         </h3>
         <p className="mt-1 text-xs text-muted-foreground">The customer opens it on their phone. No login needed.</p>
       </div>
-      <p className="truncate rounded-md bg-muted px-2.5 py-1.5 font-mono text-xs select-all" title={url}>
+      <p className="rounded-md bg-muted px-2.5 py-1.5 font-mono text-xs break-all select-all">
         {url}
       </p>
       <div className="flex flex-wrap gap-2">
