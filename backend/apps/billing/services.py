@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from apps.accounts.models import Business
 
-from .models import Payment
+from .models import Payment, PaymentAccounts
 
 
 def create_pending_payment(business, payer):
@@ -25,8 +25,18 @@ def create_pending_payment(business, payer):
 
 
 # Ways to pay by hand. The owner picks the first four; the super admin can also record cash or free months.
-MANUAL_METHODS = {"bkash": "bKash", "nagad": "Nagad", "rocket": "Rocket", "bank": "Bank transfer", "cash": "Cash", "free": "Free"}
-OWNER_METHODS = ("bkash", "nagad", "rocket", "bank")
+MANUAL_METHODS = {
+    "bkash": "bKash", "nagad": "Nagad", "rocket": "Rocket", "upay": "Upay", "bank": "Bank transfer", "cash": "Cash", "free": "Free",
+}
+OWNER_METHODS = ("bkash", "nagad", "rocket", "upay", "bank")
+
+
+def open_methods(accounts):
+    """The ways an owner can send money by hand right now, as the super admin set them."""
+    methods = {w for w, _, _ in accounts.wallets()}
+    if accounts.bank_ready():
+        methods.add("bank")
+    return methods
 
 
 def _activate(payment, *, method):
@@ -69,6 +79,8 @@ class PaymentError(Exception):
 
 def submit_manual(business, payer, *, method, months, reference, sent_from):
     """The owner sent money by hand. It waits for the super admin to check it arrived."""
+    if method not in open_methods(PaymentAccounts.load()):
+        raise PaymentError("This way of paying isn't available right now. Pick another, or contact support.")
     reference = reference.strip()
     taken = Payment.objects.filter(
         channel=Payment.Channel.MANUAL,

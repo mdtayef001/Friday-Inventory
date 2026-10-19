@@ -12,7 +12,7 @@ from apps.accounts.permissions import IsSuperAdmin
 
 from . import services, sslcommerz
 from .models import Payment, PaymentAccounts
-from .serializers import ManualPaymentSerializer, PaymentAccountsSerializer, PaymentSerializer
+from .serializers import ManualPaymentSerializer, PaymentAccountsSerializer, PaymentOptionsSerializer, PaymentSerializer
 
 
 class IsOwner(BasePermission):
@@ -23,16 +23,27 @@ class IsOwner(BasePermission):
         return user.is_authenticated and user.role == User.Role.OWNER and user.business_id is not None
 
 
+def online_status():
+    """connected | test | missing: whether SSLCommerz can take payments, whatever the switch says."""
+    if sslcommerz.platform_account():
+        return "connected"
+    return "test" if sslcommerz.is_test_gateway() else "missing"
+
+
+def online_open(accounts):
+    return accounts.online_enabled and online_status() != "missing"
+
+
 class BillingConfigView(APIView):
-    """How owners can pay: online when SSLCommerz is connected (or the test gateway is on), and by hand."""
+    """How owners can pay: online when it's on and SSLCommerz can take it, and by hand."""
 
     def get(self, request):
-        test = sslcommerz.is_test_gateway()
+        accounts = PaymentAccounts.load()
         return Response(
             {
-                "test_gateway": test,
-                "online": test or bool(sslcommerz.platform_account()),
-                "accounts": PaymentAccountsSerializer(PaymentAccounts.load()).data,
+                "test_gateway": online_status() == "test",
+                "online": online_open(accounts),
+                "options": PaymentOptionsSerializer(accounts).data,
             }
         )
 
@@ -66,6 +77,8 @@ class CheckoutView(APIView):
         business = request.user.business
         if business.suspended:
             return Response({"detail": "This business is suspended. Please contact support."}, status=400)
+        if not online_open(PaymentAccounts.load()):
+            return Response({"detail": "Paying online is turned off right now. Send the money by hand instead."}, status=400)
         payer = SimpleNamespace(name=request.user.name, email=request.user.email, phone="")
         payment = services.create_pending_payment(business, payer)
         url, error = sslcommerz.init_payment(payment)
@@ -166,15 +179,15 @@ class PlatformPaymentReviewView(APIView):
 
 
 class PlatformPaymentAccountsView(APIView):
-    """Super admin: the bKash/Nagad/Rocket numbers and bank details owners send money to."""
+    """Super admin: which ways to pay are on, the wallet numbers and the bank account owners send money to."""
 
     permission_classes = [IsSuperAdmin]
 
     def get(self, request):
-        return Response(PaymentAccountsSerializer(PaymentAccounts.load()).data)
+        return Response({**PaymentAccountsSerializer(PaymentAccounts.load()).data, "online_status": online_status()})
 
     def put(self, request):
-        serializer = PaymentAccountsSerializer(PaymentAccounts.load(), data=request.data)
+        serializer = PaymentAccountsSerializer(PaymentAccounts.load(), data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response(serializer.data)
+        return Response({**serializer.data, "online_status": online_status()})

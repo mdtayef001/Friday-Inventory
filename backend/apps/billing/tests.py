@@ -7,7 +7,7 @@ from rest_framework.test import APITestCase
 
 from apps.accounts.models import Business, User
 
-from .models import Payment
+from .models import Payment, PaymentAccounts
 
 PASSWORD = "a-long-test-password-1"
 
@@ -97,6 +97,7 @@ class ManualPaymentTests(APITestCase):
         User.objects.create_user(email="owner@x.com", password=PASSWORD, name="Owner", role="owner", business=self.biz)
         User.objects.create_user(email="staff@x.com", password=PASSWORD, name="Staff", role="staff", business=self.biz)
         User.objects.create_superuser(email="admin@x.com", password=PASSWORD, name="Admin")
+        PaymentAccounts.objects.create(pk=1, bkash="01711111111", bank_account_number="1234567")
 
     def login(self, email):
         res = self.client.post("/api/auth/login/", {"email": email, "password": PASSWORD}, format="json")
@@ -169,11 +170,34 @@ class ManualPaymentTests(APITestCase):
         res = self.client.post(f"/api/platform/businesses/{self.biz.id}/grant/", {"months": 1, "amount": 1000, "method": "free"}, format="json")
         self.assertEqual(res.json()["amount"], 0)
 
-    def test_owner_sees_where_to_send(self):
+    @override_settings(SSLCOMMERZ_STORE_ID="", SSLCOMMERZ_STORE_PASSWORD="", DEBUG=False, PAYMENTS_TEST_GATEWAY=False)
+    def test_owner_sees_only_what_is_on_and_filled_in(self):
         self.login("admin@x.com")
-        res = self.client.put("/api/platform/payment-accounts/", {"bkash": "01711111111", "bank": "Friday Ltd\nDBBL 123", "contact": "01811111111"}, format="json")
+        res = self.client.put(
+            "/api/platform/payment-accounts/",
+            {"nagad": "01811111111", "nagadKind": "agent", "bankName": "DBBL", "bankEnabled": False, "contact": "01911111111"},
+            format="json",
+        )
         self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()["onlineStatus"], "missing")
         self.login("owner@x.com")
-        accounts = self.client.get("/api/billing/config/").json()["accounts"]
-        self.assertEqual((accounts["bkash"], accounts["nagad"], accounts["contact"]), ("01711111111", "", "01811111111"))
+        self.assertFalse(self.client.get("/api/billing/config/").json()["online"])
+        options = self.client.get("/api/billing/config/").json()["options"]
+        self.assertEqual([(w["id"], w["kind"]) for w in options["wallets"]], [("bkash", "personal"), ("nagad", "agent")])
+        self.assertIsNone(options["bank"])
+        self.assertEqual(options["contact"], "01911111111")
         self.assertEqual(self.client.put("/api/platform/payment-accounts/", {"bkash": "0"}, format="json").status_code, 403)
+
+    def test_switched_off_methods_are_refused(self):
+        self.assertEqual(self.send(method="nagad").status_code, 400)  # no number set
+        PaymentAccounts.objects.filter(pk=1).update(mobile_enabled=False)
+        self.assertEqual(self.send(method="bkash").status_code, 400)
+        self.assertEqual(self.send(method="bank", reference="BANK-1").status_code, 201)
+
+    @override_settings(SSLCOMMERZ_STORE_ID="", SSLCOMMERZ_STORE_PASSWORD="", DEBUG=True)
+    def test_online_switched_off(self):
+        self.login("owner@x.com")
+        self.assertTrue(self.client.get("/api/billing/config/").json()["online"])
+        PaymentAccounts.objects.filter(pk=1).update(online_enabled=False)
+        self.assertFalse(self.client.get("/api/billing/config/").json()["online"])
+        self.assertEqual(self.client.post("/api/billing/checkout/", {}, format="json").status_code, 400)

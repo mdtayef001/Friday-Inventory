@@ -86,7 +86,7 @@ export function BillingView({ payments, notice, config }: { payments: Payment[];
             <CardDescription>{PRICE_LABEL}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {config.testGateway && (
+            {config.online && config.testGateway && (
               <p className="flex items-start gap-2 rounded-lg bg-muted p-2 text-xs text-muted-foreground">
                 <FlaskConical className="mt-0.5 size-3.5 shrink-0" />
                 SSLCommerz isn&apos;t connected yet, so this opens a test payment page. No real money moves.

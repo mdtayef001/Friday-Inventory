@@ -127,20 +127,36 @@ export interface Payment {
   reviewedAt: string | null
 }
 
-/** Where owners send money by hand. Set by the super admin. */
-export interface PaymentAccounts {
-  bkash: string
-  nagad: string
-  rocket: string
-  bank: string
+export type WalletId = "bkash" | "nagad" | "rocket" | "upay"
+/** What the owner does in their wallet app: Send Money, Cash Out or Payment. */
+export type WalletKind = "personal" | "agent" | "merchant"
+
+/** Every payment option, as the super admin edits them. */
+export type PaymentAccounts = {
+  onlineEnabled: boolean
+  mobileEnabled: boolean
+  bankEnabled: boolean
+  bankName: string
+  bankAccountName: string
+  bankAccountNumber: string
+  bankBranch: string
+  bankRouting: string
+  contact: string
+} & Record<WalletId, string> &
+  Record<`${WalletId}Kind`, WalletKind>
+
+/** What owners see: only the options that are on and filled in. */
+export interface PaymentOptions {
+  wallets: { id: WalletId; label: string; number: string; kind: WalletKind }[]
+  bank: { name: string; accountName: string; accountNumber: string; branch: string; routing: string } | null
   contact: string
 }
 
 export interface BillingConfig {
   testGateway: boolean
-  /** SSLCommerz is connected, or the test gateway is on. */
+  /** Turned on by the super admin, and SSLCommerz is connected (or the test gateway is on). */
   online: boolean
-  accounts: PaymentAccounts
+  options: PaymentOptions
 }
 
 export interface BusinessSummary extends Business {

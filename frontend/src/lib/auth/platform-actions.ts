@@ -83,7 +83,8 @@ export async function grantAccess(id: string, input: GrantInput): Promise<Action
   return toResult(() => api(`${businessPath(id)}grant/`, { method: "POST", body: input }))
 }
 
-export async function getPaymentAccounts(): Promise<PaymentAccounts> {
+/** Every payment option, and whether SSLCommerz can take payments whatever its switch says. */
+export async function getPaymentAccounts(): Promise<PaymentAccounts & { onlineStatus: "connected" | "test" | "missing" }> {
   await requireSuper()
   return api("platform/payment-accounts/")
 }

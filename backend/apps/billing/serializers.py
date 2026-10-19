@@ -28,9 +28,28 @@ class PaymentSerializer(serializers.ModelSerializer):
 
 
 class PaymentAccountsSerializer(serializers.ModelSerializer):
+    """Every payment option, for the super admin to edit."""
+
     class Meta:
         model = PaymentAccounts
-        fields = ["bkash", "nagad", "rocket", "bank", "contact"]
+        exclude = ["id"]
+
+
+class PaymentOptionsSerializer(serializers.BaseSerializer):
+    """What an owner sees: only the options that are on and filled in."""
+
+    def to_representation(self, accounts):
+        bank = None
+        if accounts.bank_ready():
+            bank = {
+                "name": accounts.bank_name, "account_name": accounts.bank_account_name, "account_number": accounts.bank_account_number,
+                "branch": accounts.bank_branch, "routing": accounts.bank_routing,
+            }
+        return {
+            "wallets": [{"id": w, "label": MANUAL_METHODS[w], "number": n, "kind": k} for w, n, k in accounts.wallets()],
+            "bank": bank,
+            "contact": accounts.contact,
+        }
 
 
 class ManualPaymentSerializer(serializers.Serializer):

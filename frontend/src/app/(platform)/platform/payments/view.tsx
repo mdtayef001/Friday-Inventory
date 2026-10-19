@@ -1,17 +1,15 @@
 "use client"
 
-import { useMemo, useState, useTransition } from "react"
-import { CircleDollarSign, Hourglass, Landmark, Receipt, Search, XCircle } from "lucide-react"
-import { toast } from "sonner"
+import { useMemo, useState } from "react"
+import Link from "next/link"
+import { CircleDollarSign, Hourglass, Receipt, Search, Settings2, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { Field, PageBody, PageHeader, SimpleSelect, StatCard } from "@/components/common"
+import { PageBody, PageHeader, SimpleSelect, StatCard } from "@/components/common"
 import { PaymentsTable } from "@/components/platform"
-import { savePaymentAccounts } from "@/lib/auth/platform-actions"
 import { formatTaka } from "@/lib/business"
-import type { Payment, PaymentAccounts, PaymentStatus } from "@/lib/types"
+import type { Payment, PaymentStatus } from "@/lib/types"
 
 const FILTERS: { value: "all" | PaymentStatus; label: string }[] = [
   { value: "all", label: "All payments" },
@@ -23,7 +21,7 @@ const FILTERS: { value: "all" | PaymentStatus; label: string }[] = [
   { value: "pending", label: "Not finished" },
 ]
 
-export function PaymentsView({ payments, accounts }: { payments: Payment[]; accounts: PaymentAccounts }) {
+export function PaymentsView({ payments }: { payments: Payment[] }) {
   const waiting = payments.filter((p) => p.status === "awaiting").length
   const [query, setQuery] = useState("")
   // Payments to check come first.
@@ -43,7 +41,16 @@ export function PaymentsView({ payments, accounts }: { payments: Payment[]; acco
 
   return (
     <PageBody>
-      <PageHeader title="Payments" description="Who has paid, money sent by hand waiting for you to check, and every attempt that didn't go through." />
+      <PageHeader
+        title="Payments"
+        description="Who has paid, money sent by hand waiting for you to check, and every attempt that didn't go through."
+        actions={
+          <Button variant="outline" render={<Link href="/platform/payment-options" />} nativeButton={false}>
+            <Settings2 />
+            Payment options
+          </Button>
+        }
+      />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
@@ -69,66 +76,7 @@ export function PaymentsView({ payments, accounts }: { payments: Payment[]; acco
       <Card className="py-0">
         <PaymentsTable payments={rows} showBusiness review />
       </Card>
-
-      <AccountsCard accounts={accounts} />
     </PageBody>
   )
 }
 
-/** The numbers and bank details owners see on their Billing page when paying by hand. */
-function AccountsCard({ accounts }: { accounts: PaymentAccounts }) {
-  const [form, setForm] = useState(accounts)
-  const [pending, startTransition] = useTransition()
-  const set = (key: keyof PaymentAccounts) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm((f) => ({ ...f, [key]: e.target.value }))
-  const changed = (Object.keys(form) as (keyof PaymentAccounts)[]).some((k) => form[k] !== accounts[k])
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Landmark className="size-4 text-primary" />
-          Where owners send money
-        </CardTitle>
-        <CardDescription>Shown on every owner&apos;s Billing page. Leave one empty to hide it.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form
-          className="grid gap-4 md:grid-cols-2"
-          onSubmit={(e) => {
-            e.preventDefault()
-            startTransition(async () => {
-              const result = await savePaymentAccounts(form)
-              if (result.ok) toast.success("Saved")
-              else toast.error(result.error)
-            })
-          }}
-        >
-          <div className="grid gap-3">
-            <Field label="bKash number" htmlFor="acc-bkash">
-              <Input id="acc-bkash" value={form.bkash} onChange={set("bkash")} inputMode="tel" maxLength={40} className="font-mono" />
-            </Field>
-            <Field label="Nagad number" htmlFor="acc-nagad">
-              <Input id="acc-nagad" value={form.nagad} onChange={set("nagad")} inputMode="tel" maxLength={40} className="font-mono" />
-            </Field>
-            <Field label="Rocket number" htmlFor="acc-rocket">
-              <Input id="acc-rocket" value={form.rocket} onChange={set("rocket")} inputMode="tel" maxLength={40} className="font-mono" />
-            </Field>
-          </div>
-          <div className="grid content-start gap-3">
-            <Field label="Bank account" htmlFor="acc-bank" hint="Account name, number, bank and branch, one per line.">
-              <Textarea id="acc-bank" value={form.bank} onChange={set("bank")} rows={4} maxLength={500} />
-            </Field>
-            <Field label="Phone or WhatsApp for payment questions" htmlFor="acc-contact">
-              <Input id="acc-contact" value={form.contact} onChange={set("contact")} maxLength={100} />
-            </Field>
-          </div>
-          <div className="md:col-span-2">
-            <Button type="submit" disabled={pending || !changed}>
-              Save
-            </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
-  )
-}

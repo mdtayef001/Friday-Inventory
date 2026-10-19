@@ -3,6 +3,7 @@
 import { api, toResult, type ActionResult } from "@/lib/api/server"
 import { ApiError } from "@/lib/api/errors"
 import { requireOwner } from "@/lib/auth/dal"
+import type { WalletId } from "@/lib/types"
 
 export type StartPaymentResult = { ok: true; url: string } | { ok: false; error: string }
 
@@ -19,7 +20,7 @@ export async function startPayment(): Promise<StartPaymentResult> {
   }
 }
 
-export type ManualPaymentInput = { method: "bkash" | "nagad" | "rocket" | "bank"; months: number; reference: string; sentFrom: string }
+export type ManualPaymentInput = { method: WalletId | "bank"; months: number; reference: string; sentFrom: string }
 
 /** Owner only. They sent money by hand; it waits for the super admin to check it arrived. */
 export async function sendManualPayment(input: ManualPaymentInput): Promise<ActionResult> {

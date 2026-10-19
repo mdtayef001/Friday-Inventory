@@ -57,19 +57,51 @@ class Payment(models.Model):
 
 
 class PaymentAccounts(models.Model):
-    """Where owners send money by hand, shown on their Billing page. One row, edited by the super admin."""
+    """How owners can pay, set once by the super admin and shown on every owner's Billing page.
+    One row. A wallet or bank only shows when its section is on and its number is filled in."""
 
+    class Kind(models.TextChoices):
+        # What the owner does in their app: Send Money, Cash Out or Payment.
+        PERSONAL = "personal", "Personal"
+        AGENT = "agent", "Agent"
+        MERCHANT = "merchant", "Merchant"
+
+    online_enabled = models.BooleanField(default=True)
+
+    mobile_enabled = models.BooleanField(default=True)
     bkash = models.CharField(max_length=40, blank=True)
+    bkash_kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.PERSONAL)
     nagad = models.CharField(max_length=40, blank=True)
+    nagad_kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.PERSONAL)
     rocket = models.CharField(max_length=40, blank=True)
-    # Account name, number, bank and branch, as the owner should see them.
-    bank = models.TextField(max_length=500, blank=True)
+    rocket_kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.PERSONAL)
+    upay = models.CharField(max_length=40, blank=True)
+    upay_kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.PERSONAL)
+
+    bank_enabled = models.BooleanField(default=True)
+    bank_name = models.CharField(max_length=100, blank=True)
+    bank_account_name = models.CharField(max_length=100, blank=True)
+    bank_account_number = models.CharField(max_length=40, blank=True)
+    bank_branch = models.CharField(max_length=100, blank=True)
+    bank_routing = models.CharField(max_length=20, blank=True)
+
     # Phone or WhatsApp to call about a payment.
     contact = models.CharField(max_length=100, blank=True)
+
+    WALLETS = ("bkash", "nagad", "rocket", "upay")
 
     @classmethod
     def load(cls):
         return cls.objects.get_or_create(pk=1)[0]
 
+    def wallets(self):
+        """The mobile wallets owners can send to right now."""
+        if not self.mobile_enabled:
+            return []
+        return [(w, getattr(self, w), getattr(self, f"{w}_kind")) for w in self.WALLETS if getattr(self, w).strip()]
+
+    def bank_ready(self):
+        return self.bank_enabled and bool(self.bank_account_number.strip())
+
     def __str__(self):
-        return "Payment accounts"
+        return "Payment options"
