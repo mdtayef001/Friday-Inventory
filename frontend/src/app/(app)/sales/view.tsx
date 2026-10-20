@@ -184,6 +184,10 @@ export function SalesView() {
           onChange={setSeller}
           options={[{ value: "all", label: "Everyone" }, ...(summary?.sellers ?? []).map((s) => ({ value: s.id, label: s.name }))]}
         />
+        <Button variant="outline" className="sm:ml-auto" render={<Link href="/sales/all" />} nativeButton={false}>
+          <List />
+          See all sales
+        </Button>
       </div>
 
       {error && <p className="text-sm font-medium text-destructive">{error.message}</p>}
