@@ -172,7 +172,7 @@ export function PurchaseDialog({ onClose, supplier: initialSupplier = null }: { 
                   onChange={addProduct}
                   placeholder="Add a product…"
                   describe={(p) => `Cost ${formatMoney(p.cost)}`}
-                  onCreate={canCreateProducts ? (name) => setCreating({ name }) : undefined}
+                  onCreate={canCreateProducts ? (text) => setCreating(looksLikeCode(text) ? { name: "", barcode: text } : { name: text }) : undefined}
                   className="flex-1"
                 />
                 <ScanButton onScan={scan} />
