@@ -389,7 +389,9 @@ def return_sale(user, sale, reason=""):
     where it was sold from, the sale stops counting, and whoever takes the return
     hands the money back. Owners and admins only; approving a manager's request
     comes here too, keeping the manager's reason unless a new one is given."""
-    sale = Sale.objects.select_for_update().select_related("product", "location", "business").get(pk=sale.pk)
+    # of=("self",): lock only this row. PostgreSQL refuses to lock the optional (nullable) related rows
+    # that select_related joins in, and SQLite never checks, so tests on SQLite alone miss it.
+    sale = Sale.objects.select_for_update(of=("self",)).select_related("product", "location", "business").get(pk=sale.pk)
     check_returnable(sale)
     approving = sale.return_request == Sale.ReturnRequest.REQUESTED
     reason = reason.strip() or (sale.refund_reason if approving else "")
@@ -638,7 +640,7 @@ def delete_payment(user, payment):
 @transaction.atomic
 def return_to_supplier(user, item, quantity, reason):
     """Sends `quantity` of a purchase's item back. Returns the new return."""
-    item = PurchaseItem.objects.select_for_update().select_related("purchase__location", "purchase__supplier", "product").get(pk=item.pk)
+    item = PurchaseItem.objects.select_for_update(of=("self",)).select_related("purchase__location", "purchase__supplier", "product").get(pk=item.pk)
     purchase = item.purchase
     reason = reason.strip()
     if not reason:
@@ -671,7 +673,7 @@ def return_to_supplier(user, item, quantity, reason):
 
 
 def _open_return(ret):
-    ret = SupplierReturn.objects.select_for_update().select_related("product", "location", "supplier").get(pk=ret.pk)
+    ret = SupplierReturn.objects.select_for_update(of=("self",)).select_related("product", "location", "supplier").get(pk=ret.pk)
     if ret.status != SupplierReturn.Status.OPEN:
         raise ValidationError("This return is already settled or closed.")
     return ret
