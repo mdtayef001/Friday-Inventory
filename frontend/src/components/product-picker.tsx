@@ -84,8 +84,8 @@ export function ProductPicker({
                   setOpen(false)
                 }}
               >
-                <span className="truncate">{p.name}</span>
-                <span className="ml-auto shrink-0 text-xs text-muted-foreground">{describe ? describe(p) : p.sku}</span>
+                <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{describe ? describe(p) : p.sku}</span>
               </CommandItem>
             ))}
             {data && data.count > data.results.length && (
