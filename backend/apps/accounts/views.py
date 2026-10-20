@@ -63,8 +63,9 @@ class PasswordResetThrottle(LoginThrottle):
 
 
 class PasswordResetView(APIView):
-    """Forgot password: emails a link to set a new one. Always answers the same, so it
-    can't be used to find out which emails have accounts."""
+    """Forgot password, for business owners only: emails a link to set a new one. Managers
+    and staff ask their owner, who resets it on Users & Staff. Always answers the same, so
+    it can't be used to find out which emails have accounts, or what kind."""
 
     authentication_classes = []
     permission_classes = []
@@ -72,7 +73,7 @@ class PasswordResetView(APIView):
 
     def post(self, request):
         email = str(request.data.get("email", "")).strip().lower()
-        user = User.objects.filter(email=email, is_active=True).first() if email else None
+        user = User.objects.filter(email=email, is_active=True, role=User.Role.OWNER).first() if email else None
         if user:
             uid = urlsafe_base64_encode(force_bytes(user.pk))
             link = f"{settings.FRONTEND_URL}/reset-password?uid={uid}&token={default_token_generator.make_token(user)}"
@@ -95,7 +96,8 @@ class PasswordResetConfirmView(APIView):
 
     def post(self, request):
         try:
-            user = User.objects.get(pk=urlsafe_base64_decode(str(request.data.get("uid", ""))).decode(), is_active=True)
+            uid = urlsafe_base64_decode(str(request.data.get("uid", ""))).decode()
+            user = User.objects.get(pk=uid, is_active=True, role=User.Role.OWNER)
         except (ValueError, TypeError, OverflowError, User.DoesNotExist):
             user = None
         if not user or not default_token_generator.check_token(user, str(request.data.get("token", ""))):

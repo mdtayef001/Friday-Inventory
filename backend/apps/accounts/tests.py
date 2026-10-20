@@ -347,6 +347,16 @@ class PasswordResetTests(APITestCase):
         self.assertEqual(self.client.post("/api/auth/login/", {"email": "owner@x.com", "password": "a-brand-new-pass-7"}, format="json").status_code, 200)
         self.assertEqual(self.client.post("/api/auth/refresh/", {"refresh": old}, format="json").status_code, 401)  # logged out elsewhere
 
+    def test_only_business_owners(self):
+        from django.core import mail
+
+        User.objects.create_user(email="staff@x.com", password=PASSWORD, name="Staff", role="staff", business=self.biz)
+        User.objects.create_user(email="mgr@x.com", password=PASSWORD, name="Mgr", role="manager", business=self.biz)
+        User.objects.create_superuser(email="root@x.com", password=PASSWORD, name="Root")
+        for email in ("staff@x.com", "mgr@x.com", "root@x.com"):
+            self.assertEqual(self.client.post("/api/auth/password-reset/", {"email": email}, format="json").status_code, 204)
+        self.assertEqual(len(mail.outbox), 0)
+
     def test_unknown_email_looks_the_same_and_is_limited(self):
         from django.core import mail
 

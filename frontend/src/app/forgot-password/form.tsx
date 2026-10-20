@@ -21,9 +21,10 @@ export function ForgotPasswordForm() {
         </div>
         <h1 className="text-2xl font-semibold tracking-tight">Check your email</h1>
         <p className="text-sm text-muted-foreground">
-          If that email has an account, we&apos;ve sent it a link to set a new password. It works for 3 days. Look in spam if you don&apos;t see it.
+          If that email belongs to a business owner, we&apos;ve sent it a link to set a new password. It works for 3 days. Look in spam if
+          you don&apos;t see it.
         </p>
-        <p className="text-sm text-muted-foreground">Staff without their own email: ask your owner or manager to reset it for you.</p>
+        <p className="text-sm text-muted-foreground">Managers and staff: no email is sent. Ask your business owner to reset it for you.</p>
         <NeedHelp />
         <BackToLogin />
       </div>
@@ -34,8 +35,13 @@ export function ForgotPasswordForm() {
     <div className="space-y-6">
       <div className="space-y-2">
         <h1 className="text-2xl font-semibold tracking-tight">Forgot your password?</h1>
-        <p className="text-sm text-muted-foreground">Type the email you log in with, and we&apos;ll send you a link to choose a new one.</p>
+        <p className="text-sm text-muted-foreground">
+          Business owners: type the email you log in with, and we&apos;ll send you a link to choose a new one.
+        </p>
       </div>
+      <p className="rounded-lg border px-3 py-2 text-sm text-muted-foreground">
+        Managers and staff: ask your business owner. They can set a new password for you on Users &amp; Staff.
+      </p>
       <form action={action} className="space-y-4">
         {state.error && (
           <Alert variant="destructive">
@@ -62,7 +68,7 @@ export function ForgotPasswordForm() {
 function NeedHelp() {
   return (
     <p className="rounded-lg bg-muted/60 px-3 py-2 text-center text-sm text-muted-foreground">
-      Still can&apos;t get in? Message us on WhatsApp: <span className="font-medium text-foreground">{PLATFORM.whatsapp}</span>
+      Business owners still locked out? Message us on WhatsApp: <span className="font-medium text-foreground">{PLATFORM.whatsapp}</span>
     </p>
   )
 }

@@ -68,7 +68,7 @@ export default function PrivacyPage() {
             <li>Owners can download all their business&apos;s data at any time, from Billing or Business settings.</li>
             <li>Owners and managers can correct or remove people, customers and records in the app.</li>
             <li>Owners can ask for the whole business to be deleted from Business settings.</li>
-            <li>Anyone with an account can reset their password from the log in page.</li>
+            <li>Business owners can reset their password from the log in page; managers and staff ask their owner to reset theirs.</li>
           </ul>
         </section>
 
