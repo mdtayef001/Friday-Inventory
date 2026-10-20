@@ -90,8 +90,8 @@ class PaymentAccounts(models.Model):
     bank_branch = models.CharField(max_length=100, blank=True)
     bank_routing = models.CharField(max_length=20, blank=True)
 
-    # Phone or WhatsApp to call about a payment.
-    contact = models.CharField(max_length=100, blank=True)
+    # WhatsApp username owners message for help (payments, a forgotten password), so no phone number is shown.
+    whatsapp = models.CharField(max_length=40, blank=True)
 
     WALLETS = ("bkash", "nagad", "rocket", "upay")
 

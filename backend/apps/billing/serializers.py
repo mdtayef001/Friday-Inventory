@@ -1,3 +1,5 @@
+import re
+
 from rest_framework import serializers
 
 from apps.api import IdField
@@ -35,6 +37,12 @@ class PaymentAccountsSerializer(serializers.ModelSerializer):
         exclude = ["id"]
         extra_kwargs = {"monthly_price": {"min_value": 1, "max_value": 1_000_000}, "trial_days": {"max_value": 90}}
 
+    def validate_whatsapp(self, value):
+        value = value.strip().lstrip("@")
+        if value and not re.fullmatch(r"[A-Za-z0-9._]{2,40}", value):
+            raise serializers.ValidationError("A WhatsApp username has letters, numbers, dots and underscores only.")
+        return value
+
 
 class PaymentOptionsSerializer(serializers.BaseSerializer):
     """What an owner sees: only the options that are on and filled in."""
@@ -49,7 +57,7 @@ class PaymentOptionsSerializer(serializers.BaseSerializer):
         return {
             "wallets": [{"id": w, "label": MANUAL_METHODS[w], "number": n, "kind": k} for w, n, k in accounts.wallets()],
             "bank": bank,
-            "contact": accounts.contact,
+            "whatsapp": accounts.whatsapp,
         }
 
 

@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation"
 import { CheckCircle2, Store } from "lucide-react"
 import { getContext } from "@/lib/auth/dal"
 import { PLATFORM, formatTaka } from "@/lib/business"
-import { findPayment } from "@/lib/billing/queries"
+import { findPayment, getSupport } from "@/lib/billing/queries"
 import { formatDate, formatDateTime } from "@/lib/format"
 import { PrintButton } from "@/components/print-button"
 
@@ -25,7 +25,7 @@ async function Invoice({ params }: Pick<PageProps<"/invoice/[id]">, "params">) {
   if (!ctx) redirect("/logout")
   const { id } = await params
   // Django only returns it to the business's owner and the super admin.
-  const payment = await findPayment(id)
+  const [payment, support] = await Promise.all([findPayment(id), getSupport()])
   if (!payment || payment.status !== "paid") notFound()
 
   const rows: [string, string][] = [
@@ -50,7 +50,7 @@ async function Invoice({ params }: Pick<PageProps<"/invoice/[id]">, "params">) {
             <div>
               <p className="font-semibold">{PLATFORM.name}</p>
               <p className="text-sm text-muted-foreground">{PLATFORM.address}</p>
-              <p className="text-sm text-muted-foreground">{PLATFORM.email}</p>
+              {support.whatsapp && <p className="text-sm text-muted-foreground">WhatsApp: {support.whatsapp}</p>}
             </div>
           </div>
           <div className="sm:text-right">

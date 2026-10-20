@@ -1,3 +1,4 @@
+import { Suspense } from "react"
 import type { Metadata } from "next"
 import { Contact, LegalDoc } from "@/components/legal"
 import { StandalonePage } from "@/components/standalone"
@@ -92,7 +93,9 @@ export default function TermsPage() {
           </p>
         </section>
 
-        <Contact />
+        <Suspense>
+          <Contact />
+        </Suspense>
       </LegalDoc>
     </StandalonePage>
   )

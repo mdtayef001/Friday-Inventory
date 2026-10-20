@@ -34,6 +34,17 @@ def online_open(accounts):
     return accounts.online_enabled and online_status() != "missing"
 
 
+class SupportView(APIView):
+    """Public: how to reach the platform, for the log in, Terms and Privacy pages. Only the
+    WhatsApp username the super admin chose, never a phone number."""
+
+    authentication_classes = []
+    permission_classes = []
+
+    def get(self, request):
+        return Response({"whatsapp": PaymentAccounts.load().whatsapp})
+
+
 class BillingConfigView(APIView):
     """How owners can pay: online when it's on and SSLCommerz can take it, and by hand."""
 

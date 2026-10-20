@@ -184,7 +184,7 @@ class ManualPaymentTests(APITestCase):
         self.login("admin@x.com")
         res = self.client.put(
             "/api/platform/payment-accounts/",
-            {"nagad": "01811111111", "nagadKind": "agent", "bankName": "DBBL", "bankEnabled": False, "contact": "01911111111"},
+            {"nagad": "01811111111", "nagadKind": "agent", "bankName": "DBBL", "bankEnabled": False, "whatsapp": "tayef01"},
             format="json",
         )
         self.assertEqual(res.status_code, 200, res.content)
@@ -194,7 +194,7 @@ class ManualPaymentTests(APITestCase):
         options = self.client.get("/api/billing/config/").json()["options"]
         self.assertEqual([(w["id"], w["kind"]) for w in options["wallets"]], [("bkash", "personal"), ("nagad", "agent")])
         self.assertIsNone(options["bank"])
-        self.assertEqual(options["contact"], "01911111111")
+        self.assertEqual(options["whatsapp"], "tayef01")
         self.assertEqual(self.client.put("/api/platform/payment-accounts/", {"bkash": "0"}, format="json").status_code, 403)
 
     def test_switched_off_methods_are_refused(self):
@@ -210,3 +210,14 @@ class ManualPaymentTests(APITestCase):
         PaymentAccounts.objects.filter(pk=1).update(online_enabled=False)
         self.assertFalse(self.client.get("/api/billing/config/").json()["online"])
         self.assertEqual(self.client.post("/api/billing/checkout/", {}, format="json").status_code, 400)
+
+
+class SupportContactTests(APITestCase):
+    def test_whatsapp_username_set_by_the_super_admin_and_shown_to_everyone(self):
+        User.objects.create_superuser(email="admin@x.com", password=PASSWORD, name="Admin")
+        res = self.client.post("/api/auth/login/", {"email": "admin@x.com", "password": PASSWORD}, format="json")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.json()['access']}")
+        self.assertEqual(self.client.put("/api/platform/payment-accounts/", {"whatsapp": "01711 111111"}, format="json").status_code, 400)
+        self.assertEqual(self.client.put("/api/platform/payment-accounts/", {"whatsapp": " @tayef01 "}, format="json").json()["whatsapp"], "tayef01")
+        self.client.credentials()
+        self.assertEqual(self.client.get("/api/support/").json(), {"whatsapp": "tayef01"})

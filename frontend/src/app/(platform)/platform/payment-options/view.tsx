@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useTransition } from "react"
-import { BadgeDollarSign, CreditCard, Landmark, Phone, Smartphone } from "lucide-react"
+import { BadgeDollarSign, CreditCard, Landmark, MessageCircle, Smartphone } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -188,13 +188,18 @@ export function PaymentOptionsView({ accounts, onlineStatus }: { accounts: Payme
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Phone className="size-4 text-primary" />
-              Contact for payment questions
+              <MessageCircle className="size-4 text-primary" />
+              WhatsApp for help
             </CardTitle>
-            <CardDescription>Shown under the payment form, so owners can call or WhatsApp you.</CardDescription>
+            <CardDescription>
+              Your WhatsApp username, not your phone number. Owners see it on Billing, invoices, the log in page, the Terms and the Privacy
+              Policy, to ask about payments or a forgotten password.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <Input value={form.contact} onChange={text("contact")} placeholder="e.g. 01XXXXXXXXX (WhatsApp)" maxLength={100} className="max-w-sm" aria-label="Contact for payment questions" />
+            <Field label="WhatsApp username" htmlFor="whatsapp" hint="Letters, numbers, dots and underscores, e.g. tayef01.">
+              <Input id="whatsapp" value={form.whatsapp} onChange={text("whatsapp")} placeholder="e.g. tayef01" maxLength={40} className="max-w-sm" autoComplete="off" />
+            </Field>
           </CardContent>
         </Card>
 

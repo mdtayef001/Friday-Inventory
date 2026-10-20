@@ -163,7 +163,8 @@ export type PaymentAccounts = {
   bankAccountNumber: string
   bankBranch: string
   bankRouting: string
-  contact: string
+  /** WhatsApp username owners message for help; shown instead of a phone number. */
+  whatsapp: string
 } & Record<WalletId, string> &
   Record<`${WalletId}Kind`, WalletKind>
 
@@ -171,7 +172,7 @@ export type PaymentAccounts = {
 export interface PaymentOptions {
   wallets: { id: WalletId; label: string; number: string; kind: WalletKind }[]
   bank: { name: string; accountName: string; accountNumber: string; branch: string; routing: string } | null
-  contact: string
+  whatsapp: string
 }
 
 export interface BillingConfig {

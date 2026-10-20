@@ -1,5 +1,8 @@
+import { Suspense } from "react"
 import type { Metadata } from "next"
 import { Boxes, CalendarClock, ScanBarcode, Store, Truck } from "lucide-react"
+import { WhatsAppLine } from "@/components/billing"
+import { getSupport } from "@/lib/billing/queries"
 import { LoginForm } from "./login-form"
 
 export const metadata: Metadata = { title: "Log in" }
@@ -24,6 +27,9 @@ export default function LoginPage() {
         <div className="flex flex-1 items-center justify-center py-10">
           <div className="w-full max-w-sm">
             <LoginForm showDemoAccounts={process.env.NODE_ENV !== "production"} />
+            <Suspense>
+              <ForgotHelp />
+            </Suspense>
           </div>
         </div>
       </div>
@@ -50,6 +56,17 @@ export default function LoginPage() {
           </ul>
         </div>
       </div>
+    </div>
+  )
+}
+
+/** No password reset by email: owners message the platform, everyone else asks their owner. */
+async function ForgotHelp() {
+  const { whatsapp } = await getSupport()
+  return (
+    <div className="mt-6 space-y-1 border-t pt-4 text-center text-xs text-muted-foreground">
+      <p>Forgot your password? Managers and staff: ask your business owner.</p>
+      <WhatsAppLine username={whatsapp} label="Business owners: message us on WhatsApp:" />
     </div>
   )
 }

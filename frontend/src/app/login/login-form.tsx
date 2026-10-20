@@ -61,12 +61,7 @@ export function LoginForm({ showDemoAccounts }: { showDemoAccounts: boolean }) {
           />
         </div>
         <div className="grid gap-1.5">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="password">Password</Label>
-            <Link href="/forgot-password" className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
-              Forgot password?
-            </Link>
-          </div>
+          <Label htmlFor="password">Password</Label>
           <div className="relative">
             <Input
               ref={passwordRef}

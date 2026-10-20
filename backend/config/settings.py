@@ -104,8 +104,8 @@ CACHES = {
 }
 
 # ---------- Email ----------
-# Any SMTP account (Gmail with an app password, Zoho, a provider like Brevo). Without
-# EMAIL_HOST, emails are printed to the console instead of sent, as in development.
+# Only for error reports to ADMINS. Any SMTP account (Gmail with an app password, Zoho,
+# a provider like Brevo). Without EMAIL_HOST, emails are printed to the console instead.
 EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
 EMAIL_BACKEND = (
     "django.core.mail.backends.smtp.EmailBackend" if EMAIL_HOST else "django.core.mail.backends.console.EmailBackend"
@@ -187,7 +187,6 @@ REST_FRAMEWORK = {
     "COERCE_DECIMAL_TO_STRING": False,
     "DEFAULT_THROTTLE_RATES": {
         "login": "5/min",
-        "password_reset": "3/hour",
     },
 }
 

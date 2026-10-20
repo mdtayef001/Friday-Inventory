@@ -1,3 +1,4 @@
+import { getSupport } from "@/lib/billing/queries"
 import { PLATFORM } from "@/lib/business"
 
 /** Shared look for the Terms and Privacy pages. */
@@ -15,14 +16,13 @@ export function LegalDoc({ title, updated, children }: { title: string; updated:
   )
 }
 
-export function Contact() {
+/** How to reach us: the super admin's WhatsApp username, loaded per request so a change shows at once. */
+export async function Contact() {
+  const { whatsapp } = await getSupport()
   return (
     <p>
-      Questions? Email{" "}
-      <a href={`mailto:${PLATFORM.email}`} className="font-medium text-primary underline-offset-2 hover:underline">
-        {PLATFORM.email}
-      </a>
-      . {PLATFORM.name}, {PLATFORM.address}.
+      Questions? {whatsapp ? <>Message us on WhatsApp: <span className="font-medium">{whatsapp}</span>. </> : null}
+      {PLATFORM.name}, {PLATFORM.address}.
     </p>
   )
 }

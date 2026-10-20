@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react"
 import Link from "next/link"
-import { AlertTriangle, Copy, DatabaseBackup, Download, Hourglass, Loader2, LockKeyhole, Phone, Send, XCircle } from "lucide-react"
+import { AlertTriangle, Copy, DatabaseBackup, Download, Hourglass, Loader2, LockKeyhole, MessageCircle, Send, XCircle } from "lucide-react"
 import { toast } from "sonner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -66,10 +66,12 @@ export function PayOptions({ config, label }: { config: BillingConfig; label?: s
         </div>
       )}
       {manual && <ManualPayForm options={options} monthlyPrice={config.monthlyPrice} />}
-      {!config.online && !manual && (
+      {!config.online && !manual ? (
         <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
-          To pay, contact support{options.contact ? ` on ${options.contact}` : ""} and we&apos;ll tell you how.
+          To pay, message us{options.whatsapp ? ` on WhatsApp: ${options.whatsapp}` : ""} and we&apos;ll tell you how.
         </p>
+      ) : (
+        <WhatsAppLine username={options.whatsapp} />
       )}
     </div>
   )
@@ -195,12 +197,6 @@ export function ManualPayForm({ options, monthlyPrice }: { options: PaymentOptio
         {pending ? <Loader2 className="animate-spin" /> : <Send />}
         I&apos;ve sent {amount}
       </Button>
-      {options.contact && (
-        <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-          <Phone className="size-3" />
-          Questions? Call or WhatsApp {options.contact}
-        </p>
-      )}
     </form>
   )
 }
@@ -321,5 +317,16 @@ export function YourDataCard() {
         <DownloadDataButton />
       </CardContent>
     </Card>
+  )
+}
+
+/** "Questions? Message us on WhatsApp: tayef01". The super admin's username, never a phone number. Hidden when not set. */
+export function WhatsAppLine({ username, label = "Questions? Message us on WhatsApp:", className }: { username: string; label?: string; className?: string }) {
+  if (!username) return null
+  return (
+    <p className={cn("flex flex-wrap items-center justify-center gap-1.5 text-xs text-muted-foreground", className)}>
+      <MessageCircle className="size-3.5" />
+      {label} <span className="font-medium text-foreground">{username}</span>
+    </p>
   )
 }

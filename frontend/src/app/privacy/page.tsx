@@ -1,3 +1,4 @@
+import { Suspense } from "react"
 import type { Metadata } from "next"
 import { Contact, LegalDoc } from "@/components/legal"
 import { StandalonePage } from "@/components/standalone"
@@ -38,7 +39,7 @@ export default function PrivacyPage() {
             <li>Vercel: runs the app.</li>
             <li>Supabase: stores the database, in Singapore.</li>
             <li>SSLCommerz: takes online payments.</li>
-            <li>Our email provider: sends password reset emails.</li>
+            <li>Our email provider: sends us error reports when something breaks.</li>
           </ul>
           <p>Each only gets what it needs for its part. We share data with authorities only when Bangladeshi law requires it.</p>
         </section>
@@ -68,7 +69,7 @@ export default function PrivacyPage() {
             <li>Owners can download all their business&apos;s data at any time, from Billing or Business settings.</li>
             <li>Owners and managers can correct or remove people, customers and records in the app.</li>
             <li>Owners can ask for the whole business to be deleted from Business settings.</li>
-            <li>Business owners can reset their password from the log in page; managers and staff ask their owner to reset theirs.</li>
+            <li>Forgot your password? Owners message us on WhatsApp; managers and staff ask their owner, who can set a new one.</li>
           </ul>
         </section>
 
@@ -80,7 +81,9 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        <Contact />
+        <Suspense>
+          <Contact />
+        </Suspense>
       </LegalDoc>
     </StandalonePage>
   )

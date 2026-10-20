@@ -5,13 +5,10 @@ import type { BusinessSettings, BusinessStatus, ModuleId, PaymentMethod, Permiss
 // monthlyPrice). When the trial or a paid month runs out the business locks itself until the owner pays.
 export const SUBSCRIPTION = { currency: "BDT", period: "month" } as const
 
-/** Shown on invoices as the seller. Change to your company details. */
+/** Shown on invoices as the seller. Change to your company details. The WhatsApp username for help is set by the super admin on Payment options. */
 export const PLATFORM = {
   name: "Friday Inventory",
   address: "Dhaka, Bangladesh",
-  email: "billing@friday.app",
-  /** WhatsApp username for help, e.g. a password reset that didn't arrive. */
-  whatsapp: "tayef01",
 }
 
 /** Owners see a reminder when this many days or fewer are left. */

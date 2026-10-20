@@ -16,3 +16,12 @@ export const findTestPayment = (tranId: string) =>
   apiOrNull<Payment>(`billing/test-gateway/${encodeURIComponent(tranId)}/`)
 
 export const TEST_VAL_PREFIX = "TEST-"
+
+/** How to reach the platform: the super admin's WhatsApp username, or "" when not set or unreachable. Public. */
+export async function getSupport(): Promise<{ whatsapp: string }> {
+  try {
+    return await api<{ whatsapp: string }>("support/", { token: null })
+  } catch {
+    return { whatsapp: "" }
+  }
+}
