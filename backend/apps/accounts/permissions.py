@@ -21,21 +21,28 @@ class IsTenantMember(BasePermission):
     `manager_permission` attributes.
     """
 
-    message = "Your business is locked. The owner needs to renew the subscription."
+    message = "You don't have access to this."
 
     def has_permission(self, request, view):
+        # Each refusal says why, so staff aren't told their business is locked when it isn't.
         user = request.user
         if not (user.is_authenticated and user.business_id and user.role in TEAM):
             return False
         business = user.business
         if not business.is_open:
+            self.message = (
+                "This business is being deleted." if business.status == "closing"
+                else "Your business is locked. The owner needs to renew the subscription."
+            )
             return False
 
         roles = getattr(view, "allowed_roles", LEADS)
         if user.role not in roles:
+            self.message = "You don't have access to this. Ask the owner if you need it."
             return False
         module = getattr(view, "module", None)
         if module and not business.module_on(module):
+            self.message = "This feature is switched off in Business settings."
             return False
         return True
 

@@ -1489,3 +1489,20 @@ class NewSettingsTests(PurchaseBase):
         self.assertEqual((made["lowStockThreshold"], own["lowStockThreshold"]), (12, 2))
         bought = self.buy(items=[{"newProduct": {"name": "Fresh"}, "quantity": 1, "unitCost": "10"}]).json()
         self.assertEqual(Product.objects.get(pk=bought["items"][0]["productId"]).low_stock_threshold, 12)
+
+
+class RefusalMessageTests(PurchaseBase):
+    """Each refusal says why: staff aren't told their business is locked when it isn't."""
+
+    def test_messages(self):
+        self.client.credentials()
+        self.login("staff@a.com")
+        self.assertEqual(self.client.get("/api/users/").json()["detail"], "You don't have access to this. Ask the owner if you need it.")
+        self.client.credentials()
+        self.login("owner@a.com")
+        self.biz.settings["modules"]["purchases"] = False
+        self.biz.save()
+        self.assertEqual(self.client.get("/api/purchases/").json()["detail"], "This feature is switched off in Business settings.")
+        self.biz.trial_ends_at = timezone.now() - timedelta(days=1)
+        self.biz.save()
+        self.assertIn("locked", self.client.get("/api/products/").json()["detail"])

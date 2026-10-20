@@ -11,6 +11,7 @@ import { PurchaseDialog } from "@/components/purchase-dialog"
 import { useSessionUser } from "@/components/session-provider"
 import { SupplierDialog } from "@/components/supplier-dialog"
 import { PAYMENT_METHOD_LABEL, PaySupplierDialog } from "@/components/supplier-payment"
+import { ApiError } from "@/lib/api/errors"
 import { actions } from "@/lib/data/actions"
 import { useSupplier, useSupplierStatement } from "@/lib/data/queries"
 import { formatDate, formatMoney } from "@/lib/format"
@@ -25,6 +26,22 @@ export function SupplierDetailView({ id }: { id: string }) {
   const [buying, setBuying] = useState(false)
   const [paying, setPaying] = useState(false)
 
+  if (error instanceof ApiError && error.status === 404) {
+    return (
+      <PageBody>
+        <EmptyState
+          icon={Factory}
+          title="Supplier not found"
+          description="It may have been deleted."
+          action={
+            <Button render={<Link href="/suppliers" />} nativeButton={false}>
+              Back to suppliers
+            </Button>
+          }
+        />
+      </PageBody>
+    )
+  }
   if (error && !supplier) return <PageBody><QueryError error={error} onRetry={() => refetch()} /></PageBody>
   if (isPending || !supplier) return <PageBody><ListSkeleton /></PageBody>
 
