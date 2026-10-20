@@ -1,12 +1,16 @@
 from datetime import timedelta
+from decimal import Decimal
 
 from django.core.cache import cache
+from django.db import transaction
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 from rest_framework.test import APITestCase
 
 from apps.accounts.models import Business, User
 
-from .models import Location, Product, Purchase, PurchaseItem, Rental, Shipment, StockLevel, Supplier
+from . import services
+from .models import Location, Product, Purchase, PurchaseItem, Rental, Shipment, StockLevel, Supplier, SupplierPayment
 
 PASSWORD = "a-long-test-password-1"
 
@@ -1253,6 +1257,18 @@ class SupplierPaymentTests(PurchaseBase):
         # A payment made by mistake: deleting it makes the bills owed again.
         self.assertEqual(self.client.delete(f"/api/supplier-payments/{res.json()['id']}/").status_code, 204)
         self.assertEqual(self.owed(), 3320)
+
+    def test_a_payment_that_does_not_all_go_on_bills_is_refused(self):
+        # What two payments at the same moment would leave: one that finds less owed than it pays.
+        bill = Purchase.objects.get(pk=self.buy(paidAmount="0").json()["id"])
+        with self.assertRaises(ValidationError), transaction.atomic():
+            payment = SupplierPayment.objects.create(
+                business=bill.business, number=services.next_number(SupplierPayment, bill.business), supplier=bill.supplier,
+                amount=Decimal("5000"), method=SupplierPayment.Method.CASH, paid_at=timezone.now(),
+            )
+            services.allocate(payment, services.unpaid_purchases(bill.supplier))
+        self.assertEqual(self.owed(), 3600)
+        self.assertEqual(self.client.get("/api/supplier-payments/").json(), [])
 
     def test_credit_needs_a_supplier_and_no_more_than_the_bill(self):
         self.assertEqual(self.buy(paidAmount="0", supplierId=None).status_code, 400)

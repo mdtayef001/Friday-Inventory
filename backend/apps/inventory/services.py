@@ -188,6 +188,7 @@ def return_rental(user, rental, holidays=0, payment_method=Sale.Method.CASH):
         holidays = 0
     if holidays < 0 or holidays >= days_out:
         raise ValidationError(f"Holidays must be fewer than the {days_out} days it was out.")
+    lock_business(rental.business_id)  # before the stock: the rent is numbered as a receipt
     change_stock(rental.product, rental.location, rental.quantity)
     rental.status = Rental.Status.RETURNED
     rental.returned_at = now
@@ -264,10 +265,16 @@ def enabled_methods(business):
     return methods
 
 
+def lock_business(business_id):
+    """Locks the business row, so two changes at the same moment wait for each other. Call inside a
+    transaction, before locking any stock: everything takes the business first, so they can't deadlock."""
+    Business.objects.select_for_update().filter(pk=business_id).first()
+
+
 def number_receipt(sale):
     """Gives a paid sale, and every item sold with it, the business's next receipt number.
     Call inside a transaction. Locking the business row makes two sales at the same moment wait for each other."""
-    Business.objects.select_for_update().filter(pk=sale.business_id).first()
+    lock_business(sale.business_id)
     last = Sale.objects.filter(business_id=sale.business_id).aggregate(n=Max("receipt_no"))["n"] or 0
     sale.receipt_no = last + 1
     sale.receipt_sales().update(receipt_no=sale.receipt_no)
@@ -303,6 +310,8 @@ def sell(user, *, location, items, discount=0, client=None, payment_method=Sale.
         raise ValidationError("The discount can't be more than the total.")
     if payment_method not in enabled_methods(user.business):
         raise ValidationError("This payment method isn't turned on for your business.")
+    # Locked before the check, so two checkouts at the same moment can't both use the same transaction ID.
+    lock_business(user.business_id)
     # The same transaction ID twice is an old payment shown again.
     if payment_reference and Sale.objects.filter(business=user.business, payment_reference__iexact=payment_reference).exists():
         raise ValidationError("This transaction ID is already on another sale.")
@@ -493,7 +502,7 @@ def create_product_for_purchase(user, new):
 def next_number(model, business):
     """The business's next number for purchases, returns or payments. Call inside a
     transaction: locking the business row makes two at the same moment wait for each other."""
-    Business.objects.select_for_update().filter(pk=business.pk).first()
+    lock_business(business.pk)
     return (model.objects.filter(business=business).aggregate(n=Max("number"))["n"] or 0) + 1
 
 
@@ -556,7 +565,8 @@ def record_purchase(
 
 
 def allocate(payment, purchases):
-    """Spreads the payment over `purchases` in order, filling each one's due. Call inside a transaction."""
+    """Spreads the payment over `purchases` in order, filling each one's due. Call inside a
+    transaction, with the purchases locked. A payment that doesn't all go on bills is refused."""
     left = payment.amount
     for purchase in purchases:
         if left <= 0:
@@ -568,6 +578,8 @@ def allocate(payment, purchases):
         purchase.paid_amount += share
         purchase.save(update_fields=["paid_amount"])
         left -= share
+    if left > 0:
+        raise ValidationError("That's more than is owed now. Refresh and try again.")
 
 
 def unpaid_purchases(supplier):
@@ -579,14 +591,16 @@ def unpaid_purchases(supplier):
     )
 
 
-def owed_to(supplier):
-    return sum((p.due for p in Purchase.objects.filter(supplier=supplier, paid_amount__lt=F("total"))), Decimal(0))
+def owed_on(bills):
+    return sum((p.due for p in bills), Decimal(0))
 
 
 @transaction.atomic
 def pay_supplier(user, supplier, amount, method, paid_at=None, note=""):
     """Money paid to a supplier against what's owed. Returns the payment."""
-    owed = owed_to(supplier)
+    # Locked before working out what's owed, so two payments at once (a double click) can't both pay the same bills.
+    bills = unpaid_purchases(supplier)
+    owed = owed_on(bills)
     if owed <= 0:
         raise ValidationError("You don't owe this supplier anything.")
     if amount > owed:
@@ -595,7 +609,7 @@ def pay_supplier(user, supplier, amount, method, paid_at=None, note=""):
         business=user.business, number=next_number(SupplierPayment, user.business), supplier=supplier, amount=amount,
         method=method, paid_at=paid_at or timezone.now(), note=note.strip(), created_by=user,
     )
-    allocate(payment, unpaid_purchases(supplier))
+    allocate(payment, bills)
     log(user, "Supplier paid", f"{payment.code} · {amount:.2f} to {supplier.name} ({payment.get_method_display()}) · {owed - amount:.2f} still owed")
     return payment
 
@@ -634,6 +648,7 @@ def return_to_supplier(user, item, quantity, reason):
     if quantity > item.quantity - already:
         left = item.quantity - already
         raise ValidationError(f"Only {left} of this product {'is' if left == 1 else 'are'} left to return from {purchase.code}.")
+    lock_business(user.business_id)  # before the stock: the return gets a number
     change_stock(item.product, purchase.location, -quantity)
     ret = SupplierReturn.objects.create(
         business=user.business,
@@ -706,7 +721,8 @@ def credit_return(user, ret, amount):
         raise ValidationError("This purchase has no supplier to owe.")
     if amount > ret.outstanding:
         raise ValidationError(f"The supplier only owes {ret.outstanding:.2f} on this return.")
-    owed = owed_to(ret.supplier)
+    bills = unpaid_purchases(ret.supplier)  # locked first, as in pay_supplier
+    owed = owed_on(bills)
     if amount > owed:
         raise ValidationError(f"You only owe {ret.supplier.name} {owed:.2f}. Take a refund for the rest.")
     payment = SupplierPayment.objects.create(
@@ -714,7 +730,6 @@ def credit_return(user, ret, amount):
         method=SupplierPayment.Method.CREDIT, note=f"{ret.code} · {ret.quantity} × {ret.product_name}"[:300], supplier_return=ret,
         created_by=user,
     )
-    bills = unpaid_purchases(ret.supplier)
     bills.sort(key=lambda p: p.pk != ret.purchase_id)  # its own purchase first, the rest oldest first
     allocate(payment, bills)
     ret.credited_amount += amount
