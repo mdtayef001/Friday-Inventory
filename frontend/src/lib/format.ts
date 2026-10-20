@@ -1,4 +1,4 @@
-import { format, formatDistanceToNow } from "date-fns"
+import { formatDistanceToNow } from "date-fns"
 
 export const LOCALE = "en-US"
 
@@ -45,8 +45,25 @@ export function formatMoneyShort(value: number) {
   return `${value < 0 ? "-" : ""}${symbol}${amount}${name}`
 }
 export const formatNumber = (value: number) => number.format(value)
-export const formatDate = (iso: string) => format(new Date(iso), "MMM d, yyyy")
-export const formatDateTime = (iso: string) => format(new Date(iso), "MMM d, yyyy · h:mm a")
+// The shops are in Bangladesh, so dates read in Dhaka time on every device. The server (UTC on
+// Vercel) and the browser must agree, or React throws away the server's page (error #418).
+// Built from parts, since the space before "AM" differs between ICU versions.
+export const TIME_ZONE = "Asia/Dhaka"
+const dateParts = new Intl.DateTimeFormat("en-US", { timeZone: TIME_ZONE, month: "short", day: "numeric", year: "numeric" })
+const timeParts = new Intl.DateTimeFormat("en-US", { timeZone: TIME_ZONE, hour: "numeric", minute: "2-digit", hour12: true })
+const part = (parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? ""
+
+/** "Oct 21, 2026", in Dhaka time. */
+export function formatDate(iso: string) {
+  const p = dateParts.formatToParts(new Date(iso))
+  return `${part(p, "month")} ${part(p, "day")}, ${part(p, "year")}`
+}
+
+/** "Oct 21, 2026 · 2:30 AM", in Dhaka time. */
+export function formatDateTime(iso: string) {
+  const p = timeParts.formatToParts(new Date(iso))
+  return `${formatDate(iso)} · ${part(p, "hour")}:${part(p, "minute")} ${part(p, "dayPeriod").toUpperCase()}`
+}
 export const timeAgo = (iso: string) => formatDistanceToNow(new Date(iso), { addSuffix: true })
 
 /**
