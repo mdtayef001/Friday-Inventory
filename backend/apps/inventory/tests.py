@@ -1,3 +1,6 @@
+import csv
+import io
+import zipfile
 from datetime import timedelta
 from decimal import Decimal
 
@@ -1401,3 +1404,41 @@ class PurchaseEdgeTests(PurchaseBase):
         self.assertEqual(self.client.delete(f"/api/platform/businesses/{self.biz.id}/").status_code, 204)
         self.assertFalse(Business.objects.filter(pk=self.biz.pk).exists())
         self.assertFalse(Purchase.objects.exists() or Supplier.objects.exists())
+
+
+class ExportTests(PurchaseBase):
+    """The owner takes everything away as a ZIP of spreadsheets, even while locked."""
+
+    def download(self, url="/api/business/export/"):
+        res = self.client.get(url)
+        if res.status_code != 200:
+            return res.status_code, None
+        files = zipfile.ZipFile(io.BytesIO(res.content))
+        return 200, {n: list(csv.reader(io.StringIO(files.read(n).decode("utf-8-sig")))) for n in files.namelist()}
+
+    def test_owner_downloads_everything_even_when_locked(self):
+        self.buy(quantity=2)
+        self.client.patch(f"/api/products/{self.product.id}/", {"name": "=HYPERLINK(1)"}, format="json")
+        self.sell(quantity=1)
+        Product.objects.create(business=self.other_biz, sku="X", name="Theirs")
+        self.biz.trial_ends_at = timezone.now() - timedelta(days=1)
+        self.biz.save()
+
+        status, files = self.download()
+        self.assertEqual(status, 200)
+        self.assertIn("activity-log.csv", files)
+        self.assertEqual([r[2] for r in files["products.csv"][1:]], ["'=HYPERLINK(1)"])  # theirs isn't in it, and no formulas
+        self.assertEqual(len(files["sales.csv"]), 2)
+        self.assertEqual(files["purchases.csv"][1][6:9], ["2", "360.00", "720.00"])
+        self.assertEqual(files["suppliers.csv"][1][0], "Rahim Traders")
+        self.assertEqual([r[1] for r in files["staff.csv"][1:]], ["owner@a.com", "staff@a.com"])
+
+    def test_only_the_owner_and_the_super_admin(self):
+        self.client.credentials()
+        self.login("staff@a.com")
+        self.assertEqual(self.download()[0], 403)
+        User.objects.create_superuser(email="root@x.com", password=PASSWORD, name="Root")
+        self.client.credentials()
+        self.login("root@x.com")
+        status, files = self.download(f"/api/platform/businesses/{self.biz.id}/export/")
+        self.assertEqual((status, files["products.csv"][1][2]), (200, "TV"))

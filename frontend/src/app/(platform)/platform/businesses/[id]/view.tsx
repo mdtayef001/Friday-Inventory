@@ -8,6 +8,7 @@ import { toast } from "sonner"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { DownloadDataButton } from "@/components/billing"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -44,26 +45,29 @@ export function BusinessDetailView({ business, users, payments }: { business: Bu
         title={business.name}
         description={`${business.industry || "No industry set"} · joined ${formatDate(business.createdAt)}`}
         actions={
-          business.suspended ? (
-            <Button disabled={pending} onClick={() => run(() => setBusinessSuspended(business.id, false), "Access restored")}>
-              <CheckCircle2 />
-              Restore access
-            </Button>
-          ) : (
-            <ConfirmAction
-              trigger={
-                <Button variant="outline" disabled={pending}>
-                  <Ban />
-                  Suspend
-                </Button>
-              }
-              title={`Suspend ${business.name}?`}
-              description="Everyone in this business is logged out and can't log in, even if they pay, until you restore access. Nothing is deleted."
-              confirmLabel="Suspend"
-              destructive
-              onConfirm={async () => showResult(await setBusinessSuspended(business.id, true), "Business suspended")}
-            />
-          )
+          <>
+            <DownloadDataButton href={`/api/backend/platform/businesses/${business.id}/export/`} label="Download data" />
+            {business.suspended ? (
+              <Button disabled={pending} onClick={() => run(() => setBusinessSuspended(business.id, false), "Access restored")}>
+                <CheckCircle2 />
+                Restore access
+              </Button>
+            ) : (
+              <ConfirmAction
+                trigger={
+                  <Button variant="outline" disabled={pending}>
+                    <Ban />
+                    Suspend
+                  </Button>
+                }
+                title={`Suspend ${business.name}?`}
+                description="Everyone in this business is logged out and can't log in, even if they pay, until you restore access. Nothing is deleted."
+                confirmLabel="Suspend"
+                destructive
+                onConfirm={async () => showResult(await setBusinessSuspended(business.id, true), "Business suspended")}
+              />
+            )}
+          </>
         }
       />
 

@@ -2,6 +2,7 @@ import hmac
 
 from django.conf import settings
 from django.core.management import call_command
+from django.http import HttpResponse
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
@@ -14,6 +15,9 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 
 from apps.billing import services as billing_services
 from apps.billing.serializers import GrantSerializer, PaymentSerializer
+from apps.billing.views import IsOwner
+from apps.inventory.export import business_zip
+from apps.inventory.services import log
 
 from .models import Business, User
 from .permissions import IsSuperAdmin, IsTenantMember, ManagerNeedsPermission
@@ -120,6 +124,23 @@ class UserViewSet(viewsets.ModelViewSet):
             raise PermissionDenied()
 
 
+def zip_response(business):
+    data, filename = business_zip(business)
+    response = HttpResponse(data, content_type="application/zip")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+class BusinessExportView(APIView):
+    """The owner downloads everything their business has, even while it's locked for not paying."""
+
+    permission_classes = [IsOwner]
+
+    def get(self, request):
+        log(request.user, "Data downloaded", "Everything, as a ZIP of spreadsheets")
+        return zip_response(request.user.business)
+
+
 class BusinessSettingsView(APIView):
     """The owner's own business: name, currency, modules and permissions."""
 
@@ -170,6 +191,11 @@ class PlatformBusinessViewSet(
         serializer.is_valid(raise_exception=True)
         payment = billing_services.grant(self.get_object(), **serializer.validated_data)
         return Response(PaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True)
+    def export(self, request, pk=None):
+        """Everything the business has, for an owner who asks for it."""
+        return zip_response(self.get_object())
 
     @action(detail=True, methods=["post"])
     def suspend(self, request, pk=None):

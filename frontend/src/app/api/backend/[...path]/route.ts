@@ -35,11 +35,12 @@ async function forward(req: NextRequest, ctx: RouteContext<"/api/backend/[...pat
   if (res instanceof Error) return NextResponse.json({ detail: res.message }, { status: res.status })
   if (res.status === 204) return new NextResponse(null, { status: 204 })
   const disposition = res.headers.get("content-disposition")
-  return new NextResponse(await res.text(), {
+  // Bytes, not text, so files like the data ZIP come through whole.
+  return new NextResponse(await res.arrayBuffer(), {
     status: res.status,
     headers: {
       "Content-Type": res.headers.get("content-type") ?? "application/json",
-      // File downloads such as the sales CSV.
+      // File downloads such as the sales CSV and the data ZIP.
       ...(disposition && { "Content-Disposition": disposition }),
     },
   })

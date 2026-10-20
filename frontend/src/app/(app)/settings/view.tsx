@@ -6,6 +6,7 @@ import { Building2, Loader2, Puzzle, ShieldCheck, Sparkles, Wallet } from "lucid
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { YourDataCard } from "@/components/billing"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Field, PageBody, PageHeader, SimpleSelect, useRequired } from "@/components/common"
@@ -188,6 +189,7 @@ export function SettingsView() {
       </form>
 
       <SubscriptionCard />
+      <YourDataCard />
     </PageBody>
   )
 }

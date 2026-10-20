@@ -6,7 +6,7 @@ import { AlertTriangle, CheckCircle2, LogOut, Store } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { ManualPaymentNotice, PayOptions } from "@/components/billing"
+import { DownloadDataButton, ManualPaymentNotice, PayOptions } from "@/components/billing"
 import { requireOwner } from "@/lib/auth/dal"
 import { accessEndsAt, priceLabel } from "@/lib/business"
 import { getBillingConfig, listPayments } from "@/lib/billing/queries"
@@ -82,10 +82,14 @@ async function Subscribe({ searchParams }: Pick<PageProps<"/subscribe">, "search
       </Card>
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>Logged in as {user.email}</span>
-        <Button variant="ghost" size="sm" render={<Link href="/logout" prefetch={false} />} nativeButton={false}>
-          <LogOut />
-          Log out
-        </Button>
+        <div className="flex items-center gap-1">
+          {/* Locked or not, the data is theirs to take. */}
+          <DownloadDataButton variant="ghost" size="sm" label="Download my data" />
+          <Button variant="ghost" size="sm" render={<Link href="/logout" prefetch={false} />} nativeButton={false}>
+            <LogOut />
+            Log out
+          </Button>
+        </div>
       </div>
       {everPaid && (
         <p className="text-center text-xs text-muted-foreground">

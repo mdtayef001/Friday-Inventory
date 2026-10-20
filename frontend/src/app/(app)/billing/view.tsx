@@ -5,7 +5,7 @@ import { AlertTriangle, CalendarClock, CheckCircle2, FileText, FlaskConical } fr
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { PageBody, PageHeader } from "@/components/common"
-import { ManualPaymentNotice, PayOptions } from "@/components/billing"
+import { ManualPaymentNotice, PayOptions, YourDataCard } from "@/components/billing"
 import { BusinessStatusPill, PaymentsTable } from "@/components/platform"
 import { useBusiness } from "@/components/session-provider"
 import { REMINDER_DAYS, priceLabel, accessEndsAt, daysLeft } from "@/lib/business"
@@ -107,6 +107,8 @@ export function BillingView({ payments, notice, config }: { payments: Payment[];
         </CardHeader>
         <PaymentsTable payments={payments} />
       </Card>
+
+      <YourDataCard />
 
       <p className="text-sm text-muted-foreground">Need help with a payment? Contact support with your invoice or transaction number.</p>
     </PageBody>

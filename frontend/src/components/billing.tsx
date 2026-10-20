@@ -2,10 +2,11 @@
 
 import { useState, useTransition } from "react"
 import Link from "next/link"
-import { AlertTriangle, Copy, Hourglass, Loader2, LockKeyhole, Phone, Send, XCircle } from "lucide-react"
+import { AlertTriangle, Copy, DatabaseBackup, Download, Hourglass, Loader2, LockKeyhole, Phone, Send, XCircle } from "lucide-react"
 import { toast } from "sonner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Field, SimpleSelect, useRequired } from "@/components/common"
 import { useBusiness, useSessionUser } from "@/components/session-provider"
@@ -259,5 +260,40 @@ export function SubscriptionBanner() {
         {business.status === "trial" ? "Subscribe" : "Renew"} · {priceLabel(business.monthlyPrice)}
       </Button>
     </div>
+  )
+}
+
+/**
+ * Everything the business has, as one ZIP of spreadsheets that open in Excel. For the owner,
+ * even while the business is locked; the super admin passes the business's own `href`.
+ */
+export function DownloadDataButton({ href = "/api/backend/business/export/", label = "Download my data", ...props }: { href?: string; label?: string } & React.ComponentProps<typeof Button>) {
+  return (
+    <Button variant="outline" render={<a href={href} download />} nativeButton={false} {...props}>
+      <Download />
+      {label}
+    </Button>
+  )
+}
+
+/** On Billing and Settings: the owner can take their records with them at any time. */
+export function YourDataCard() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <DatabaseBackup className="size-4 text-primary" />
+          Your data
+        </CardTitle>
+        <CardDescription>
+          Everything in {useBusiness().name}: products, stock, sales, purchases, suppliers, clients, rentals, orders, staff and the activity log. One
+          ZIP file with a spreadsheet for each, which opens in Excel. It&apos;s yours, so you can download it whenever you like, even if your
+          subscription runs out.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <DownloadDataButton />
+      </CardContent>
+    </Card>
   )
 }
