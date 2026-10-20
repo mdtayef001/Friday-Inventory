@@ -1,4 +1,5 @@
 import { getSupport } from "@/lib/billing/queries"
+import { WhatsAppLink } from "@/components/whatsapp-link"
 import { PLATFORM } from "@/lib/business"
 
 /** Shared look for the Terms and Privacy pages. */
@@ -21,7 +22,12 @@ export async function Contact() {
   const { whatsapp } = await getSupport()
   return (
     <p>
-      Questions? {whatsapp ? <>Message us on WhatsApp: <span className="font-medium">{whatsapp}</span>. </> : null}
+      Questions?{" "}
+      {whatsapp ? (
+        <>
+          Message us on WhatsApp: <WhatsAppLink username={whatsapp} />.{" "}
+        </>
+      ) : null}
       {PLATFORM.name}, {PLATFORM.address}.
     </p>
   )

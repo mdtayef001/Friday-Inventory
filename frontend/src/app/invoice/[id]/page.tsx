@@ -7,6 +7,7 @@ import { PLATFORM, formatTaka } from "@/lib/business"
 import { findPayment, getSupport } from "@/lib/billing/queries"
 import { formatDate, formatDateTime } from "@/lib/format"
 import { PrintButton } from "@/components/print-button"
+import { WhatsAppLink } from "@/components/whatsapp-link"
 
 export const metadata: Metadata = { title: "Invoice" }
 
@@ -50,7 +51,11 @@ async function Invoice({ params }: Pick<PageProps<"/invoice/[id]">, "params">) {
             <div>
               <p className="font-semibold">{PLATFORM.name}</p>
               <p className="text-sm text-muted-foreground">{PLATFORM.address}</p>
-              {support.whatsapp && <p className="text-sm text-muted-foreground">WhatsApp: {support.whatsapp}</p>}
+              {support.whatsapp && (
+                <p className="text-sm text-muted-foreground">
+                  WhatsApp: <WhatsAppLink username={support.whatsapp} />
+                </p>
+              )}
             </div>
           </div>
           <div className="sm:text-right">

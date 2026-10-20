@@ -7,6 +7,7 @@ import { toast } from "sonner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { WhatsAppLink } from "@/components/whatsapp-link"
 import { Input } from "@/components/ui/input"
 import { Field, SimpleSelect, useRequired } from "@/components/common"
 import { useBusiness, useSessionUser } from "@/components/session-provider"
@@ -68,7 +69,14 @@ export function PayOptions({ config, label }: { config: BillingConfig; label?: s
       {manual && <ManualPayForm options={options} monthlyPrice={config.monthlyPrice} />}
       {!config.online && !manual ? (
         <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
-          To pay, message us{options.whatsapp ? ` on WhatsApp: ${options.whatsapp}` : ""} and we&apos;ll tell you how.
+          To pay, message us
+          {options.whatsapp && (
+            <>
+              {" "}
+              on WhatsApp: <WhatsAppLink username={options.whatsapp} />
+            </>
+          )}{" "}
+          and we&apos;ll tell you how.
         </p>
       ) : (
         <WhatsAppLine username={options.whatsapp} />
@@ -326,7 +334,7 @@ export function WhatsAppLine({ username, label = "Questions? Message us on Whats
   return (
     <p className={cn("flex flex-wrap items-center justify-center gap-1.5 text-xs text-muted-foreground", className)}>
       <MessageCircle className="size-3.5" />
-      {label} <span className="font-medium text-foreground">{username}</span>
+      {label} <WhatsAppLink username={username} />
     </p>
   )
 }
