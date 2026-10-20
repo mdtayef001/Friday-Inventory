@@ -396,10 +396,9 @@ export function SalesTable({ sales }: { sales: Sale[] }) {
             <TableHead>Shop</TableHead>
             <TableHead>Client</TableHead>
             <TableHead>Sold by</TableHead>
-            <TableHead>Receipt</TableHead>
             {/* Pinned to the right edge: the table scrolls sideways on most screens. */}
-            <TableHead className="sticky right-0 z-10 w-10 bg-card pr-4 shadow-[-1px_0_0_var(--border)]">
-              <span className="sr-only">Actions</span>
+            <TableHead className="sticky right-0 z-10 bg-card pr-4 shadow-[-1px_0_0_var(--border)]">
+              <span className="sr-only">Receipt and actions</span>
             </TableHead>
           </TableRow>
         </TableHeader>
@@ -429,11 +428,12 @@ export function SalesTable({ sales }: { sales: Sale[] }) {
               <TableCell className="text-sm whitespace-nowrap">{(s.locationId && locationName(s.locationId)) || "—"}</TableCell>
               <TableCell className="text-sm whitespace-nowrap">{s.clientName || "Walk-in"}</TableCell>
               <TableCell className="text-sm whitespace-nowrap">{s.soldBy || "—"}</TableCell>
-              <TableCell>
-                <ReceiptLink sale={s} />
-              </TableCell>
               <TableCell className="sticky right-0 z-10 bg-card pr-4 shadow-[-1px_0_0_var(--border)]">
-                <SaleActions sale={s} />
+                {/* Two fixed slots, so the receipt icons line up whether or not a sale has ⋯. */}
+                <div className="grid grid-cols-[1.75rem_1.75rem] gap-1">
+                  <ReceiptButton sale={s} />
+                  <SaleActions sale={s} />
+                </div>
               </TableCell>
             </TableRow>
           ))}
@@ -456,6 +456,17 @@ export function ReceiptLink({ sale: s }: { sale: Sale }) {
       <ReceiptText className="size-3.5 shrink-0" />
       {s.receiptNo}
     </Link>
+  )
+}
+
+/** The receipt as an icon button next to ⋯, opening in a new tab to print or send. */
+function ReceiptButton({ sale: s }: { sale: Sale }) {
+  if (!s.receiptNo) return <span />
+  const label = `Open receipt ${s.receiptNo}`
+  return (
+    <Button variant="ghost" size="icon-sm" render={<Link href={`/receipt/${s.id}`} target="_blank" />} nativeButton={false} aria-label={label} title={label}>
+      <ReceiptText />
+    </Button>
   )
 }
 
