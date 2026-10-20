@@ -8,7 +8,7 @@ import { PageBody, PageHeader } from "@/components/common"
 import { ManualPaymentNotice, PayOptions } from "@/components/billing"
 import { BusinessStatusPill, PaymentsTable } from "@/components/platform"
 import { useBusiness } from "@/components/session-provider"
-import { PRICE_LABEL, REMINDER_DAYS, accessEndsAt, daysLeft } from "@/lib/business"
+import { REMINDER_DAYS, priceLabel, accessEndsAt, daysLeft } from "@/lib/business"
 import { formatDate } from "@/lib/format"
 import type { BillingConfig, Payment } from "@/lib/types"
 
@@ -22,7 +22,7 @@ export function BillingView({ payments, notice, config }: { payments: Payment[];
 
   return (
     <PageBody className="max-w-5xl">
-      <PageHeader title="Billing" description={`Your subscription is ${PRICE_LABEL}, everything included.`} />
+      <PageHeader title="Billing" description={`Your subscription is ${priceLabel(business.monthlyPrice)}, everything included.`} />
 
       {notice?.kind === "success" && (
         <Alert className="border-green-600/30 bg-green-600/5">
@@ -83,7 +83,7 @@ export function BillingView({ payments, notice, config }: { payments: Payment[];
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>{onTrial ? "Subscribe now" : "Pay for next month"}</CardTitle>
-            <CardDescription>{PRICE_LABEL}</CardDescription>
+            <CardDescription>{priceLabel(business.monthlyPrice)}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {config.online && config.testGateway && (

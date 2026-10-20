@@ -195,9 +195,8 @@ if not DEBUG:
 
 # ---------- Billing ----------
 
-SUBSCRIPTION_PRICE = 1000
+# The monthly price and the free trial's length are set by the super admin on Payment options.
 SUBSCRIPTION_CURRENCY = "BDT"
-TRIAL_DAYS = 7
 
 # Public address of the Next.js app; SSLCommerz sends owners back there.
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")

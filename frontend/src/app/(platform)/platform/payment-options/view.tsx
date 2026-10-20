@@ -1,13 +1,14 @@
 "use client"
 
 import { useState, useTransition } from "react"
-import { CreditCard, Landmark, Phone, Smartphone } from "lucide-react"
+import { BadgeDollarSign, CreditCard, Landmark, Phone, Smartphone } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
-import { Field, PageBody, PageHeader, Pill, SimpleSelect } from "@/components/common"
+import { Field, PageBody, PageHeader, Pill, SimpleSelect, useRequired } from "@/components/common"
+import { priceLabel } from "@/lib/business"
 import { savePaymentAccounts } from "@/lib/auth/platform-actions"
 import type { PaymentAccounts, WalletId, WalletKind } from "@/lib/types"
 
@@ -37,15 +38,20 @@ export function PaymentOptionsView({ accounts, onlineStatus }: { accounts: Payme
   const changed = (Object.keys(form) as (keyof PaymentAccounts)[]).some((k) => form[k] !== accounts[k])
   const walletsSet = WALLETS.filter((w) => form[w.id].trim()).length
   const bankMissing = form.bankEnabled && !form.bankAccountNumber.trim()
+  const required = useRequired()
+  const priceOk = Number.isInteger(form.monthlyPrice) && form.monthlyPrice >= 1
+  const trialOk = Number.isInteger(form.trialDays) && form.trialDays >= 0 && form.trialDays <= 90
+  const whole = (v: string) => (v.trim() === "" ? NaN : Number(v))
 
   return (
     <PageBody className="max-w-4xl">
-      <PageHeader title="Payment options" description="How owners can pay you. Set them once here and every business sees them on its Billing page." />
+      <PageHeader title="Payment options" description="The price, and how owners can pay you. Set them once here and every business sees them on its Billing page." />
 
       <form
         className="grid gap-6"
         onSubmit={(e) => {
           e.preventDefault()
+          if (!required.check(priceOk && trialOk, e)) return
           startTransition(async () => {
             const result = await savePaymentAccounts(form)
             if (result.ok) toast.success("Payment options saved")
@@ -53,6 +59,47 @@ export function PaymentOptionsView({ accounts, onlineStatus }: { accounts: Payme
           })
         }}
       >
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BadgeDollarSign className="size-4 text-primary" />
+              Price
+            </CardTitle>
+            <CardDescription>One price for every business. A change applies to payments from now on; ones already made keep their amount.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-2">
+            <Field label="Monthly price (৳)" htmlFor="monthly-price" required missing={required.shown && !priceOk} hint={priceOk ? `Owners see ${priceLabel(form.monthlyPrice)}.` : undefined}>
+              <Input
+                id="monthly-price"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                step={1}
+                value={Number.isNaN(form.monthlyPrice) ? "" : form.monthlyPrice}
+                onChange={(e) => set("monthlyPrice", whole(e.target.value))}
+              />
+            </Field>
+            <Field
+              label="Free trial (days)"
+              htmlFor="trial-days"
+              required
+              missing={required.shown && !trialOk}
+              hint="For businesses you add from now on. 0 means no trial. You can still turn it off for one business when adding it."
+            >
+              <Input
+                id="trial-days"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={90}
+                step={1}
+                value={Number.isNaN(form.trialDays) ? "" : form.trialDays}
+                onChange={(e) => set("trialDays", whole(e.target.value))}
+              />
+            </Field>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

@@ -9,14 +9,14 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Field, SimpleSelect, useRequired } from "@/components/common"
 import { useBusiness, useSessionUser } from "@/components/session-provider"
-import { PRICE_LABEL, REMINDER_DAYS, SUBSCRIPTION, accessEndsAt, daysLeft, formatTaka } from "@/lib/business"
+import { REMINDER_DAYS, accessEndsAt, daysLeft, formatTaka, priceLabel } from "@/lib/business"
 import { sendManualPayment, startPayment, type ManualPaymentInput } from "@/lib/billing/actions"
 import { formatDate } from "@/lib/format"
 import type { BillingConfig, Payment, PaymentOptions, WalletKind } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 /** Pay button. Sends the owner to SSLCommerz, which asks for any payment details itself. */
-export function PayForm({ label }: { label?: string }) {
+export function PayForm({ label, monthlyPrice }: { label?: string; monthlyPrice: number }) {
   const [error, setError] = useState("")
   const [pending, startTransition] = useTransition()
   const [leaving, setLeaving] = useState(false)
@@ -38,7 +38,7 @@ export function PayForm({ label }: { label?: string }) {
       {error && <p className="text-sm font-medium text-destructive">{error}</p>}
       <Button type="submit" size="lg" className="h-11" disabled={busy}>
         {busy ? <Loader2 className="animate-spin" /> : <LockKeyhole />}
-        {leaving ? "Opening SSLCommerz…" : (label ?? `Pay ${PRICE_LABEL}`)}
+        {leaving ? "Opening SSLCommerz…" : (label ?? `Pay ${priceLabel(monthlyPrice)}`)}
       </Button>
       <p className="text-center text-xs text-muted-foreground">Secure payment by SSLCommerz: bKash, Nagad, Rocket, cards and internet banking.</p>
     </form>
@@ -56,7 +56,7 @@ export function PayOptions({ config, label }: { config: BillingConfig; label?: s
   const manual = options.wallets.length > 0 || !!options.bank
   return (
     <div className="grid gap-4">
-      {config.online && <PayForm label={label} />}
+      {config.online && <PayForm label={label} monthlyPrice={config.monthlyPrice} />}
       {config.online && manual && (
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <span className="h-px flex-1 bg-border" />
@@ -64,7 +64,7 @@ export function PayOptions({ config, label }: { config: BillingConfig; label?: s
           <span className="h-px flex-1 bg-border" />
         </div>
       )}
-      {manual && <ManualPayForm options={options} />}
+      {manual && <ManualPayForm options={options} monthlyPrice={config.monthlyPrice} />}
       {!config.online && !manual && (
         <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
           To pay, contact support{options.contact ? ` on ${options.contact}` : ""} and we&apos;ll tell you how.
@@ -93,7 +93,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 /** Send money to one of the platform's wallets or its bank account, then give the transaction ID to check. */
-export function ManualPayForm({ options }: { options: PaymentOptions }) {
+export function ManualPayForm({ options, monthlyPrice }: { options: PaymentOptions; monthlyPrice: number }) {
   const methods: { id: ManualMethod; label: string }[] = [...options.wallets, ...(options.bank ? [{ id: "bank" as const, label: "Bank" }] : [])]
   const [method, setMethod] = useState<ManualMethod>(methods[0].id)
   const [months, setMonths] = useState("1")
@@ -103,7 +103,7 @@ export function ManualPayForm({ options }: { options: PaymentOptions }) {
 
   const bank = method === "bank" ? options.bank : null
   const wallet = options.wallets.find((w) => w.id === method)
-  const amount = formatTaka(SUBSCRIPTION.price * Number(months))
+  const amount = formatTaka(monthlyPrice * Number(months))
   const required = useRequired()
 
   function submit(e: React.FormEvent) {
@@ -139,7 +139,7 @@ export function ManualPayForm({ options }: { options: PaymentOptions }) {
       </div>
 
       <Field label="How many months" htmlFor="pay-months" required>
-        <SimpleSelect id="pay-months" value={months} onChange={setMonths} options={MONTHS.map((n) => ({ value: String(n), label: `${n} ${n === 1 ? "month" : "months"} · ${formatTaka(SUBSCRIPTION.price * n)}` }))} />
+        <SimpleSelect id="pay-months" value={months} onChange={setMonths} options={MONTHS.map((n) => ({ value: String(n), label: `${n} ${n === 1 ? "month" : "months"} · ${formatTaka(monthlyPrice * n)}` }))} />
       </Field>
 
       <div className="rounded-lg border bg-muted/30 p-3 text-sm">
@@ -256,7 +256,7 @@ export function SubscriptionBanner() {
         {what} ends {left === 0 ? "today" : `in ${left} ${left === 1 ? "day" : "days"}`} ({formatDate(endsAt)}). After that, {business.name} locks until you pay.
       </span>
       <Button size="sm" render={<Link href="/billing" />} nativeButton={false}>
-        {business.status === "trial" ? "Subscribe" : "Renew"} · {PRICE_LABEL}
+        {business.status === "trial" ? "Subscribe" : "Renew"} · {priceLabel(business.monthlyPrice)}
       </Button>
     </div>
   )

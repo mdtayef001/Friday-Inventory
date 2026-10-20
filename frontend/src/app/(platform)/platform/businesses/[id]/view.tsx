@@ -18,7 +18,7 @@ import { deleteBusiness, grantAccess, resetOwnerPassword, setBusinessSuspended }
 import type { ActionResult } from "@/lib/auth/user-actions"
 import { roleLabel } from "@/lib/auth/roles"
 import { formatDate, timeAgo } from "@/lib/format"
-import { MODULES, PERMISSIONS, PRICE_LABEL, SUBSCRIPTION, accessEndsAt, daysLeft, formatTaka } from "@/lib/business"
+import { MODULES, PERMISSIONS, accessEndsAt, daysLeft, formatTaka, priceLabel } from "@/lib/business"
 import type { BusinessSummary, ManagedUser, ModuleId, Payment, PermissionId } from "@/lib/types"
 
 function showResult(result: ActionResult, success: string) {
@@ -79,7 +79,7 @@ export function BusinessDetailView({ business, users, payments }: { business: Bu
             <CardDescription>Monthly, everything included</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="text-2xl font-semibold tabular-nums">{PRICE_LABEL}</p>
+            <p className="text-2xl font-semibold tabular-nums">{priceLabel(business.monthlyPrice)}</p>
             <dl className="grid grid-cols-2 gap-2 text-sm">
               <div className="rounded-lg border p-2">
                 <dt className="text-xs text-muted-foreground">{business.paidUntil ? "Paid until" : "Trial ends"}</dt>
@@ -286,7 +286,7 @@ const GRANT_METHODS = [
 function GrantDialog({ business, onClose }: { business: BusinessSummary; onClose: () => void }) {
   const [months, setMonths] = useState("1")
   const [method, setMethod] = useState("bank")
-  const [amount, setAmount] = useState(String(SUBSCRIPTION.price))
+  const [amount, setAmount] = useState(String(business.monthlyPrice))
   const [reference, setReference] = useState("")
   const [note, setNote] = useState("")
   const [pending, startTransition] = useTransition()
@@ -294,7 +294,7 @@ function GrantDialog({ business, onClose }: { business: BusinessSummary; onClose
   const n = Number(months)
   const changeMonths = (v: string) => {
     setMonths(v)
-    setAmount(String(SUBSCRIPTION.price * (Number(v) || 0)))
+    setAmount(String(business.monthlyPrice * (Number(v) || 0)))
   }
   const monthsOk = n >= 1 && n <= 24 && Number.isInteger(n)
   const amountOk = free || (amount !== "" && Number(amount) >= 0)
@@ -331,7 +331,7 @@ function GrantDialog({ business, onClose }: { business: BusinessSummary; onClose
           </div>
           {!free && (
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Amount received" htmlFor="grant-amount" required missing={required.shown && !amountOk} hint={`${formatTaka(SUBSCRIPTION.price)} a month`}>
+              <Field label="Amount received" htmlFor="grant-amount" required missing={required.shown && !amountOk} hint={`${formatTaka(business.monthlyPrice)} a month`}>
                 <Input id="grant-amount" type="number" min={0} step="any" value={amount} onChange={(e) => setAmount(e.target.value)} />
               </Field>
               <Field label="Reference" htmlFor="grant-ref" hint="TrxID or bank reference">

@@ -44,6 +44,7 @@ class BillingConfigView(APIView):
                 "test_gateway": online_status() == "test",
                 "online": online_open(accounts),
                 "options": PaymentOptionsSerializer(accounts).data,
+                "monthly_price": accounts.monthly_price,
             }
         )
 

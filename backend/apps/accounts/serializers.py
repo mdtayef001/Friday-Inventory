@@ -1,5 +1,7 @@
 from django.contrib.auth.password_validation import validate_password
 from django.db.models import Max
+from django.utils import timezone
+from django.utils.functional import cached_property
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
@@ -55,11 +57,22 @@ class SessionUserSerializer(serializers.ModelSerializer):
 class BusinessSerializer(serializers.ModelSerializer):
     id = IdField()
     status = serializers.CharField(read_only=True)
+    # The same for every business, set by the super admin.
+    monthly_price = serializers.SerializerMethodField()
 
     class Meta:
         model = Business
-        fields = ["id", "name", "industry", "status", "suspended", "trial_ends_at", "paid_until", "created_at", "settings"]
+        fields = ["id", "name", "industry", "status", "suspended", "trial_ends_at", "paid_until", "created_at", "settings", "monthly_price"]
         read_only_fields = ["suspended", "trial_ends_at", "paid_until", "created_at"]
+
+    @cached_property
+    def price(self):
+        from apps.billing.models import PaymentAccounts  # billing imports accounts
+
+        return PaymentAccounts.load().monthly_price
+
+    def get_monthly_price(self, business):
+        return self.price
 
     def validate_name(self, value):
         value = value.strip()
@@ -214,6 +227,8 @@ class BusinessWithOwnerSerializer(serializers.Serializer):
     owner_name = serializers.CharField(max_length=80, min_length=2)
     owner_email = serializers.EmailField()
     owner_password = serializers.CharField(min_length=8, max_length=128)
+    # Off: no free days, the business opens once it pays or the super admin gives it months.
+    free_trial = serializers.BooleanField(default=True)
 
     def validate_owner_email(self, value):
         value = value.lower()
@@ -223,6 +238,9 @@ class BusinessWithOwnerSerializer(serializers.Serializer):
 
     def create(self, validated):
         business = Business.objects.create(name=validated["name"].strip(), industry=validated.get("industry", "").strip())
+        if not validated["free_trial"]:
+            business.trial_ends_at = timezone.now()
+            business.save(update_fields=["trial_ends_at"])
         # A brand-new business starts with one shop, like the frontend's createEmpty().
         Location.objects.create(
             business=business, name="Main Store", type=Location.Type.OUTLET,

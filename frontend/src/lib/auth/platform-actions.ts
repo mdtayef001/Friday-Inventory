@@ -33,6 +33,7 @@ const CreateSchema = z.object({
   ownerName: z.string().trim().min(2, "Owner name must be at least 2 characters").max(80),
   ownerEmail: z.email("Enter a valid owner email").trim(),
   ownerPassword: z.string().min(8, "Password must be at least 8 characters").max(128),
+  freeTrial: z.boolean(),
 })
 
 export async function createBusiness(input: z.input<typeof CreateSchema>): Promise<ActionResult & { id?: string }> {

@@ -1,9 +1,9 @@
 import type { BusinessSettings, BusinessStatus, ModuleId, PaymentMethod, PermissionId } from "@/lib/types"
 
-// One subscription for every business: a flat monthly price, no usage limits.
-// New businesses get a free trial; when the trial or a paid month runs out the
-// business locks itself until the owner pays through SSLCommerz.
-export const SUBSCRIPTION = { price: 1000, currency: "BDT", period: "month", trialDays: 7 } as const
+// One subscription for every business: a flat monthly price, no usage limits. The price and
+// the free trial's length are set by the super admin on Payment options (the business's
+// monthlyPrice). When the trial or a paid month runs out the business locks itself until the owner pays.
+export const SUBSCRIPTION = { currency: "BDT", period: "month" } as const
 
 /** Shown on invoices as the seller. Change to your company details. */
 export const PLATFORM = {
@@ -34,7 +34,8 @@ export function daysLeft(iso: string, now = Date.now()) {
 /** "৳1,000" */
 export const formatTaka = (amount: number) => `৳${amount.toLocaleString("en-US")}`
 
-export const PRICE_LABEL = `${formatTaka(SUBSCRIPTION.price)} / ${SUBSCRIPTION.period}`
+/** "৳1,000 / month" */
+export const priceLabel = (monthlyPrice: number) => `${formatTaka(monthlyPrice)} / ${SUBSCRIPTION.period}`
 
 export const MODULES: Record<ModuleId, { label: string; description: string }> = {
   rentals: { label: "Rentals", description: "Rent items out by day, week, month or a fixed price." },

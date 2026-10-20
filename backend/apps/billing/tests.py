@@ -124,6 +124,15 @@ class ManualPaymentTests(APITestCase):
         self.assertEqual(self.biz.status, "active")
         self.assertGreater(self.biz.paid_until, timezone.now() + timedelta(days=88))
 
+    def test_price_set_by_the_super_admin_applies_to_new_payments(self):
+        self.login("admin@x.com")
+        res = self.client.put("/api/platform/payment-accounts/", {"monthlyPrice": 1500}, format="json")
+        self.assertEqual((res.status_code, res.json()["monthlyPrice"]), (200, 1500))
+        self.assertEqual(self.client.put("/api/platform/payment-accounts/", {"monthlyPrice": 0}, format="json").status_code, 400)
+        self.assertEqual(self.client.put("/api/platform/payment-accounts/", {"trialDays": 91}, format="json").status_code, 400)
+        self.assertEqual(self.send(months=3).json()["amount"], 4500)
+        self.assertEqual(self.client.get("/api/auth/me/").json()["business"]["monthlyPrice"], 1500)
+
     def test_approve_only_once(self):
         payment_id = self.send().json()["id"]
         self.login("admin@x.com")

@@ -66,6 +66,11 @@ class PaymentAccounts(models.Model):
         AGENT = "agent", "Agent"
         MERCHANT = "merchant", "Merchant"
 
+    # What every business pays a month, and how long a new business may use the app free first.
+    # Payments already made keep the amount they were made at.
+    monthly_price = models.PositiveIntegerField(default=1000)
+    trial_days = models.PositiveSmallIntegerField(default=7)
+
     online_enabled = models.BooleanField(default=True)
 
     mobile_enabled = models.BooleanField(default=True)

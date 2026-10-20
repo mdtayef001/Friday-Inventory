@@ -92,6 +92,8 @@ export interface Business {
   paidUntil: string | null
   createdAt: string
   settings: BusinessSettings
+  /** What it pays a month. The same for every business, set by the super admin. */
+  monthlyPrice: number
 }
 
 /** "awaiting": sent by hand (bKash, bank...), waiting for the super admin to approve it. */
@@ -135,6 +137,10 @@ export type WalletKind = "personal" | "agent" | "merchant"
 
 /** Every payment option, as the super admin edits them. */
 export type PaymentAccounts = {
+  /** What every business pays a month, in taka. Payments already made keep their amount. */
+  monthlyPrice: number
+  /** Free days a new business gets, unless it's created without a trial. */
+  trialDays: number
   onlineEnabled: boolean
   mobileEnabled: boolean
   bankEnabled: boolean
@@ -159,6 +165,8 @@ export interface BillingConfig {
   /** Turned on by the super admin, and SSLCommerz is connected (or the test gateway is on). */
   online: boolean
   options: PaymentOptions
+  /** What a month costs right now. */
+  monthlyPrice: number
 }
 
 export interface BusinessSummary extends Business {

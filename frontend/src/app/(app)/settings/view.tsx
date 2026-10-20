@@ -12,7 +12,7 @@ import { Field, PageBody, PageHeader, SimpleSelect, useRequired } from "@/compon
 import { BusinessStatusPill } from "@/components/platform"
 import { useBusiness } from "@/components/session-provider"
 import { updateBusinessSettings } from "@/lib/auth/business-actions"
-import { CURRENCIES, CURRENCY_LABEL, MODULES, PERMISSIONS, PRICE_LABEL, accessEndsAt, daysLeft } from "@/lib/business"
+import { priceLabel, CURRENCIES, CURRENCY_LABEL, MODULES, PERMISSIONS, accessEndsAt, daysLeft } from "@/lib/business"
 import { formatDate } from "@/lib/format"
 import type { BusinessSettings, ModuleId, PermissionId } from "@/lib/types"
 
@@ -230,7 +230,7 @@ function SubscriptionCard() {
       </CardHeader>
       <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-2xl font-semibold tabular-nums">{PRICE_LABEL}</p>
+          <p className="text-2xl font-semibold tabular-nums">{priceLabel(business.monthlyPrice)}</p>
           <p className="text-sm text-muted-foreground">
             {business.status === "trial" ? "Free trial ends" : "Paid until"} {formatDate(endsAt)} · {daysLeft(endsAt)} days left
           </p>

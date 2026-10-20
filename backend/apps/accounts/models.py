@@ -1,6 +1,5 @@
 from datetime import timedelta
 
-from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
 from django.utils import timezone
@@ -27,7 +26,9 @@ def default_settings():
 
 
 def trial_end():
-    return timezone.now() + timedelta(days=settings.TRIAL_DAYS)
+    from apps.billing.models import PaymentAccounts  # billing imports this module
+
+    return timezone.now() + timedelta(days=PaymentAccounts.load().trial_days)
 
 
 class Business(models.Model):

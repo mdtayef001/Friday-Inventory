@@ -33,6 +33,7 @@ class PaymentAccountsSerializer(serializers.ModelSerializer):
     class Meta:
         model = PaymentAccounts
         exclude = ["id"]
+        extra_kwargs = {"monthly_price": {"min_value": 1, "max_value": 1_000_000}, "trial_days": {"max_value": 90}}
 
 
 class PaymentOptionsSerializer(serializers.BaseSerializer):

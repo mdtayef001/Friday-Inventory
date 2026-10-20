@@ -8,12 +8,12 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { PageBody, PageHeader, StatCard } from "@/components/common"
 import { BusinessStatusPill, PaymentStatusPill, STATUS } from "@/components/platform"
 import { shortMethod, timeAgo } from "@/lib/format"
-import { PRICE_LABEL, formatTaka } from "@/lib/business"
+import { formatTaka, priceLabel } from "@/lib/business"
 import type { BusinessStatus, BusinessSummary, Payment } from "@/lib/types"
 
 const ORDER: BusinessStatus[] = ["active", "trial", "unpaid", "suspended"]
 
-export function PlatformOverview({ businesses, payments }: { businesses: BusinessSummary[]; payments: Payment[] }) {
+export function PlatformOverview({ businesses, payments, monthlyPrice }: { businesses: BusinessSummary[]; payments: Payment[]; monthlyPrice: number }) {
   const paid = payments.filter((p) => p.status === "paid")
   const monthStart = new Date()
   monthStart.setDate(1)
@@ -66,7 +66,7 @@ export function PlatformOverview({ businesses, payments }: { businesses: Busines
         <Card>
           <CardHeader>
             <CardTitle>Subscriptions</CardTitle>
-            <CardDescription>{PRICE_LABEL} per business</CardDescription>
+            <CardDescription>{priceLabel(monthlyPrice)} per business</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {ORDER.map((status) => {

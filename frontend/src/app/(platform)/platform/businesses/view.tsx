@@ -9,15 +9,19 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { EmptyState, Field, PageBody, PageHeader, SimpleSelect, useRequired } from "@/components/common"
 import { BusinessStatusPill, STATUS } from "@/components/platform"
 import { createBusiness } from "@/lib/auth/platform-actions"
 import { formatDate, timeAgo } from "@/lib/format"
-import { PRICE_LABEL, SUBSCRIPTION, accessEndsAt } from "@/lib/business"
+import { accessEndsAt, priceLabel } from "@/lib/business"
 import type { BusinessStatus, BusinessSummary } from "@/lib/types"
 
-export function BusinessesView({ businesses, openNew }: { businesses: BusinessSummary[]; openNew: boolean }) {
+/** What new businesses get, from Payment options. */
+type Plan = { monthlyPrice: number; trialDays: number }
+
+export function BusinessesView({ businesses, openNew, plan }: { businesses: BusinessSummary[]; openNew: boolean; plan: Plan }) {
   const router = useRouter()
   const [query, setQuery] = useState("")
   const [status, setStatus] = useState<"all" | BusinessStatus>("all")
@@ -105,6 +109,7 @@ export function BusinessesView({ businesses, openNew }: { businesses: BusinessSu
 
       {creating && (
         <CreateBusinessDialog
+          plan={plan}
           onClose={() => {
             setCreating(false)
             if (openNew) router.replace("/platform/businesses")
@@ -115,10 +120,10 @@ export function BusinessesView({ businesses, openNew }: { businesses: BusinessSu
   )
 }
 
-function CreateBusinessDialog({ onClose }: { onClose: () => void }) {
+function CreateBusinessDialog({ plan, onClose }: { plan: Plan; onClose: () => void }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
-  const [form, setForm] = useState({ name: "", industry: "", ownerName: "", ownerEmail: "", ownerPassword: "" })
+  const [form, setForm] = useState({ name: "", industry: "", ownerName: "", ownerEmail: "", ownerPassword: "", freeTrial: plan.trialDays > 0 })
   const [error, setError] = useState("")
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
   const required = useRequired()
@@ -162,10 +167,17 @@ function CreateBusinessDialog({ onClose }: { onClose: () => void }) {
               <Input id="nb-industry" value={form.industry} onChange={(e) => set("industry", e.target.value)} placeholder="e.g. Clothing" />
             </Field>
           </div>
-          <p className="rounded-lg bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
-            Starts with a {SUBSCRIPTION.trialDays}-day free trial, then {PRICE_LABEL}. If the owner doesn&apos;t pay by then, the business locks
-            itself until they do.
-          </p>
+          <label className="flex items-center justify-between gap-4 rounded-lg border p-3">
+            <span>
+              <span className="block text-sm font-medium">{plan.trialDays} days free</span>
+              <span className="block text-xs text-muted-foreground">
+                {form.freeTrial
+                  ? `They use it free for ${plan.trialDays} days, then pay ${priceLabel(plan.monthlyPrice)}. If they don't, it locks until they do.`
+                  : `No free days: it stays locked until they pay ${priceLabel(plan.monthlyPrice)}, or you give them months.`}
+              </span>
+            </span>
+            <Switch checked={form.freeTrial} onCheckedChange={(on) => set("freeTrial", on)} disabled={plan.trialDays === 0} />
+          </label>
           <div className="space-y-4 rounded-lg border p-3">
             <p className="text-sm font-medium">Owner account</p>
             <div className="grid gap-4 sm:grid-cols-2">

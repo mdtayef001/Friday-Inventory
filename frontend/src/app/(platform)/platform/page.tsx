@@ -1,7 +1,7 @@
 import { Suspense } from "react"
 import type { Metadata } from "next"
 import { PageSkeleton } from "@/components/store-gate"
-import { getBusinesses, getPayments } from "@/lib/auth/platform-actions"
+import { getBusinesses, getPaymentAccounts, getPayments } from "@/lib/auth/platform-actions"
 import { PlatformOverview } from "./view"
 
 export const metadata: Metadata = { title: "Platform" }
@@ -16,6 +16,6 @@ export default function PlatformPage() {
 }
 
 async function Overview() {
-  const [businesses, payments] = await Promise.all([getBusinesses(), getPayments()])
-  return <PlatformOverview businesses={businesses} payments={payments} />
+  const [businesses, payments, { monthlyPrice }] = await Promise.all([getBusinesses(), getPayments(), getPaymentAccounts()])
+  return <PlatformOverview businesses={businesses} payments={payments} monthlyPrice={monthlyPrice} />
 }

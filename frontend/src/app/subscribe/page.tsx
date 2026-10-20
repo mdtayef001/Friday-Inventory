@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ManualPaymentNotice, PayOptions } from "@/components/billing"
 import { requireOwner } from "@/lib/auth/dal"
-import { PRICE_LABEL, accessEndsAt } from "@/lib/business"
+import { accessEndsAt, priceLabel } from "@/lib/business"
 import { getBillingConfig, listPayments } from "@/lib/billing/queries"
 import { formatDate } from "@/lib/format"
 
@@ -66,7 +66,7 @@ async function Subscribe({ searchParams }: Pick<PageProps<"/subscribe">, "search
             </Alert>
           )}
           <div className="rounded-xl border bg-muted/30 p-4">
-            <p className="text-3xl font-semibold tabular-nums">{PRICE_LABEL}</p>
+            <p className="text-3xl font-semibold tabular-nums">{priceLabel(config.monthlyPrice)}</p>
             <ul className="mt-3 space-y-1.5 text-sm text-muted-foreground">
               {["Every feature, no limits", "All your shops, warehouses and staff", "Invoice for every payment"].map((t) => (
                 <li key={t} className="flex items-center gap-2">
@@ -77,7 +77,7 @@ async function Subscribe({ searchParams }: Pick<PageProps<"/subscribe">, "search
             </ul>
           </div>
           <ManualPaymentNotice payments={history} />
-          <PayOptions config={config} label={`Subscribe · ${PRICE_LABEL}`} />
+          <PayOptions config={config} label={`Subscribe · ${priceLabel(config.monthlyPrice)}`} />
         </CardContent>
       </Card>
       <div className="flex items-center justify-between text-sm text-muted-foreground">

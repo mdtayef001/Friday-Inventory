@@ -71,6 +71,20 @@ class AccountTests(APITestCase):
         detail = self.client.get(f"/api/platform/businesses/{res.json()['id']}/").json()
         self.assertEqual(len(detail["users"]), 1)
 
+    def test_new_business_gets_the_trial_set_by_the_super_admin_or_none(self):
+        from apps.billing.models import PaymentAccounts
+
+        accounts = PaymentAccounts.load()
+        accounts.trial_days = 14
+        accounts.save()
+        self.login("root@x.com")
+        body = {"name": "New Co", "ownerName": "Nia", "ownerPassword": PASSWORD}
+        trial = self.client.post("/api/platform/businesses/", {**body, "ownerEmail": "nia@x.com"}, format="json").json()
+        self.assertEqual(trial["status"], "trial")
+        self.assertEqual(Business.objects.get(pk=trial["id"]).access_ends_at.date(), (timezone.now() + timedelta(days=14)).date())
+        none = self.client.post("/api/platform/businesses/", {**body, "ownerEmail": "tia@x.com", "freeTrial": False}, format="json").json()
+        self.assertEqual(none["status"], "unpaid")
+
     def test_super_admin_resets_password_and_deletes_business(self):
         self.login("root@x.com")
         res = self.client.post(f"/api/platform/users/{self.owner.id}/password/", {"password": "another-long-pass-9"}, format="json")

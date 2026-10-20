@@ -16,7 +16,7 @@ def create_pending_payment(business, payer):
     return Payment.objects.create(
         tran_id=f"FRI{secrets.token_hex(6).upper()}",
         business=business,
-        amount=settings.SUBSCRIPTION_PRICE,
+        amount=PaymentAccounts.load().monthly_price,
         currency=settings.SUBSCRIPTION_CURRENCY,
         payer_name=payer.name,
         payer_email=payer.email,
@@ -93,7 +93,7 @@ def submit_manual(business, payer, *, method, months, reference, sent_from):
     return Payment.objects.create(
         tran_id=f"FRI{secrets.token_hex(6).upper()}",
         business=business,
-        amount=settings.SUBSCRIPTION_PRICE * months,
+        amount=PaymentAccounts.load().monthly_price * months,
         currency=settings.SUBSCRIPTION_CURRENCY,
         status=Payment.Status.AWAITING,
         channel=Payment.Channel.MANUAL,
