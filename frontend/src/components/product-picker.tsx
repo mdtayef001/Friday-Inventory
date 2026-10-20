@@ -93,7 +93,9 @@ export function ProductPicker({
                 Showing {data.results.length} of {data.count}. Type to narrow it down.
               </p>
             )}
-            {onCreate && (
+          </CommandList>
+          {onCreate && (
+            <div className="border-t p-1">
               <CommandItem
                 value="create-new-product"
                 onSelect={() => {
@@ -101,12 +103,13 @@ export function ProductPicker({
                   setOpen(false)
                   setSearch("")
                 }}
+                className="font-medium text-primary data-selected:bg-primary/10 data-selected:text-primary data-selected:*:[svg]:text-primary"
               >
                 <Plus />
                 {search.trim() ? `Create “${search.trim()}”` : "Create a new product"}
               </CommandItem>
-            )}
-          </CommandList>
+            </div>
+          )}
         </Command>
       </PopoverContent>
     </Popover>
