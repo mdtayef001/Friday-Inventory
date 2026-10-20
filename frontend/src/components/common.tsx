@@ -158,7 +158,7 @@ export function Field({
     <div
       data-invalid={missing || undefined}
       className={cn(
-        "grid gap-1.5 data-invalid:[&_:is(input,textarea,[role=combobox],[data-slot=select-trigger])]:border-destructive",
+        "grid content-start gap-1.5 data-invalid:[&_:is(input,textarea,[role=combobox],[data-slot=select-trigger])]:border-destructive",
         className,
       )}
     >

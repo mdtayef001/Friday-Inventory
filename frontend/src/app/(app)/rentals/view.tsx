@@ -334,6 +334,7 @@ function NewRentalDialog({ onClose }: { onClose: () => void }) {
                   describe={(p) => `${qtyAt(p, locationId)} free`}
                   placeholder="Choose or scan"
                   disabled={!locationId}
+                  className="flex-1"
                 />
                 <ScanButton onScan={scanProduct} />
               </div>
