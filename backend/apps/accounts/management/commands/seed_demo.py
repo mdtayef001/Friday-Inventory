@@ -143,7 +143,7 @@ class Command(BaseCommand):
         user = lambda email, name, role, business, password, locations=(), **rights: self.user(email, name, role, business, password, locations, **rights)  # noqa: E731
         owner = user("owner@friday.app", "Ayesha Rahman", "owner", demo, "owner123")
         manager = user("manager@friday.app", "Karim Hasan", "manager", demo, "manager123", [locs["downtown"], locs["uptown"]])
-        staff = user("staff@friday.app", "Nadia Islam", "staff", demo, "staff123", [locs["main"]])
+        staff = user("staff@friday.app", "Nadia Islam", "staff", demo, "staff123", [locs["main"]], can_rent=True)
         # One staff member per right, to try each on its own.
         user("seller@friday.app", "Rafi Ahmed", "staff", demo, "staff123", [locs["main"]], can_add_stock=False)
         user("stocker@friday.app", "Mina Das", "staff", demo, "staff123", [locs["main"]], can_sell=False)

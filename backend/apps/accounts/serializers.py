@@ -44,11 +44,12 @@ class SessionUserSerializer(serializers.ModelSerializer):
     location_ids = StrPrimaryKeyRelatedField(source="locations", many=True, read_only=True)
     can_sell = serializers.BooleanField(source="may_sell", read_only=True)
     can_add_stock = serializers.BooleanField(source="may_add_stock", read_only=True)
+    can_rent = serializers.BooleanField(source="may_rent", read_only=True)
     is_main_owner = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = User
-        fields = ["id", "name", "email", "role", "tenant_id", "location_ids", "can_sell", "can_add_stock", "is_main_owner"]
+        fields = ["id", "name", "email", "role", "tenant_id", "location_ids", "can_sell", "can_add_stock", "can_rent", "is_main_owner"]
 
 
 class BusinessSerializer(serializers.ModelSerializer):
@@ -125,7 +126,7 @@ class ManagedUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            "id", "name", "email", "role", "tenant_id", "location_ids", "active", "can_sell", "can_add_stock",
+            "id", "name", "email", "role", "tenant_id", "location_ids", "active", "can_sell", "can_add_stock", "can_rent",
             "created_at", "created_by", "last_login_at", "password", "is_main_owner",
         ]
 

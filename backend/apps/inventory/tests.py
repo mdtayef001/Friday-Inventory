@@ -547,19 +547,41 @@ class RentalScanTests(SalesBase):
         r = self.client.post(f"/api/rentals/{rental['id']}/return/", {}, format="json").json()
         self.assertEqual((r["daysOut"], r["total"]), (1, 80))
 
-    def test_staff_scan_out_and_in_at_their_shop_if_they_may_sell(self):
+    def test_staff_rent_at_their_shop_only_if_they_may_rent(self):
         StockLevel.objects.create(business=self.biz, product=self.product, location=self.outlet, quantity=3)
         staff = User.objects.get(email="staff@a.com")
-        self.client.credentials()
-        self.login("staff@a.com")
         body = {"productId": self.product.id, "quantity": 1, "clientId": self.client_id, "locationId": self.outlet.id,
                 "startDate": timezone.now().isoformat(), "plan": "daily", "rate": "50"}
+        # New staff can't rent, or even see rentals, until they're given the right.
+        self.assertFalse(staff.can_rent)
+        self.client.credentials()
+        self.login("staff@a.com")
+        self.assertFalse(self.client.get("/api/auth/me/").json()["user"]["canRent"])
+        self.assertEqual(self.client.get("/api/rentals/").status_code, 403)
+        self.assertEqual(self.client.post("/api/rentals/", body, format="json").status_code, 403)
+        self.assertEqual(self.client.get("/api/overview/", {"only": "badges"}).json()["overdueRentals"], 0)
+
+        staff.can_rent = True
+        staff.save()
         res = self.client.post("/api/rentals/", body, format="json")
         self.assertEqual(res.status_code, 201, res.content)
         self.assertEqual(self.client.post("/api/rentals/", {**body, "locationId": self.warehouse.id}, format="json").status_code, 403)
+        # Renting doesn't depend on selling.
         staff.can_sell = False
         staff.save()
+        self.assertEqual(self.client.get("/api/rentals/").status_code, 200)
+        staff.can_rent = False
+        staff.save()
         self.assertEqual(self.client.post(f"/api/rentals/{res.json()['id']}/return/", {}, format="json").status_code, 403)
+
+    def test_owner_gives_staff_the_right_to_rent(self):
+        staff = User.objects.get(email="staff@a.com")
+        res = self.client.patch(f"/api/users/{staff.id}/", {"canRent": True}, format="json")
+        self.assertEqual((res.status_code, res.json()["canRent"]), (200, True))
+        staff.refresh_from_db()
+        self.assertTrue(staff.can_rent)
+        # Owners and managers always may.
+        self.assertTrue(self.client.get("/api/auth/me/").json()["user"]["canRent"])
 
 
 class StockRequestTests(ApiTestCase):

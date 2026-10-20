@@ -123,9 +123,11 @@ class User(AbstractUser):
     # Locations this user works at. Empty for owners (they see everything).
     locations = models.ManyToManyField("inventory.Location", blank=True, related_name="users")
     created_by = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
-    # Per-person rights for staff, set by the owner or their manager. Owners and managers can always do both.
+    # Per-person rights for staff, set by the owner or their manager. Owners and managers can always do all of them.
     can_sell = models.BooleanField(default=True)
     can_add_stock = models.BooleanField(default=True)
+    # Renting out and taking back is riskier than selling (deposits, IDs, items coming back), so it's off until given.
+    can_rent = models.BooleanField(default=False)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["name"]
@@ -156,6 +158,10 @@ class User(AbstractUser):
     @property
     def may_add_stock(self):
         return self.role != self.Role.STAFF or self.can_add_stock
+
+    @property
+    def may_rent(self):
+        return self.role != self.Role.STAFF or self.can_rent
 
     def save(self, *args, **kwargs):
         # Super admins get Django admin access; everyone else uses the app only.

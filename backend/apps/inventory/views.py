@@ -727,7 +727,7 @@ class ShipmentViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModel
 
 
 class RentalViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin):
-    """Staff can scan rentals out and in at their own shops, if they may sell."""
+    """Staff can see rentals and scan them out and in at their own shops, if they may rent."""
 
     model = Rental
     serializer_class = RentalSerializer
@@ -776,7 +776,7 @@ class RentalViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMi
 
     def check_permissions(self, request):
         super().check_permissions(request)
-        if request.method not in ("GET", "HEAD", "OPTIONS") and not request.user.may_sell:
+        if not request.user.may_rent:
             raise PermissionDenied("You aren't allowed to rent items out. Ask your manager.")
 
     def perform_create(self, serializer):
@@ -913,7 +913,7 @@ class OverviewView(APIView):
         def scoped(qs, field):
             return qs if allowed is None else qs.filter(**{f"{field}__in": allowed})
 
-        rentals_on = business.module_on("rentals")
+        rentals_on = user.may_rent and business.module_on("rentals")
         tracking_on = lead and business.module_on("tracking")
         transfers_on = lead and business.module_on("transfers")
         rentals = scoped(Rental.objects.filter(business=business), "location_id")

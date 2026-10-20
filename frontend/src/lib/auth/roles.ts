@@ -31,6 +31,8 @@ interface Rule {
   module?: ModuleId
   /** Managers need this permission from the owner. */
   permission?: PermissionId
+  /** Staff need this per-person right (always true for owners and managers). */
+  right?: "canRent"
 }
 
 const prefix = (p: string) => (path: string) => path === p || path.startsWith(p + "/")
@@ -47,7 +49,7 @@ const ROUTE_RULES: Rule[] = [
   { test: prefix("/activity"), roles: LEADS, permission: "managerActivity" },
   { test: prefix("/users"), roles: LEADS, permission: "managerUsers" },
   { test: (p) => p === "/products/new" || /^\/products\/[^/]+\/edit$/.test(p), roles: LEADS, permission: "managerProducts" },
-  { test: prefix("/rentals"), roles: TEAM, module: "rentals" },
+  { test: prefix("/rentals"), roles: TEAM, module: "rentals", right: "canRent" },
   { test: prefix("/tracking"), roles: LEADS, module: "tracking" },
   { test: prefix("/transfers"), roles: LEADS, module: "transfers" },
   { test: prefix("/purchases"), roles: LEADS, permission: "managerPurchases" },
@@ -87,10 +89,11 @@ export function isAppRoute(path: string) {
  * Can this user open this path? Without `settings` (in proxy.ts) only the
  * role is checked; pages pass the business settings for the full check.
  */
-export function canAccess(user: { role: Role }, path: string, settings?: BusinessSettings) {
+export function canAccess(user: { role: Role; canRent?: boolean }, path: string, settings?: BusinessSettings) {
   const rule = ROUTE_RULES.find((r) => r.test(path))
   const roles = rule?.roles ?? LEADS
   if (!roles.includes(user.role)) return false
+  if (rule?.right && user[rule.right] === false) return false
   if (!settings || !rule) return true
   if (rule.module && !settings.modules[rule.module]) return false
   if (rule.permission && user.role === "manager" && !settings.permissions[rule.permission]) return false

@@ -40,6 +40,7 @@ const userPath = (id: string) => `users/${encodeURIComponent(id)}/`
 const UpdateUserSchema = CreateUserSchema.omit({ password: true }).extend({
   canSell: z.boolean().optional(),
   canAddStock: z.boolean().optional(),
+  canRent: z.boolean().optional(),
 })
 
 /** Edit someone's name, email, role, locations and (for staff) rights, without recreating the account. */

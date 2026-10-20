@@ -20,10 +20,10 @@ import { isOverdue } from "@/lib/rental"
 
 export function ProductDetailView({ id }: { id: string }) {
   const scope = useScope()
-  const { can, module } = usePermissions()
+  const { can, canOpen, module } = usePermissions()
   const canEdit = can("managerProducts")
   const showOrders = useSessionUser().role !== "staff" && module("tracking")
-  const showRentals = module("rentals")
+  const showRentals = canOpen("/rentals")
   const { data: product, error, refetch } = useProduct(id)
   const orders = useShipments({ page: 1, product: id }, { pageSize: 5, enabled: showOrders })
   const rentals = useRentals({ page: 1, product: id }, { pageSize: 5, enabled: showRentals })

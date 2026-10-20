@@ -45,7 +45,7 @@ type Filter = "active" | "overdue" | "returned" | "all"
 
 export function RentalsView() {
   const scope = useScope()
-  const { canSell } = usePermissions()
+  const { canRent } = usePermissions()
   // Opened from the main search: look through every rental, returned ones too.
   const [filter, setFilter] = useState<Filter>(useSearchParams().get("q") ? "all" : "active")
   const [query, setQuery] = useLinkedSearch((q) => q && setFilter("all"))
@@ -73,7 +73,7 @@ export function RentalsView() {
         title="Rentals"
         description="Who has what, for how long, and how much they owe."
         actions={
-          canSell && (
+          canRent && (
             <>
               <Button variant="outline" onClick={() => setScanningIn(true)}>
                 <LogIn />
@@ -188,7 +188,7 @@ export function RentalsView() {
                         <RentalStatusPill status={r.status} overdue={overdue} />
                       </TableCell>
                       <TableCell className="pr-4 text-right">
-                        {r.status === "active" && canSell && (
+                        {r.status === "active" && canRent && (
                           <Button size="sm" variant="outline" onClick={() => setReturning(r)}>
                             <Undo2 />
                             Return

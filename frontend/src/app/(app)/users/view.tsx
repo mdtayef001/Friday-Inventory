@@ -35,13 +35,11 @@ const ROLE_HELP: Record<TenantRole, string> = {
   staff: "Uses Quick Entry to add products and stock at their shops.",
 }
 
-/** What someone may do, in words. Changed with Edit. */
-function canDo(u: ManagedUser) {
+/** What someone may do, in words, e.g. "Sell, add stock, rent out". Changed with Edit. */
+function canDo(u: ManagedUser, rentals: boolean) {
   if (u.role !== "staff") return "Everything"
-  if (u.canSell && u.canAddStock) return "Sell and add stock"
-  if (u.canSell) return "Sell only"
-  if (u.canAddStock) return "Add stock only"
-  return "View only"
+  const rights = [u.canSell && "sell", u.canAddStock && "add stock", rentals && u.canRent && "rent out"].filter(Boolean).join(", ")
+  return rights ? rights[0].toUpperCase() + rights.slice(1) : "View only"
 }
 
 function showResult(result: ActionResult, success: string) {
@@ -117,7 +115,7 @@ export function UsersView({ users }: { users: ManagedUser[] }) {
                       {u.role === "owner" ? "All locations" : u.locationIds.map(locationName).join(", ")}
                     </TableCell>
                     <TableCell>
-                      <span className="text-sm text-muted-foreground">{canDo(u)}</span>
+                      <span className="text-sm text-muted-foreground">{canDo(u, business.settings.modules.rentals)}</span>
                     </TableCell>
                     <TableCell>{u.active ? <Pill tone="green">Active</Pill> : <Pill tone="red">Disabled</Pill>}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{formatDate(u.createdAt)}</TableCell>
@@ -206,6 +204,8 @@ function UserDialog({ user, onClose }: { user?: ManagedUser; onClose: () => void
   const kept = user ? user.locationIds.filter((id) => !scope.has(id)) : []
   const [canSell, setCanSell] = useState(user?.canSell ?? true)
   const [canAddStock, setCanAddStock] = useState(user?.canAddStock ?? true)
+  const [canRent, setCanRent] = useState(user?.canRent ?? false)
+  const rentals = useBusiness().settings.modules.rentals
   const [error, setError] = useState("")
   const required = useRequired()
   const nameOk = name.trim().length >= 2
@@ -227,7 +227,7 @@ function UserDialog({ user, onClose }: { user?: ManagedUser; onClose: () => void
     startTransition(async () => {
       const where = role === "owner" ? [] : [...kept, ...locationIds]
       const result = user
-        ? await updateUser(user.id, { name, email, role, locationIds: where, ...(role === "staff" && { canSell, canAddStock }) })
+        ? await updateUser(user.id, { name, email, role, locationIds: where, ...(role === "staff" && { canSell, canAddStock, ...(rentals && { canRent }) }) })
         : await createUser({ name, email, password, role, locationIds: where })
       if (result.ok) {
         toast.success(user ? `${name} updated` : `Account created for ${name}`)
@@ -297,6 +297,12 @@ function UserDialog({ user, onClose }: { user?: ManagedUser; onClose: () => void
                   <Switch size="sm" checked={canAddStock} onCheckedChange={setCanAddStock} />
                   Add stock
                 </label>
+                {rentals && (
+                  <label className="flex items-center gap-2 text-sm">
+                    <Switch size="sm" checked={canRent} onCheckedChange={setCanRent} />
+                    Rent out
+                  </label>
+                )}
               </div>
             </Field>
           )}

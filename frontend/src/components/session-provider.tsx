@@ -44,6 +44,7 @@ export function usePermissions() {
       /** Per-person rights (always true for owners and managers). */
       canSell: user.canSell,
       canAddStock: user.canAddStock,
+      canRent: user.canRent,
     }),
     [user, business],
   )
