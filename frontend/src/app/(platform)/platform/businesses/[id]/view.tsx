@@ -12,13 +12,13 @@ import { DownloadDataButton } from "@/components/billing"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ConfirmAction, Field, PageBody, PageHeader, Pill, SimpleSelect, useRequired } from "@/components/common"
+import { ConfirmAction, Field, PageBody, PageHeader, Pill, SimpleSelect, useRequired, TimeAgo } from "@/components/common"
 import { BusinessStatusPill, PaymentsTable } from "@/components/platform"
 import { initials } from "@/components/user-menu"
 import { decideDeletion, deleteBusiness, grantAccess, resetOwnerPassword, setBusinessSuspended } from "@/lib/auth/platform-actions"
 import type { ActionResult } from "@/lib/auth/user-actions"
 import { roleLabel } from "@/lib/auth/roles"
-import { formatDate, timeAgo } from "@/lib/format"
+import { formatDate } from "@/lib/format"
 import { MODULES, PERMISSIONS, accessEndsAt, daysLeft, formatTaka, priceLabel } from "@/lib/business"
 import type { BusinessSummary, ManagedUser, ModuleId, Payment, PermissionId } from "@/lib/types"
 
@@ -212,7 +212,7 @@ export function BusinessDetailView({ business, users, payments }: { business: Bu
                     <Pill tone={u.role === "owner" ? "violet" : u.role === "manager" ? "blue" : "gray"}>{roleLabel(u)}</Pill>
                   </TableCell>
                   <TableCell>{u.active ? <Pill tone="green">Active</Pill> : <Pill tone="red">Disabled</Pill>}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{u.lastLoginAt ? timeAgo(u.lastLoginAt) : "Never"}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{u.lastLoginAt ? <TimeAgo at={u.lastLoginAt} /> : "Never"}</TableCell>
                   <TableCell className="pr-4">
                     {u.role === "owner" && (
                       <Button variant="ghost" size="sm" onClick={() => setResetting(u)}>

@@ -7,14 +7,13 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useAttempt, EmptyState, PageBody, PageHeader, SimpleSelect } from "@/components/common"
+import { useAttempt, EmptyState, PageBody, PageHeader, SimpleSelect, TimeAgo } from "@/components/common"
 import { ProductForm } from "@/components/product-form"
 import { CameraScanner, CodeInput } from "@/components/scanner"
 import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { request } from "@/lib/api/client"
 import { actions } from "@/lib/data/actions"
 import { qtyAt, useActivity, useProduct, withParams } from "@/lib/data/queries"
-import { timeAgo } from "@/lib/format"
 import { useAddToCart, useCart } from "@/components/cart"
 import { SellDialog } from "@/components/sell-dialog"
 import type { Page, Product } from "@/lib/types"
@@ -246,7 +245,7 @@ export function EntryView() {
                       <span className="block truncate text-muted-foreground">{a.detail}</span>
                     </span>
                   </div>
-                  <span className="shrink-0 text-xs text-muted-foreground">{timeAgo(a.at)}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground"><TimeAgo at={a.at} /></span>
                 </li>
               ))}
             </ul>

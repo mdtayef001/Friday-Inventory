@@ -5,9 +5,9 @@ import { ArrowRight, Building2, CircleDollarSign, Clock, Hourglass, Lock } from 
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { PageBody, PageHeader, StatCard } from "@/components/common"
+import { PageBody, PageHeader, StatCard, TimeAgo } from "@/components/common"
 import { BusinessStatusPill, PaymentStatusPill, STATUS } from "@/components/platform"
-import { shortMethod, timeAgo } from "@/lib/format"
+import { shortMethod } from "@/lib/format"
 import { formatTaka, priceLabel } from "@/lib/business"
 import type { BusinessStatus, BusinessSummary, Payment } from "@/lib/types"
 
@@ -106,7 +106,7 @@ export function PlatformOverview({ businesses, payments, monthlyPrice }: { busin
                 <span className="min-w-0">
                   <span className="block truncate font-medium">{p.businessName}</span>
                   <span className="block truncate text-xs text-muted-foreground">
-                    {p.payer.name} · {shortMethod(p.method)} · {timeAgo(p.paidAt ?? p.createdAt)}
+                    {p.payer.name} · {shortMethod(p.method)} · <TimeAgo at={p.paidAt ?? p.createdAt} />
                   </span>
                 </span>
                 <span className="flex shrink-0 items-center gap-2">
@@ -140,7 +140,7 @@ export function PlatformOverview({ businesses, payments, monthlyPrice }: { busin
               <span className="min-w-0">
                 <span className="block truncate font-medium">{b.name}</span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  {b.owner?.name ?? "No owner"} · joined {timeAgo(b.createdAt)}
+                  {b.owner?.name ?? "No owner"} · joined <TimeAgo at={b.createdAt} />
                 </span>
               </span>
               <BusinessStatusPill status={b.status} />

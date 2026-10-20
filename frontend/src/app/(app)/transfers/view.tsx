@@ -25,6 +25,7 @@ import {
   SimpleSelect,
   useRequired,
   type PillTone,
+  TimeAgo,
 } from "@/components/common"
 import { ProductPicker } from "@/components/product-picker"
 import { useScope, useSessionUser } from "@/components/session-provider"
@@ -32,7 +33,7 @@ import { RequestStockDialog } from "@/components/stock-request-dialog"
 import { TransferStatusPill } from "@/components/status"
 import { actions } from "@/lib/data/actions"
 import { qtyAt, useDebounced, useLocations, usePaging, useProduct, useStockRequests, useTransfers } from "@/lib/data/queries"
-import { formatDateTime, timeAgo } from "@/lib/format"
+import { formatDateTime } from "@/lib/format"
 import type { Product, StockRequest, StockRequestStatus, TransferStatus } from "@/lib/types"
 
 type Tab = "transfers" | "requests"
@@ -416,7 +417,7 @@ function StockRequests() {
                       </TableCell>
                       <TableCell className="text-sm whitespace-nowrap">{(r.toLocationId && locationName(r.toLocationId)) || "—"}</TableCell>
                       <TableCell className="max-w-56 text-sm">
-                        {r.requestedBy || "—"} · {timeAgo(r.createdAt)}
+                        {r.requestedBy || "—"} · <TimeAgo at={r.createdAt} />
                         {r.note && <div className="truncate text-xs text-muted-foreground">“{r.note}”</div>}
                       </TableCell>
                       <TableCell className="text-sm">

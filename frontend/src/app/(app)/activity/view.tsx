@@ -3,9 +3,9 @@
 import { useState } from "react"
 import { History } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
-import { EmptyState, ListSkeleton, PageBody, PageHeader, Pager, QueryError, SCROLL_LIST, SearchInput, SimpleSelect } from "@/components/common"
+import { EmptyState, ListSkeleton, PageBody, PageHeader, Pager, QueryError, SCROLL_LIST, SearchInput, SimpleSelect, TimeAgo } from "@/components/common"
 import { useActivity, useActivityPeople, useDebounced, usePaging } from "@/lib/data/queries"
-import { formatDateTime, timeAgo } from "@/lib/format"
+import { formatDateTime } from "@/lib/format"
 
 export function ActivityView() {
   const [query, setQuery] = useState("")
@@ -46,7 +46,7 @@ export function ActivityView() {
                       <span className="font-medium">{a.user}</span> <span className="text-muted-foreground">·</span> {a.action}
                     </p>
                     <time className="shrink-0 text-xs text-muted-foreground" title={formatDateTime(a.at)}>
-                      {timeAgo(a.at)}
+                      <TimeAgo at={a.at} />
                     </time>
                   </div>
                   <p className="text-sm text-muted-foreground">{a.detail}</p>

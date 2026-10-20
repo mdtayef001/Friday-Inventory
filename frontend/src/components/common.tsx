@@ -4,7 +4,7 @@ import { useState } from "react"
 import { AlertTriangle, ChevronLeft, ChevronRight, RotateCcw, Search, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 import { PAGE_SIZES } from "@/lib/data/queries"
-import { formatMoney, formatMoneyShort, formatNumber } from "@/lib/format"
+import { formatMoney, formatMoneyShort, formatNumber, timeAgo } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -450,5 +450,17 @@ export function MoneyTotal({ value }: { value: number }) {
     >
       {full ? exact : short}
     </button>
+  )
+}
+
+/**
+ * "5 minutes ago". The server and the browser work it out a moment apart, so they may
+ * disagree by a minute; React is told that's expected rather than treating it as an error.
+ */
+export function TimeAgo({ at }: { at: string }) {
+  return (
+    <time dateTime={at} title={new Date(at).toLocaleString()} suppressHydrationWarning>
+      {timeAgo(at)}
+    </time>
   )
 }

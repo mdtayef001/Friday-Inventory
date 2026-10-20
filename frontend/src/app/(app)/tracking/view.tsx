@@ -24,6 +24,7 @@ import {
   SearchInput,
   SimpleSelect,
   useRequired,
+  TimeAgo,
 } from "@/components/common"
 import { ClientPicker } from "@/components/client-dialog"
 import { PaymentPicker } from "@/components/payment-picker"
@@ -33,7 +34,7 @@ import { SHIPMENT_FLOW, SHIPMENT_STATUS, ShipmentStatusPill } from "@/components
 import { TrackingLinkShare, copyTrackingLink } from "@/components/tracking-link"
 import { actions } from "@/lib/data/actions"
 import { qtyAt, useDebounced, useLinkedSearch, usePaging, useShipment, useShipmentCounts, useShipments } from "@/lib/data/queries"
-import { formatDateTime, formatMoney, timeAgo } from "@/lib/format"
+import { formatDateTime, formatMoney } from "@/lib/format"
 import { PAYMENT_METHODS } from "@/lib/business"
 import type { ClientBrief, PaymentMethod, Product, Shipment, ShipmentStatus } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -122,7 +123,7 @@ export function TrackingView() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-mono text-xs text-muted-foreground">{s.code}</span>
                       <ShipmentStatusPill status={s.status} />
-                      <span className="text-xs text-muted-foreground">updated {timeAgo(s.history[s.history.length - 1].at)}</span>
+                      <span className="text-xs text-muted-foreground">updated <TimeAgo at={s.history[s.history.length - 1].at} /></span>
                     </div>
                     <p className="truncate font-medium">
                       {s.quantity} × {s.productName ?? "Deleted product"}

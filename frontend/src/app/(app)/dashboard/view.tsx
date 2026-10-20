@@ -27,13 +27,13 @@ import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "rec
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
-import { PageBody, PageHeader, Pill, QueryError, StatCard, MoneyTotal } from "@/components/common"
+import { PageBody, PageHeader, Pill, QueryError, StatCard, MoneyTotal, TimeAgo } from "@/components/common"
 import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { SHIPMENT_STATUS } from "@/components/status"
 import { RequestStockDialog } from "@/components/stock-request-dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiQuery, useOverview, useSupplierPaymentSummary, useSupplierReturnSummary } from "@/lib/data/queries"
-import { formatMoney, formatMoneyShort, formatNumber, timeAgo } from "@/lib/format"
+import { formatMoney, formatMoneyShort, formatNumber } from "@/lib/format"
 import { rentalOverdueDays } from "@/lib/rental"
 import { cn } from "@/lib/utils"
 import type { ShipmentStatus } from "@/lib/types"
@@ -369,7 +369,7 @@ export function DashboardView() {
                 <div key={a.id} className="text-sm">
                   <div className="flex justify-between gap-2">
                     <span className="font-medium">{a.action}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{timeAgo(a.at)}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground"><TimeAgo at={a.at} /></span>
                   </div>
                   <p className="truncate text-xs text-muted-foreground">
                     {a.user} · {a.detail}

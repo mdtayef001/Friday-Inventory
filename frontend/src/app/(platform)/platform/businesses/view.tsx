@@ -11,10 +11,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { EmptyState, Field, PageBody, PageHeader, Pill, SimpleSelect, useRequired } from "@/components/common"
+import { EmptyState, Field, PageBody, PageHeader, Pill, SimpleSelect, useRequired, TimeAgo } from "@/components/common"
 import { BusinessStatusPill, STATUS } from "@/components/platform"
 import { createBusiness } from "@/lib/auth/platform-actions"
-import { formatDate, timeAgo } from "@/lib/format"
+import { formatDate } from "@/lib/format"
 import { accessEndsAt, priceLabel } from "@/lib/business"
 import type { BusinessStatus, BusinessSummary } from "@/lib/types"
 
@@ -101,7 +101,7 @@ export function BusinessesView({ businesses, openNew, plan }: { businesses: Busi
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{b.userCount}</TableCell>
                     <TableCell className="text-sm whitespace-nowrap text-muted-foreground">{formatDate(accessEndsAt(b))}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{b.lastActiveAt ? timeAgo(b.lastActiveAt) : "Never"}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{b.lastActiveAt ? <TimeAgo at={b.lastActiveAt} /> : "Never"}</TableCell>
                     <TableCell className="pr-4 text-sm text-muted-foreground">{formatDate(b.createdAt)}</TableCell>
                   </TableRow>
                 ))}
