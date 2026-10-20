@@ -1,11 +1,14 @@
 import hmac
+import time
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.management import call_command
 from django.http import HttpResponse
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from django.utils import timezone
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
@@ -19,7 +22,7 @@ from apps.billing.views import IsOwner
 from apps.inventory.export import business_zip
 from apps.inventory.services import log
 
-from .models import Business, User
+from .models import Business, DeletedBusiness, User
 from .permissions import IsSuperAdmin, IsTenantMember, ManagerNeedsPermission
 from .serializers import (
     BusinessSerializer,
@@ -73,6 +76,10 @@ class CronCleanupView(APIView):
         if not settings.CRON_SECRET or not hmac.compare_digest(sent, f"Bearer {settings.CRON_SECRET}"):
             raise NotFound()
         call_command("flushexpiredtokens")
+        # Approved deletions whose 30 days are up.
+        for business in Business.objects.filter(deletion_approved_at__isnull=False):
+            if business.delete_on <= timezone.now():
+                DeletedBusiness.record(business)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -132,13 +139,63 @@ def zip_response(business):
 
 
 class BusinessExportView(APIView):
-    """The owner downloads everything their business has, even while it's locked for not paying."""
+    """The owner downloads everything their business has, even while it's locked for not paying.
+    Once every 10 minutes per business, so repeated clicks can't keep the server busy."""
+
+    permission_classes = [IsOwner]
+    EVERY = 10 * 60
+
+    def get(self, request):
+        key = f"data-export:{request.user.business_id}"
+        if not cache.add(key, time.time(), self.EVERY):
+            wait = max(1, round((self.EVERY - (time.time() - cache.get(key, time.time()))) / 60))
+            raise Throttled(detail=f"You downloaded your data a few minutes ago. Try again in {wait} minute{'s' if wait != 1 else ''}.")
+        log(request.user, "Data downloaded", "Everything, as a ZIP of spreadsheets")
+        return zip_response(request.user.business)
+
+
+class SubscriptionView(APIView):
+    """The owner cancels (nothing renews, no reminders, access runs to the end of what's paid) or resumes."""
 
     permission_classes = [IsOwner]
 
-    def get(self, request):
-        log(request.user, "Data downloaded", "Everything, as a ZIP of spreadsheets")
-        return zip_response(request.user.business)
+    def post(self, request):
+        cancelled = request.data.get("cancelled")
+        if not isinstance(cancelled, bool):
+            raise ValidationError({"cancelled": "Send true or false."})
+        business = request.user.business
+        if cancelled != bool(business.cancelled_at):
+            business.cancelled_at = timezone.now() if cancelled else None
+            business.save(update_fields=["cancelled_at"])
+            ends = timezone.localtime(business.access_ends_at).strftime("%b %d, %Y")
+            log(request.user, "Subscription cancelled" if cancelled else "Subscription resumed", f"Access runs to {ends}")
+        return Response(BusinessSerializer(business).data)
+
+
+class DeletionRequestView(APIView):
+    """The Owner asks for the business to be deleted (typing its name to be sure), or takes it back.
+    The super admin approves it; it's deleted 30 days after that."""
+
+    permission_classes = [IsOwner]
+
+    def post(self, request):
+        user, business = request.user, request.user.business
+        if not user.is_main_owner:
+            raise PermissionDenied("Only the Owner can ask for the business to be deleted.")
+        if request.data.get("name", "").strip().lower() != business.name.strip().lower():
+            raise ValidationError({"name": "Type the business name exactly as it's shown."})
+        if not business.deletion_requested_at:
+            business.deletion_requested_at, business.deletion_requested_by = timezone.now(), user
+            business.save(update_fields=["deletion_requested_at", "deletion_requested_by"])
+            log(user, "Deletion requested", "Waiting for approval")
+        return Response(BusinessSerializer(business).data)
+
+    def delete(self, request):
+        business = request.user.business
+        if business.deletion_requested_at:
+            business.clear_deletion()
+            log(request.user, "Deletion cancelled", "The business stays")
+        return Response(BusinessSerializer(business).data)
 
 
 class BusinessSettingsView(APIView):
@@ -191,6 +248,27 @@ class PlatformBusinessViewSet(
         serializer.is_valid(raise_exception=True)
         payment = billing_services.grant(self.get_object(), **serializer.validated_data)
         return Response(PaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="approve-deletion")
+    def approve_deletion(self, request, pk=None):
+        """Locks the business now; it's deleted 30 days later unless someone stops it."""
+        business = self.get_object()
+        if not business.deletion_requested_at:
+            raise ValidationError("The owner hasn't asked for this business to be deleted.")
+        if not business.deletion_approved_at:
+            business.deletion_approved_at = timezone.now()
+            business.save(update_fields=["deletion_approved_at"])
+        return Response(BusinessSummarySerializer(business).data)
+
+    @action(detail=True, methods=["post"], url_path="stop-deletion")
+    def stop_deletion(self, request, pk=None):
+        """Turns down a request, or stops an approved deletion before its day."""
+        business = self.get_object()
+        business.clear_deletion()
+        return Response(BusinessSummarySerializer(business).data)
+
+    def perform_destroy(self, business):
+        DeletedBusiness.record(business)
 
     @action(detail=True)
     def export(self, request, pk=None):

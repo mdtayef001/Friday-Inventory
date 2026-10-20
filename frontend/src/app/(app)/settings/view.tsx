@@ -7,11 +7,12 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { YourDataCard } from "@/components/billing"
+import { DeleteBusinessCard } from "@/components/leaving"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Field, PageBody, PageHeader, SimpleSelect, useRequired } from "@/components/common"
 import { BusinessStatusPill } from "@/components/platform"
-import { useBusiness } from "@/components/session-provider"
+import { useBusiness, useSessionUser } from "@/components/session-provider"
 import { updateBusinessSettings } from "@/lib/auth/business-actions"
 import { priceLabel, CURRENCIES, CURRENCY_LABEL, MODULES, PERMISSIONS, accessEndsAt, daysLeft } from "@/lib/business"
 import { formatDate } from "@/lib/format"
@@ -19,6 +20,7 @@ import type { BusinessSettings, ModuleId, PermissionId } from "@/lib/types"
 
 export function SettingsView() {
   const business = useBusiness()
+  const user = useSessionUser()
   const [name, setName] = useState(business.name)
   const [industry, setIndustry] = useState(business.industry)
   const [settings, setSettings] = useState<BusinessSettings>(business.settings)
@@ -190,6 +192,7 @@ export function SettingsView() {
 
       <SubscriptionCard />
       <YourDataCard />
+      <DeleteBusinessCard business={business} isMainOwner={user.isMainOwner} />
     </PageBody>
   )
 }

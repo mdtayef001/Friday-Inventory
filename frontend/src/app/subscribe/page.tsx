@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { DownloadDataButton, ManualPaymentNotice, PayOptions } from "@/components/billing"
+import { DeleteBusinessCard } from "@/components/leaving"
 import { requireOwner } from "@/lib/auth/dal"
 import { accessEndsAt, priceLabel } from "@/lib/business"
 import { getBillingConfig, listPayments } from "@/lib/billing/queries"
@@ -30,17 +31,40 @@ async function Subscribe({ searchParams }: Pick<PageProps<"/subscribe">, "search
   // Not locked (e.g. a failed early renewal): the billing page handles it.
   if (!locked) redirect(payment ? `/billing?payment=${payment}` : "/billing")
 
+  const name = (
+    <div className="flex items-center justify-center gap-2 text-sm font-medium">
+      <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+        <Store className="size-4" />
+      </span>
+      {business.name}
+    </div>
+  )
+  const account = (
+    <div className="flex items-center justify-between text-sm text-muted-foreground">
+      <span>Logged in as {user.email}</span>
+      <Button variant="ghost" size="sm" render={<Link href="/logout" prefetch={false} />} nativeButton={false}>
+        <LogOut />
+        Log out
+      </Button>
+    </div>
+  )
+  // Being deleted: nothing to pay for. They can take their data or stop it.
+  if (business.status === "closing") {
+    return (
+      <div className="w-full max-w-md space-y-4">
+        {name}
+        <DeleteBusinessCard business={business} isMainOwner={user.isMainOwner} />
+        {account}
+      </div>
+    )
+  }
+
   const [history, config] = await Promise.all([listPayments(), getBillingConfig()])
   const everPaid = history.some((p) => p.status === "paid")
 
   return (
     <div className="w-full max-w-md space-y-4">
-      <div className="flex items-center justify-center gap-2 text-sm font-medium">
-        <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <Store className="size-4" />
-        </span>
-        {business.name}
-      </div>
+      {name}
       <Card>
         <CardHeader>
           <div className="mb-2 flex size-11 items-center justify-center rounded-full bg-amber-500/10 text-amber-600">
@@ -107,6 +131,8 @@ async function Subscribe({ searchParams }: Pick<PageProps<"/subscribe">, "search
             ))}
         </p>
       )}
+      {/* A locked owner who'd rather leave can ask for the business to be deleted. */}
+      <DeleteBusinessCard business={business} isMainOwner={user.isMainOwner} />
     </div>
   )
 }

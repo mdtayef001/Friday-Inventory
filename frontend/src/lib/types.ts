@@ -47,9 +47,10 @@ export interface ManagedUser extends SessionUser {
  * Worked out from dates on every request, never stored:
  * trial: inside the 7-day free trial. active: paid up.
  * unpaid: trial or paid month ran out, so access is locked until the owner pays.
+ * closing: the super admin approved the owner's request to delete it; locked until it's deleted.
  * suspended: the super admin switched the business off by hand.
  */
-export type BusinessStatus = "trial" | "active" | "unpaid" | "suspended"
+export type BusinessStatus = "trial" | "active" | "unpaid" | "closing" | "suspended"
 export type ModuleId = "rentals" | "tracking" | "transfers" | "trackingLinks"
 
 /** Things an owner can switch on or off for managers and staff. */
@@ -94,6 +95,14 @@ export interface Business {
   settings: BusinessSettings
   /** What it pays a month. The same for every business, set by the super admin. */
   monthlyPrice: number
+  /** The owner cancelled: nothing renews and no reminders show; access runs to the end of what's paid. */
+  cancelledAt: string | null
+  /** The Owner asked for the business to be deleted. */
+  deletionRequestedAt: string | null
+  deletionRequestedBy: string | null
+  /** The super admin approved it: locked now, deleted on `deleteOn` unless stopped. */
+  deletionApprovedAt: string | null
+  deleteOn: string | null
 }
 
 /** "awaiting": sent by hand (bKash, bank...), waiting for the super admin to approve it. */

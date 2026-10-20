@@ -59,11 +59,18 @@ class BusinessSerializer(serializers.ModelSerializer):
     status = serializers.CharField(read_only=True)
     # The same for every business, set by the super admin.
     monthly_price = serializers.SerializerMethodField()
+    deletion_requested_by = serializers.CharField(source="deletion_requested_by.name", read_only=True, default=None)
+    delete_on = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = Business
-        fields = ["id", "name", "industry", "status", "suspended", "trial_ends_at", "paid_until", "created_at", "settings", "monthly_price"]
-        read_only_fields = ["suspended", "trial_ends_at", "paid_until", "created_at"]
+        fields = [
+            "id", "name", "industry", "status", "suspended", "trial_ends_at", "paid_until", "created_at", "settings", "monthly_price",
+            "cancelled_at", "deletion_requested_at", "deletion_requested_by", "deletion_approved_at", "delete_on",
+        ]
+        read_only_fields = [
+            "suspended", "trial_ends_at", "paid_until", "created_at", "cancelled_at", "deletion_requested_at", "deletion_approved_at",
+        ]
 
     @cached_property
     def price(self):

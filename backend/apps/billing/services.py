@@ -57,7 +57,8 @@ def _activate(payment, *, method):
     payment.method = method
     payment.save()
     business.paid_until = end
-    business.save(update_fields=["paid_until"])
+    business.cancelled_at = None  # paying again means they're staying
+    business.save(update_fields=["paid_until", "cancelled_at"])
     return payment
 
 

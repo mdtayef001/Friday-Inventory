@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { EmptyState, Field, PageBody, PageHeader, SimpleSelect, useRequired } from "@/components/common"
+import { EmptyState, Field, PageBody, PageHeader, Pill, SimpleSelect, useRequired } from "@/components/common"
 import { BusinessStatusPill, STATUS } from "@/components/platform"
 import { createBusiness } from "@/lib/auth/platform-actions"
 import { formatDate, timeAgo } from "@/lib/format"
@@ -93,7 +93,11 @@ export function BusinessesView({ businesses, openNew, plan }: { businesses: Busi
                       <div className="text-xs text-muted-foreground">{b.owner?.email}</div>
                     </TableCell>
                     <TableCell>
-                      <BusinessStatusPill status={b.status} />
+                      <div className="flex flex-wrap gap-1">
+                        <BusinessStatusPill status={b.status} />
+                        {b.deletionRequestedAt && !b.deleteOn && <Pill tone="red">Wants deletion</Pill>}
+                        {b.cancelledAt && b.status !== "closing" && <Pill tone="gray">Cancelled</Pill>}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{b.userCount}</TableCell>
                     <TableCell className="text-sm whitespace-nowrap text-muted-foreground">{formatDate(accessEndsAt(b))}</TableCell>

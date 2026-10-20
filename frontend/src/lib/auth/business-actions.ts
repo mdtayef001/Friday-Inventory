@@ -2,7 +2,7 @@
 
 import { z } from "zod"
 import { api, toResult, type ActionResult } from "@/lib/api/server"
-import { requireAccess } from "./dal"
+import { requireAccess, requireOwner } from "./dal"
 
 const flag = z.boolean()
 const SettingsSchema = z.object({
@@ -31,4 +31,24 @@ export async function updateBusinessSettings(input: z.input<typeof SettingsSchem
   const parsed = SettingsSchema.safeParse(input)
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0].message }
   return toResult(() => api("business/", { method: "PATCH", body: parsed.data }))
+}
+
+/** Owner: stop renewing (access runs to the end of what's paid), or take it back. Works while locked. */
+export async function setSubscriptionCancelled(cancelled: boolean): Promise<ActionResult> {
+  await requireOwner()
+  if (typeof cancelled !== "boolean") return { ok: false, error: "Invalid request." }
+  return toResult(() => api("business/subscription/", { method: "POST", body: { cancelled } }))
+}
+
+/** The Owner asks for the business to be deleted, typing its name to be sure. The super admin approves it. */
+export async function requestDeletion(name: string): Promise<ActionResult> {
+  await requireOwner()
+  if (typeof name !== "string" || !name.trim()) return { ok: false, error: "Type the business name." }
+  return toResult(() => api("business/deletion/", { method: "POST", body: { name } }))
+}
+
+/** Owner: keep the business after all, before or after the super admin approved the deletion. */
+export async function cancelDeletion(): Promise<ActionResult> {
+  await requireOwner()
+  return toResult(() => api("business/deletion/", { method: "DELETE" }))
 }

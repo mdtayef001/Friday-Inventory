@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Ban, CalendarPlus, CheckCircle2, KeyRound, Trash2 } from "lucide-react"
+import { ArrowLeft, Ban, CalendarPlus, CheckCircle2, KeyRound, Trash2, Undo2 } from "lucide-react"
 import { toast } from "sonner"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -15,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ConfirmAction, Field, PageBody, PageHeader, Pill, SimpleSelect, useRequired } from "@/components/common"
 import { BusinessStatusPill, PaymentsTable } from "@/components/platform"
 import { initials } from "@/components/user-menu"
-import { deleteBusiness, grantAccess, resetOwnerPassword, setBusinessSuspended } from "@/lib/auth/platform-actions"
+import { decideDeletion, deleteBusiness, grantAccess, resetOwnerPassword, setBusinessSuspended } from "@/lib/auth/platform-actions"
 import type { ActionResult } from "@/lib/auth/user-actions"
 import { roleLabel } from "@/lib/auth/roles"
 import { formatDate, timeAgo } from "@/lib/format"
@@ -75,6 +75,44 @@ export function BusinessDetailView({ business, users, payments }: { business: Bu
         <BusinessStatusPill status={business.status} />
         <Pill tone="gray">{business.settings.currency}</Pill>
       </div>
+
+      {business.deletionRequestedAt && (
+        <Card className="border-destructive/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="size-4" />
+              {business.deleteOn ? `Will be deleted on ${formatDate(business.deleteOn)}` : "The owner wants this business deleted"}
+            </CardTitle>
+            <CardDescription>
+              {business.deletionRequestedBy ?? "The Owner"} asked on {formatDate(business.deletionRequestedAt)}.{" "}
+              {business.deleteOn
+                ? "It's locked. The owner can still download their data, and either of you can stop it until that day."
+                : "Approving locks it now and deletes everything 30 days later. The owner can download their data and change their mind until then."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            {!business.deleteOn && (
+              <ConfirmAction
+                trigger={
+                  <Button variant="destructive" disabled={pending}>
+                    <Trash2 />
+                    Approve deletion
+                  </Button>
+                }
+                title={`Approve deleting ${business.name}?`}
+                description="It locks for everyone now and is deleted for good in 30 days, unless the owner or you stop it first."
+                confirmLabel="Approve"
+                destructive
+                onConfirm={async () => showResult(await decideDeletion(business.id, "approve"), "Approved. It will be deleted in 30 days.")}
+              />
+            )}
+            <Button variant="outline" disabled={pending} onClick={() => run(() => decideDeletion(business.id, "stop"), business.deleteOn ? "Deletion stopped" : "Request turned down")}>
+              <Undo2 />
+              {business.deleteOn ? "Stop the deletion" : "Turn down"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card>

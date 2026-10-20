@@ -78,6 +78,8 @@ class CheckoutView(APIView):
         business = request.user.business
         if business.suspended:
             return Response({"detail": "This business is suspended. Please contact support."}, status=400)
+        if business.deletion_approved_at:
+            return Response({"detail": "This business is being deleted. Cancel the deletion first, then pay."}, status=400)
         if not online_open(PaymentAccounts.load()):
             return Response({"detail": "Paying online is turned off right now. Send the money by hand instead."}, status=400)
         payer = SimpleNamespace(name=request.user.name, email=request.user.email, phone="")
@@ -97,6 +99,8 @@ class ManualPaymentView(APIView):
         business = request.user.business
         if business.suspended:
             return Response({"detail": "This business is suspended. Please contact support."}, status=400)
+        if business.deletion_approved_at:
+            return Response({"detail": "This business is being deleted. Cancel the deletion first, then pay."}, status=400)
         serializer = ManualPaymentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payer = SimpleNamespace(name=request.user.name, email=request.user.email, phone=serializer.validated_data["sent_from"])

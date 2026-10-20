@@ -18,6 +18,7 @@ export const STATUS: Record<BusinessStatus, { label: string; tone: PillTone }> =
   active: { label: "Active", tone: "green" },
   trial: { label: "Free trial", tone: "blue" },
   unpaid: { label: "Unpaid · locked", tone: "amber" },
+  closing: { label: "Being deleted", tone: "red" },
   suspended: { label: "Suspended", tone: "red" },
 }
 

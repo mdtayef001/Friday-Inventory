@@ -64,6 +64,13 @@ export async function resetOwnerPassword(userId: string, password: string): Prom
   return toResult(() => api(`platform/users/${encodeURIComponent(userId)}/password/`, { method: "POST", body: { password } }))
 }
 
+/** The owner's deletion request: approve it (locked now, deleted in 30 days), or stop it (turn it down, or undo an approval). */
+export async function decideDeletion(id: string, decision: "approve" | "stop"): Promise<ActionResult> {
+  await requireSuper()
+  if (decision !== "approve" && decision !== "stop") return { ok: false, error: "Invalid request." }
+  return toResult(() => api(`${businessPath(id)}${decision}-deletion/`, { method: "POST" }))
+}
+
 export async function deleteBusiness(id: string): Promise<ActionResult> {
   await requireSuper()
   return toResult(() => api(businessPath(id), { method: "DELETE" }))

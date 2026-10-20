@@ -9,7 +9,7 @@ from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
 
 from apps.inventory.models import Location
 
-from .models import Business, User
+from .models import Business, DeletedBusiness, User
 
 PASSWORD = "a-long-test-password-1"
 
@@ -226,3 +226,89 @@ class SeedDemoTests(APITestCase):
         call_command("seed_demo", "--reset", stdout=StringIO())
         self.assertEqual(Business.objects.filter(name="Friday Demo Store").count(), 1)
         self.assertEqual(Purchase.objects.filter(business__name="Friday Demo Store").count(), 4)
+
+
+@override_settings(CRON_SECRET="a-cron-secret")
+class LeavingTests(APITestCase):
+    """Owners can cancel the subscription, take their data, and ask for the business to be deleted."""
+
+    def setUp(self):
+        cache.clear()
+        self.biz = Business.objects.create(name="Shop")
+        self.owner = User.objects.create_user(email="owner@x.com", password=PASSWORD, name="Owner", role="owner", business=self.biz)
+        User.objects.create_user(email="admin@x.com", password=PASSWORD, name="Admin", role="owner", business=self.biz)
+        User.objects.create_user(email="staff@x.com", password=PASSWORD, name="Staff", role="staff", business=self.biz)
+        User.objects.create_superuser(email="root@x.com", password=PASSWORD, name="Root")
+
+    def login(self, email):
+        self.client.credentials()
+        res = self.client.post("/api/auth/login/", {"email": email, "password": PASSWORD}, format="json")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.json()['access']}")
+
+    def test_cancel_and_resume_the_subscription(self):
+        self.login("owner@x.com")
+        res = self.client.post("/api/business/subscription/", {"cancelled": True}, format="json")
+        self.assertIsNotNone(res.json()["cancelledAt"])
+        self.assertEqual(res.json()["status"], "trial")  # keeps what's left
+        self.assertEqual(self.client.post("/api/business/subscription/", {"cancelled": "yes"}, format="json").status_code, 400)
+        self.assertIsNone(self.client.post("/api/business/subscription/", {"cancelled": False}, format="json").json()["cancelledAt"])
+        self.login("staff@x.com")
+        self.assertEqual(self.client.post("/api/business/subscription/", {"cancelled": True}, format="json").status_code, 403)
+
+    def test_paying_again_undoes_a_cancel(self):
+        self.biz.cancelled_at = timezone.now()
+        self.biz.save()
+        self.login("root@x.com")
+        res = self.client.post(f"/api/platform/businesses/{self.biz.id}/grant/", {"months": 1, "amount": "0", "method": "free"}, format="json")
+        self.assertEqual(res.status_code, 201, res.content)
+        self.biz.refresh_from_db()
+        self.assertIsNone(self.biz.cancelled_at)
+
+    def test_data_download_once_every_ten_minutes(self):
+        self.login("owner@x.com")
+        self.assertEqual(self.client.get("/api/business/export/").status_code, 200)
+        res = self.client.get("/api/business/export/")
+        self.assertEqual(res.status_code, 429)
+        self.assertIn("10 minutes", res.json()["detail"])
+
+    def test_deletion_asked_approved_and_done_after_30_days(self):
+        self.login("admin@x.com")
+        self.assertEqual(self.client.post("/api/business/deletion/", {"name": "Shop"}, format="json").status_code, 403)  # only the Owner
+        self.login("owner@x.com")
+        self.assertEqual(self.client.post("/api/business/deletion/", {"name": "Shops"}, format="json").status_code, 400)
+        res = self.client.post("/api/business/deletion/", {"name": " shop "}, format="json")
+        self.assertEqual((res.json()["deletionRequestedBy"], res.json()["status"]), ("Owner", "trial"))  # nothing locks until approved
+
+        self.login("root@x.com")
+        res = self.client.post(f"/api/platform/businesses/{self.biz.id}/approve-deletion/", format="json")
+        self.assertEqual(res.json()["status"], "closing")
+        # Locked for the team, but the owner can still take the data and change their mind.
+        self.login("staff@x.com")
+        self.assertEqual(self.client.get("/api/products/").status_code, 403)
+        self.login("owner@x.com")
+        self.assertEqual(self.client.get("/api/business/export/").status_code, 200)
+        self.assertEqual(self.client.post("/api/billing/manual/", {}, format="json").status_code, 400)
+        self.assertEqual(self.client.delete("/api/business/deletion/").json()["status"], "trial")
+
+        # Asked and approved again; the daily job deletes it once the 30 days are up.
+        self.client.post("/api/business/deletion/", {"name": "Shop"}, format="json")
+        self.login("root@x.com")
+        self.client.post(f"/api/platform/businesses/{self.biz.id}/approve-deletion/", format="json")
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer a-cron-secret")  # as Vercel Cron calls it
+        cron = lambda: self.client.get("/api/cron/cleanup/")  # noqa: E731
+        cron()
+        self.assertTrue(Business.objects.filter(pk=self.biz.pk).exists())
+        Business.objects.filter(pk=self.biz.pk).update(deletion_approved_at=timezone.now() - timedelta(days=30, minutes=1))
+        self.assertEqual(cron().status_code, 204)
+        self.assertFalse(Business.objects.filter(pk=self.biz.pk).exists())
+        self.assertFalse(User.objects.filter(email="owner@x.com").exists())
+        record = DeletedBusiness.objects.get()
+        self.assertEqual((record.name, record.owner_email, record.requested_by), ("Shop", "owner@x.com", "owner@x.com"))
+
+    def test_super_admin_turns_down_a_request(self):
+        self.login("owner@x.com")
+        self.client.post("/api/business/deletion/", {"name": "Shop"}, format="json")
+        self.login("root@x.com")
+        res = self.client.post(f"/api/platform/businesses/{self.biz.id}/stop-deletion/", format="json")
+        self.assertIsNone(res.json()["deletionRequestedAt"])
+        self.assertEqual(self.client.post(f"/api/platform/businesses/{self.biz.id}/approve-deletion/", format="json").status_code, 400)

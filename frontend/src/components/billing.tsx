@@ -247,7 +247,8 @@ export function SubscriptionBanner() {
   const business = useBusiness()
   const endsAt = accessEndsAt(business)
   const left = daysLeft(endsAt)
-  if (user.role !== "owner" || left > REMINDER_DAYS) return null
+  // No reminders once they've cancelled, or while it's being deleted.
+  if (user.role !== "owner" || left > REMINDER_DAYS || business.cancelledAt || business.status === "closing") return null
 
   const what = business.status === "trial" ? "Your free trial" : "Your subscription"
   return (
@@ -267,11 +268,36 @@ export function SubscriptionBanner() {
  * Everything the business has, as one ZIP of spreadsheets that open in Excel. For the owner,
  * even while the business is locked; the super admin passes the business's own `href`.
  */
-export function DownloadDataButton({ href = "/api/backend/business/export/", label = "Download my data", ...props }: { href?: string; label?: string } & React.ComponentProps<typeof Button>) {
+export function DownloadDataButton({
+  href = "/api/backend/business/export/",
+  label = "Download my data",
+  ...props
+}: { href?: string; label?: string } & React.ComponentProps<typeof Button>) {
+  const [busy, setBusy] = useState(false)
+  // Fetched rather than a plain link, so "try again in a few minutes" shows as a message, not a saved file.
+  async function download() {
+    setBusy(true)
+    try {
+      const res = await fetch(href)
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        return void toast.error(body?.detail ?? "Couldn't prepare the download. Try again.")
+      }
+      const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? "data.zip"
+      const url = URL.createObjectURL(await res.blob())
+      const a = Object.assign(document.createElement("a"), { href: url, download: name })
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    } catch {
+      toast.error("Couldn't reach the server. Check your connection and try again.")
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
-    <Button variant="outline" render={<a href={href} download />} nativeButton={false} {...props}>
-      <Download />
-      {label}
+    <Button type="button" variant="outline" onClick={download} disabled={busy} {...props}>
+      {busy ? <Loader2 className="animate-spin" /> : <Download />}
+      {busy ? "Preparing…" : label}
     </Button>
   )
 }

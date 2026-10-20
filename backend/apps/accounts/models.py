@@ -25,6 +25,11 @@ def default_settings():
     }
 
 
+# After the super admin approves a deletion, the business is locked this long before it's
+# deleted for good, so the owner can still download their data or change their mind.
+DELETION_GRACE_DAYS = 30
+
+
 def trial_end():
     from apps.billing.models import PaymentAccounts  # billing imports this module
 
@@ -43,6 +48,13 @@ class Business(models.Model):
     paid_until = models.DateTimeField(null=True, blank=True)
     settings = models.JSONField(default=default_settings)
     created_at = models.DateTimeField(auto_now_add=True)
+    # The owner cancelled: nothing renews and no reminders show, but what's paid for runs to its end.
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    # Deleting the business: the Owner asks, the super admin approves, and it's deleted
+    # DELETION_GRACE_DAYS later. Either of them can stop it until then.
+    deletion_requested_at = models.DateTimeField(null=True, blank=True)
+    deletion_requested_by = models.ForeignKey("User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    deletion_approved_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         verbose_name_plural = "businesses"
@@ -57,11 +69,23 @@ class Business(models.Model):
         return self.users.filter(role=User.Role.OWNER).order_by("date_joined", "id").first()
 
     @property
+    def delete_on(self):
+        """When an approved deletion happens."""
+        return self.deletion_approved_at + timedelta(days=DELETION_GRACE_DAYS) if self.deletion_approved_at else None
+
+    def clear_deletion(self):
+        self.deletion_requested_at = self.deletion_requested_by = self.deletion_approved_at = None
+        self.save(update_fields=["deletion_requested_at", "deletion_requested_by", "deletion_approved_at"])
+
+    @property
     def status(self):
-        """trial | active | unpaid | suspended. Worked out from dates, never stored."""
+        """trial | active | unpaid | closing | suspended. Worked out from dates, never stored.
+        Closing: a deletion was approved, so it's locked until it's deleted."""
         now = timezone.now()
         if self.suspended:
             return "suspended"
+        if self.deletion_approved_at:
+            return "closing"
         if self.paid_until and self.paid_until > now:
             return "active"
         if self.trial_ends_at > now:
@@ -168,3 +192,33 @@ class User(AbstractUser):
         # Super admins get Django admin access; everyone else uses the app only.
         self.is_staff = self.is_superuser = self.role == self.Role.SUPERADMIN
         super().save(*args, **kwargs)
+
+
+class DeletedBusiness(models.Model):
+    """What's kept after a business is deleted: proof of who asked and when, nothing of its data."""
+
+    name = models.CharField(max_length=200)
+    owner_email = models.EmailField(blank=True)
+    requested_by = models.EmailField(blank=True)
+    requested_at = models.DateTimeField(null=True, blank=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    deleted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-deleted_at"]
+
+    def __str__(self):
+        return f"{self.name} (deleted {self.deleted_at:%Y-%m-%d})"
+
+    @classmethod
+    def record(cls, business):
+        """Writes the record, then deletes the business and everything in it."""
+        owner = business.main_owner()
+        cls.objects.create(
+            name=business.name,
+            owner_email=owner.email if owner else "",
+            requested_by=business.deletion_requested_by.email if business.deletion_requested_by else "",
+            requested_at=business.deletion_requested_at,
+            approved_at=business.deletion_approved_at,
+        )
+        business.delete()

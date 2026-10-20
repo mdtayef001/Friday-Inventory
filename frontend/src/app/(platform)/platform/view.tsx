@@ -11,7 +11,7 @@ import { shortMethod, timeAgo } from "@/lib/format"
 import { formatTaka, priceLabel } from "@/lib/business"
 import type { BusinessStatus, BusinessSummary, Payment } from "@/lib/types"
 
-const ORDER: BusinessStatus[] = ["active", "trial", "unpaid", "suspended"]
+const ORDER: BusinessStatus[] = ["active", "trial", "unpaid", "closing", "suspended"]
 
 export function PlatformOverview({ businesses, payments, monthlyPrice }: { businesses: BusinessSummary[]; payments: Payment[]; monthlyPrice: number }) {
   const paid = payments.filter((p) => p.status === "paid")

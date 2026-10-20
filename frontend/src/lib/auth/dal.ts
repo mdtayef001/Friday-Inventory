@@ -30,7 +30,8 @@ export const getContext = cache(async (): Promise<Context | null> => {
   const { user, business } = me
   if (user.role === "superadmin") return { user, business: null, locked: false }
   if (!business || business.status === "suspended") return null
-  const locked = business.status === "unpaid"
+  // Unpaid, or being deleted: only the owner gets in, to pay, download their data or stop the deletion.
+  const locked = business.status === "unpaid" || business.status === "closing"
   if (locked && user.role !== "owner") return null
   return { user, business, locked }
 })

@@ -46,10 +46,11 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
     if (business.status === "suspended") {
       return { error: `${business.name} is suspended. Please contact support to restore access.`, email }
     }
-    if (business.status === "unpaid") {
-      // The owner can log in to pay; everyone else waits for the owner.
+    if (business.status === "unpaid" || business.status === "closing") {
+      // The owner can log in to pay (or take their data); everyone else waits for the owner.
       if (user.role !== "owner") {
-        return { error: `The subscription for ${business.name} has ended. Ask the owner to renew it.`, email }
+        const why = business.status === "closing" ? "is being closed" : "has an ended subscription"
+        return { error: `${business.name} ${why}. Ask the owner.`, email }
       }
       home = "/subscribe"
     }
