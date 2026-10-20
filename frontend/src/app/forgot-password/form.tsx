@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { requestPasswordReset, type ResetState } from "@/lib/auth/actions"
+import { PLATFORM } from "@/lib/business"
 
 export function ForgotPasswordForm() {
   const [state, action, pending] = useActionState<ResetState, FormData>(requestPasswordReset, {})
@@ -23,6 +24,7 @@ export function ForgotPasswordForm() {
           If that email has an account, we&apos;ve sent it a link to set a new password. It works for 3 days. Look in spam if you don&apos;t see it.
         </p>
         <p className="text-sm text-muted-foreground">Staff without their own email: ask your owner or manager to reset it for you.</p>
+        <NeedHelp />
         <BackToLogin />
       </div>
     )
@@ -50,8 +52,18 @@ export function ForgotPasswordForm() {
           Send the link
         </Button>
       </form>
+      <NeedHelp />
       <BackToLogin />
     </div>
+  )
+}
+
+/** For an owner whose email didn't arrive, or who no longer has that email. */
+function NeedHelp() {
+  return (
+    <p className="rounded-lg bg-muted/60 px-3 py-2 text-center text-sm text-muted-foreground">
+      Still can&apos;t get in? Message us on WhatsApp: <span className="font-medium text-foreground">{PLATFORM.whatsapp}</span>
+    </p>
   )
 }
 

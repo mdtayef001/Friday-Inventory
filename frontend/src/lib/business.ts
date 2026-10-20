@@ -10,6 +10,8 @@ export const PLATFORM = {
   name: "Friday Inventory",
   address: "Dhaka, Bangladesh",
   email: "billing@friday.app",
+  /** WhatsApp username for help, e.g. a password reset that didn't arrive. */
+  whatsapp: "tayef01",
 }
 
 /** Owners see a reminder when this many days or fewer are left. */
