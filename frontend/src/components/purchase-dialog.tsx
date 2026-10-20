@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { format } from "date-fns"
-import { Keyboard, Loader2, PackagePlus, X } from "lucide-react"
+import { Loader2, PackagePlus, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -178,7 +178,6 @@ export function PurchaseDialog({ onClose, supplier: initialSupplier = null }: { 
                 <ScanButton onScan={scan} />
               </div>
             </Field>
-            <CodeBox onCode={scan} />
 
             {lines.length === 0 ? (
               <p className="rounded-xl border border-dashed p-4 text-center text-sm text-muted-foreground">Add the products on the supplier&apos;s bill.</p>
@@ -281,33 +280,6 @@ export function PurchaseDialog({ onClose, supplier: initialSupplier = null }: { 
 
 /** A long run of digits (or one without spaces that has digits) is a barcode or SKU, not a product name. */
 const looksLikeCode = (text: string) => /^\d{6,}$/.test(text) || (!/\s/.test(text) && /\d/.test(text) && text.length >= 6)
-
-/**
- * For USB and Bluetooth scanners, which type the code and press Enter. Not a form of
- * its own (it sits inside the purchase form), so Enter is caught here.
- */
-function CodeBox({ onCode }: { onCode: (code: string) => void }) {
-  const [value, setValue] = useState("")
-  return (
-    <div className="relative">
-      <Keyboard className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-      <Input
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key !== "Enter") return
-          e.preventDefault()
-          if (value.trim()) onCode(value)
-          setValue("")
-        }}
-        placeholder="Or type / scan a barcode or SKU and press Enter"
-        aria-label="Barcode or SKU"
-        className="pl-9 font-mono"
-        autoComplete="off"
-      />
-    </div>
-  )
-}
 
 function PurchaseRow({
   index,
