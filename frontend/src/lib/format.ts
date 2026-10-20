@@ -53,6 +53,14 @@ const dateParts = new Intl.DateTimeFormat("en-US", { timeZone: TIME_ZONE, month:
 const timeParts = new Intl.DateTimeFormat("en-US", { timeZone: TIME_ZONE, hour: "numeric", minute: "2-digit", hour12: true })
 const part = (parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? ""
 
+const monthParts = new Intl.DateTimeFormat("en-US", { timeZone: TIME_ZONE, month: "2-digit", year: "numeric" })
+
+/** "2026-10": the month a moment falls in, in Dhaka time. Same answer on the server and in the browser. */
+export function monthKey(when: string | Date) {
+  const p = monthParts.formatToParts(new Date(when))
+  return `${part(p, "year")}-${part(p, "month")}`
+}
+
 /** "Oct 21, 2026", in Dhaka time. */
 export function formatDate(iso: string) {
   const p = dateParts.formatToParts(new Date(iso))

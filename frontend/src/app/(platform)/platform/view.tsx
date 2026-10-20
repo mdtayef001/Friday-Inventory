@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { PageBody, PageHeader, StatCard, TimeAgo } from "@/components/common"
 import { BusinessStatusPill, PaymentStatusPill, STATUS } from "@/components/platform"
-import { shortMethod } from "@/lib/format"
+import { shortMethod, monthKey } from "@/lib/format"
 import { formatTaka, priceLabel } from "@/lib/business"
 import type { BusinessStatus, BusinessSummary, Payment } from "@/lib/types"
 
@@ -15,10 +15,9 @@ const ORDER: BusinessStatus[] = ["active", "trial", "unpaid", "closing", "suspen
 
 export function PlatformOverview({ businesses, payments, monthlyPrice }: { businesses: BusinessSummary[]; payments: Payment[]; monthlyPrice: number }) {
   const paid = payments.filter((p) => p.status === "paid")
-  const monthStart = new Date()
-  monthStart.setDate(1)
-  monthStart.setHours(0, 0, 0, 0)
-  const thisMonth = paid.filter((p) => p.paidAt && new Date(p.paidAt) >= monthStart)
+  // This month in Dhaka time, so the server and the browser count the same payments.
+  const month = monthKey(new Date())
+  const thisMonth = paid.filter((p) => p.paidAt && monthKey(p.paidAt) === month)
   const collected = thisMonth.reduce((sum, p) => sum + p.amount, 0)
   const paying = businesses.filter((b) => b.status === "active").length
   const trials = businesses.filter((b) => b.status === "trial").length
