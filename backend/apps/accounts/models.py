@@ -9,8 +9,8 @@ from django.utils import timezone
 
 def default_settings():
     return {
-        "currency": "USD",
-        "modules": {"rentals": True, "tracking": True, "transfers": True, "trackingLinks": True},
+        "currency": "BDT",
+        "modules": {"rentals": True, "tracking": True, "transfers": True, "trackingLinks": True, "purchases": True},
         "permissions": {
             "managerUsers": True,
             "managerActivity": False,
@@ -19,9 +19,14 @@ def default_settings():
             "staffCreateProducts": True,
             "managerProfit": False,
             "managerPurchases": False,
+            "managerReturns": False,
         },
         # How customers can pay. Cash always works; the rest are the owner's choice.
         "payments": {"mobile": False, "card": False},
+        # The owner's own line at the bottom of every receipt, e.g. the return policy.
+        "receiptNote": "",
+        # The low-stock alert new products start with.
+        "lowStockAlert": 5,
     }
 
 
@@ -108,6 +113,14 @@ class Business(models.Model):
 
     def permission_on(self, permission):
         return bool(self.settings.get("permissions", {}).get(permission))
+
+    @property
+    def low_stock_alert(self):
+        return self.settings.get("lowStockAlert", 5)
+
+    @property
+    def receipt_note(self):
+        return self.settings.get("receiptNote", "")
 
 
 class UserManager(BaseUserManager):

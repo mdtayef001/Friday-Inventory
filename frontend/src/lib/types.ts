@@ -51,7 +51,7 @@ export interface ManagedUser extends SessionUser {
  * suspended: the super admin switched the business off by hand.
  */
 export type BusinessStatus = "trial" | "active" | "unpaid" | "closing" | "suspended"
-export type ModuleId = "rentals" | "tracking" | "transfers" | "trackingLinks"
+export type ModuleId = "rentals" | "tracking" | "transfers" | "trackingLinks" | "purchases"
 
 /** Things an owner can switch on or off for managers and staff. */
 export interface Permissions {
@@ -62,6 +62,7 @@ export interface Permissions {
   managerLocations: boolean
   staffCreateProducts: boolean
   managerPurchases: boolean
+  managerReturns: boolean
 }
 export type PermissionId = keyof Permissions
 
@@ -77,6 +78,10 @@ export interface BusinessSettings {
   modules: Record<ModuleId, boolean>
   permissions: Permissions
   payments: PaymentSettings
+  /** The owner's own line at the bottom of every receipt, e.g. the return policy. */
+  receiptNote: string
+  /** The low-stock alert new products start with. */
+  lowStockAlert: number
 }
 
 export type PaymentMethod = "cash" | "mobile" | "card"
@@ -532,6 +537,8 @@ export interface Sale {
 export interface Receipt {
   receiptNo: string
   businessName: string
+  /** The owner's receipt note, or "". */
+  note: string
   currency: string
   shop: { name: string; address: string; phone: string } | null
   soldAt: string

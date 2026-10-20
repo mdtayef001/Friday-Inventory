@@ -314,6 +314,8 @@ class ReceiptSerializer(serializers.ModelSerializer):
 
     receipt_no = serializers.CharField(source="receipt_code")
     business_name = serializers.CharField(source="business.name")
+    # The owner's own line at the bottom, e.g. the return policy.
+    note = serializers.CharField(source="business.receipt_note")
     currency = serializers.SerializerMethodField()
     shop = serializers.SerializerMethodField()
     client = serializers.SerializerMethodField()
@@ -330,7 +332,7 @@ class ReceiptSerializer(serializers.ModelSerializer):
     class Meta:
         model = Sale
         fields = [
-            "id", "receipt_no", "receipt_token", "business_name", "currency", "shop", "sold_at", "channel", "reference",
+            "id", "receipt_no", "receipt_token", "business_name", "note", "currency", "shop", "sold_at", "channel", "reference",
             "client", "items", "subtotal", "discount", "total", "refunded", "payment_method", "payment_label",
             "payment_reference", "refunded_at", "sold_by",
         ]

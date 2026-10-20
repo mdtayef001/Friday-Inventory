@@ -52,9 +52,9 @@ const ROUTE_RULES: Rule[] = [
   { test: prefix("/rentals"), roles: TEAM, module: "rentals", right: "canRent" },
   { test: prefix("/tracking"), roles: LEADS, module: "tracking" },
   { test: prefix("/transfers"), roles: LEADS, module: "transfers" },
-  { test: prefix("/purchases"), roles: LEADS, permission: "managerPurchases" },
-  { test: prefix("/suppliers"), roles: LEADS, permission: "managerPurchases" },
-  { test: prefix("/supplier-returns"), roles: LEADS, permission: "managerPurchases" },
+  { test: prefix("/purchases"), roles: LEADS, module: "purchases", permission: "managerPurchases" },
+  { test: prefix("/suppliers"), roles: LEADS, module: "purchases", permission: "managerPurchases" },
+  { test: prefix("/supplier-returns"), roles: LEADS, module: "purchases", permission: "managerPurchases" },
 ]
 
 export const APP_ROUTES = [

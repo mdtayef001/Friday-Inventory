@@ -493,6 +493,7 @@ def create_product_for_purchase(user, new):
         barcode=new.get("barcode", ""),
         category=new.get("category", ""),
         sku=new.get("sku") or make_sku(user.business, new.get("category", "")),
+        low_stock_threshold=user.business.low_stock_alert,
         created_by=user,
     )
     log(user, "Product added", f"{product.name} (on a purchase)")

@@ -123,8 +123,9 @@ export function ReceiptDocument({ receipt: r }: { receipt: Receipt }) {
           )}
         </div>
 
-        <footer className="mt-8 border-t pt-4 text-center text-xs text-muted-foreground">
-          {r.refundedAt ? `Refunded on ${formatDateTime(r.refundedAt)}. ` : ""}Thank you for shopping with {r.businessName}.
+        <footer className="mt-8 space-y-1 border-t pt-4 text-center text-xs text-muted-foreground">
+          {r.note && <p className="whitespace-pre-line text-foreground [overflow-wrap:anywhere]">{r.note}</p>}
+          <p>{r.refundedAt ? `Refunded on ${formatDateTime(r.refundedAt)}. ` : ""}Thank you for shopping with {r.businessName}.</p>
         </footer>
       </article>
       <ReceiptPaper>
@@ -207,6 +208,7 @@ function TillReceipt({ receipt: r, rows, money }: { receipt: Receipt; rows: [str
         </>
       )}
       <div className={rule} />
+      {r.note && <p className="text-center whitespace-pre-line [overflow-wrap:anywhere]">{r.note}</p>}
       <p className="text-center">
         {r.refundedAt ? `Refunded on ${formatDateTime(r.refundedAt)}. ` : ""}Thank you for shopping with {r.businessName}.
       </p>

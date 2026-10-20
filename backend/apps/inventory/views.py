@@ -256,7 +256,10 @@ class ProductViewSet(TenantViewSet, viewsets.ModelViewSet):
         quantity = serializer.validated_data.pop("initial_quantity", 0)
         if location and quantity:
             self.check_location(location)
-        product = serializer.save(business=self.request.user.business, created_by=self.request.user)
+        business = self.request.user.business
+        # The owner's default low-stock alert, unless this product was given its own.
+        alert = {} if "low_stock_threshold" in serializer.validated_data else {"low_stock_threshold": business.low_stock_alert}
+        product = serializer.save(business=business, created_by=self.request.user, **alert)
         services.add_product(self.request.user, product, location, quantity)
 
     def perform_update(self, serializer):
@@ -387,7 +390,9 @@ class ClientViewSet(TenantViewSet, viewsets.ModelViewSet):
 
 class PurchasesFeature:
     """Owners and admins; managers only when the owner switches "managerPurchases" on.
-    Reading too, since purchases show what the business paid."""
+    Reading too, since purchases show what the business paid. Hidden when buying is switched off."""
+
+    module = "purchases"
 
     def check_permissions(self, request):
         super().check_permissions(request)
@@ -565,6 +570,7 @@ class SupplierPaymentViewSet(TenantViewSet, mixins.ListModelMixin, mixins.Retrie
     model = SupplierPayment
     serializer_class = SupplierPaymentSerializer
     allowed_roles = (User.Role.OWNER,)
+    module = "purchases"
 
     def get_queryset(self):
         return super().get_queryset().select_related("supplier", "supplier_return", "created_by").prefetch_related("allocations__purchase")
@@ -1290,10 +1296,15 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixi
             raise ValidationError({key: "Keep it under 200 characters."})
         return value
 
+    def may_return(self, user):
+        """Owners and admins; managers too (at their own shops) when the owner switches "managerReturns" on."""
+        return user.role == User.Role.OWNER or (user.role == User.Role.MANAGER and user.business.permission_on("managerReturns"))
+
     @action(detail=True, methods=["post"], url_path="return")
     def return_sale(self, request, pk=None):
-        """Owners and admins take a sale back (or approve a manager's request). Managers ask instead."""
-        if request.user.role != User.Role.OWNER:
+        """Owners and admins take a sale back (or approve a manager's request). Managers ask instead,
+        unless the owner lets them return sales themselves."""
+        if not self.may_return(request.user):
             raise PermissionDenied("Only the owner or an admin can return a sale. Send them a return request.")
         return Response(self.get_serializer(services.return_sale(request.user, self.get_object(), self.reason())).data)
 
@@ -1305,7 +1316,7 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixi
 
     @action(detail=True, methods=["post"], url_path="decline-return")
     def decline_return(self, request, pk=None):
-        if request.user.role != User.Role.OWNER:
+        if not self.may_return(request.user):
             raise PermissionDenied("Only the owner or an admin can decline a return.")
         return Response(self.get_serializer(services.decline_return(request.user, self.get_object(), self.reason("note"))).data)
 

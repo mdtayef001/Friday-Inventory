@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react"
 import Link from "next/link"
-import { Building2, Loader2, Puzzle, ShieldCheck, Sparkles, Wallet } from "lucide-react"
+import { Building2, Loader2, Puzzle, ReceiptText, ShieldCheck, Sparkles, Wallet } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -10,12 +10,14 @@ import { YourDataCard } from "@/components/billing"
 import { DeleteBusinessCard } from "@/components/leaving"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
 import { Field, PageBody, PageHeader, SimpleSelect, useRequired } from "@/components/common"
 import { BusinessStatusPill } from "@/components/platform"
 import { useBusiness, useSessionUser } from "@/components/session-provider"
 import { updateBusinessSettings } from "@/lib/auth/business-actions"
 import { priceLabel, CURRENCIES, CURRENCY_LABEL, MODULES, PERMISSIONS, accessEndsAt, daysLeft } from "@/lib/business"
 import { formatDate } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import type { BusinessSettings, ModuleId, PermissionId } from "@/lib/types"
 
 export function SettingsView() {
@@ -29,7 +31,10 @@ export function SettingsView() {
   const dirty =
     name !== business.name || industry !== business.industry || JSON.stringify(settings) !== JSON.stringify(business.settings)
 
-  const setModule = (id: ModuleId, on: boolean) => setSettings((s) => ({ ...s, modules: { ...s.modules, [id]: on } }))
+  // Client tracking links only work with orders, so turning orders off turns the links off too.
+  const setModule = (id: ModuleId, on: boolean) =>
+    setSettings((s) => ({ ...s, modules: { ...s.modules, [id]: on, ...(id === "tracking" && !on && { trackingLinks: false }) } }))
+  const alertOk = Number.isInteger(settings.lowStockAlert) && settings.lowStockAlert >= 0
   const setPermission = (id: PermissionId, on: boolean) => setSettings((s) => ({ ...s, permissions: { ...s.permissions, [id]: on } }))
   const setPayments = (patch: Partial<BusinessSettings["payments"]>) => setSettings((s) => ({ ...s, payments: { ...s.payments, ...patch } }))
 
@@ -38,7 +43,7 @@ export function SettingsView() {
 
   function save(e: React.FormEvent) {
     e.preventDefault()
-    if (!required.check(nameOk, e)) return
+    if (!required.check(nameOk && alertOk, e)) return
     startTransition(async () => {
       const result = await updateBusinessSettings({ name, industry, settings })
       if (result.ok) toast.success("Settings saved. Everyone sees the change on their next page load.")
@@ -109,6 +114,7 @@ export function SettingsView() {
                 description={MODULES[id].description}
                 checked={settings.modules[id]}
                 onChange={(on) => setModule(id, on)}
+                disabled={id === "trackingLinks" && !settings.modules.tracking}
               />
             ))}
           </CardContent>
@@ -150,11 +156,58 @@ export function SettingsView() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
+              <ReceiptText className="size-4 text-primary" />
+              Receipts and stock
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_14rem]">
+            <Field
+              label="Receipt note"
+              htmlFor="b-receipt-note"
+              hint={`At the bottom of every receipt, e.g. your return policy or bKash number. ${settings.receiptNote.length}/200`}
+            >
+              <Textarea
+                id="b-receipt-note"
+                value={settings.receiptNote}
+                onChange={(e) => setSettings((s) => ({ ...s, receiptNote: e.target.value }))}
+                maxLength={200}
+                rows={2}
+                placeholder="e.g. Returns within 7 days with this receipt."
+              />
+            </Field>
+            <Field
+              label="Low-stock alert for new products"
+              htmlFor="b-low-stock"
+              required
+              missing={required.shown && !alertOk}
+              hint="Warn when a shop has this many or fewer. Each product can still have its own."
+            >
+              <Input
+                id="b-low-stock"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                step={1}
+                value={Number.isNaN(settings.lowStockAlert) ? "" : settings.lowStockAlert}
+                onChange={(e) => setSettings((s) => ({ ...s, lowStockAlert: e.target.value.trim() === "" ? NaN : Number(e.target.value) }))}
+              />
+            </Field>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
               <ShieldCheck className="size-4 text-primary" />
               What your team can do
             </CardTitle>
             <CardDescription>
-              Managers always handle stock, orders, rentals and clients at their own shops. Staff always use Quick Entry.
+              Managers always handle stock, orders, rentals and clients at their own shops. Each staff member&apos;s own rights (sell, add stock,
+              rent out) are set on{" "}
+              <Link href="/users" className="font-medium text-primary underline-offset-2 hover:underline">
+                Users &amp; Staff
+              </Link>
+              .
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -203,20 +256,22 @@ function ToggleRow({
   description,
   checked,
   onChange,
+  disabled,
 }: {
   id: string
   label: string
   description: string
   checked: boolean
   onChange: (on: boolean) => void
+  disabled?: boolean
 }) {
   return (
-    <label data-setting={id} className="flex cursor-pointer items-center justify-between gap-4 py-3">
+    <label data-setting={id} className={cn("flex items-center justify-between gap-4 py-3", disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer")}>
       <span className="min-w-0">
         <span className="block text-sm font-medium">{label}</span>
         <span className="block text-xs text-muted-foreground">{description}</span>
       </span>
-      <Switch checked={checked} onCheckedChange={onChange} />
+      <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} />
     </label>
   )
 }
@@ -237,7 +292,9 @@ function SubscriptionCard() {
         <div>
           <p className="text-2xl font-semibold tabular-nums">{priceLabel(business.monthlyPrice)}</p>
           <p className="text-sm text-muted-foreground">
-            {business.status === "trial" ? "Free trial ends" : "Paid until"} {formatDate(endsAt)} · {daysLeft(endsAt)} days left
+            {business.cancelledAt
+              ? `Cancelled. Works until ${formatDate(endsAt)} · ${daysLeft(endsAt)} days left`
+              : `${business.status === "trial" ? "Free trial ends" : "Paid until"} ${formatDate(endsAt)} · ${daysLeft(endsAt)} days left`}
           </p>
         </div>
         <div className="flex items-center gap-3">

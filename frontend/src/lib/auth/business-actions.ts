@@ -11,7 +11,7 @@ const SettingsSchema = z.object({
   settings: z.object({
     // BDT or USD, or the one the business already had before the list was narrowed; Django checks.
     currency: z.string().length(3),
-    modules: z.object({ rentals: flag, tracking: flag, transfers: flag, trackingLinks: flag }),
+    modules: z.object({ rentals: flag, tracking: flag, transfers: flag, trackingLinks: flag, purchases: flag }),
     permissions: z.object({
       managerUsers: flag,
       managerActivity: flag,
@@ -20,8 +20,11 @@ const SettingsSchema = z.object({
       managerLocations: flag,
       staffCreateProducts: flag,
       managerPurchases: flag,
+      managerReturns: flag,
     }),
     payments: z.object({ mobile: flag, card: flag }),
+    receiptNote: z.string().trim().max(200, "Keep the receipt note under 200 characters."),
+    lowStockAlert: z.number().int("The low-stock alert must be a whole number.").min(0).max(100_000),
   }),
 })
 

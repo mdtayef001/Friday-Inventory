@@ -15,9 +15,10 @@ from .permissions import creatable_roles
 
 # Currencies a business can choose. One picked before the list was narrowed can still be kept.
 CURRENCIES = ["BDT", "USD"]
-MODULES = ["rentals", "tracking", "transfers", "trackingLinks"]
+MODULES = ["rentals", "tracking", "transfers", "trackingLinks", "purchases"]
 PERMISSIONS = [
     "managerUsers", "managerActivity", "managerProducts", "managerLocations", "staffCreateProducts", "managerProfit", "managerPurchases",
+    "managerReturns",
 ]
 
 
@@ -96,6 +97,8 @@ class BusinessSerializer(serializers.ModelSerializer):
                 "modules": {k: modules[k] for k in MODULES},
                 "permissions": {k: permissions[k] for k in PERMISSIONS},
                 "payments": {k: payments[k] for k in ("mobile", "card")},
+                "receiptNote": value["receiptNote"],
+                "lowStockAlert": value["lowStockAlert"],
             }
         except (KeyError, TypeError, AttributeError):
             raise serializers.ValidationError("Settings are incomplete.")
@@ -105,6 +108,12 @@ class BusinessSerializer(serializers.ModelSerializer):
         flags = [*clean["modules"].values(), *clean["permissions"].values(), *clean["payments"].values()]
         if not all(isinstance(f, bool) for f in flags):
             raise serializers.ValidationError("Feature switches must be on or off.")
+        if not isinstance(clean["receiptNote"], str) or len(clean["receiptNote"].strip()) > 200:
+            raise serializers.ValidationError("Keep the receipt note under 200 characters.")
+        clean["receiptNote"] = clean["receiptNote"].strip()
+        alert = clean["lowStockAlert"]
+        if isinstance(alert, bool) or not isinstance(alert, int) or not 0 <= alert <= 100_000:
+            raise serializers.ValidationError("The low-stock alert must be a whole number, 0 or more.")
         return clean
 
 

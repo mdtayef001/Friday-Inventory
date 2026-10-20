@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
 import { Field, Pill, useAttempt, useRequired } from "@/components/common"
-import { useScope, useSessionUser } from "@/components/session-provider"
+import { usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { PAYMENT_METHODS } from "@/lib/business"
 import { actions } from "@/lib/data/actions"
 import { apiQuery } from "@/lib/data/queries"
@@ -50,10 +50,12 @@ export function ReturnStatus({ sale: s }: { sale: Sale }) {
 /** The row menu on the Sales page. Nothing for staff, or when there's nothing to do. */
 export function SaleActions({ sale: s }: { sale: Sale }) {
   const { role } = useSessionUser()
+  const { can } = usePermissions()
   const [mode, setMode] = useState<Mode | null>(null)
-  const isOwner = role === "owner"
+  // Owners and admins decide; managers too when the owner lets them return sales. Other managers ask.
+  const decides = role === "owner" || (role === "manager" && can("managerReturns"))
   const requested = s.returnRequest === "requested"
-  const canReturn = returnable(s) && (isOwner || (role === "manager" && !requested))
+  const canReturn = returnable(s) && (decides || (role === "manager" && !requested))
   if (!canReturn) return null
 
   return (
@@ -63,7 +65,7 @@ export function SaleActions({ sale: s }: { sale: Sale }) {
           <MoreHorizontal />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
-          {canReturn && isOwner && requested && (
+          {canReturn && decides && requested && (
             <>
               <DropdownMenuItem onClick={() => setMode("approve")}>
                 <Check />
@@ -75,13 +77,13 @@ export function SaleActions({ sale: s }: { sale: Sale }) {
               </DropdownMenuItem>
             </>
           )}
-          {canReturn && isOwner && !requested && (
+          {canReturn && decides && !requested && (
             <DropdownMenuItem onClick={() => setMode("return")}>
               <Undo2 />
               Return and refund…
             </DropdownMenuItem>
           )}
-          {canReturn && !isOwner && (
+          {canReturn && !decides && (
             <DropdownMenuItem onClick={() => setMode("request")}>
               <Undo2 />
               {s.returnRequest === "declined" ? "Ask again to return…" : "Ask to return…"}

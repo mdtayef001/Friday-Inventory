@@ -1442,3 +1442,50 @@ class ExportTests(PurchaseBase):
         self.login("root@x.com")
         status, files = self.download(f"/api/platform/businesses/{self.biz.id}/export/")
         self.assertEqual((status, files["products.csv"][1][2]), (200, "TV"))
+
+
+class NewSettingsTests(PurchaseBase):
+    """Buying on or off, managers returning sales, the receipt note and the default low-stock alert."""
+
+    def save(self, **changes):
+        current = self.client.get("/api/business/").json()["settings"]
+        for key, value in changes.items():
+            current[key] = {**current[key], **value} if isinstance(value, dict) else value
+        return self.client.patch("/api/business/", {"settings": current}, format="json")
+
+    def test_new_businesses_start_in_taka_with_everything_on(self):
+        s = Business.objects.create(name="New").settings
+        self.assertEqual((s["currency"], s["modules"]["purchases"], s["permissions"]["managerReturns"], s["receiptNote"], s["lowStockAlert"]),
+                         ("BDT", True, False, "", 5))
+
+    def test_buying_switched_off_hides_purchases_and_suppliers(self):
+        self.assertEqual(self.save(modules={"purchases": False}).status_code, 200)
+        for url in ("/api/purchases/", "/api/suppliers/", "/api/supplier-returns/", "/api/supplier-payments/"):
+            self.assertEqual(self.client.get(url).status_code, 403, url)
+        self.save(modules={"purchases": True})
+        self.assertEqual(self.client.get("/api/purchases/").status_code, 200)
+
+    def test_managers_return_sales_when_allowed(self):
+        manager = self.make_user("manager@a.com", User.Role.MANAGER, self.biz)
+        manager.locations.set([self.warehouse])
+        sale = self.sell().json()
+        self.save(permissions={"managerReturns": True})
+        self.client.credentials()
+        self.login("manager@a.com")
+        res = self.client.post(f"/api/sales/{sale['id']}/return/", {"reason": "Faulty"}, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(self.qty(self.warehouse), 10)
+
+    def test_receipt_note_and_low_stock_alert(self):
+        self.assertEqual(self.save(receiptNote="x" * 201).status_code, 400)
+        self.assertEqual(self.save(lowStockAlert=-1).status_code, 400)
+        self.assertEqual(self.save(lowStockAlert="5").status_code, 400)
+        self.assertEqual(self.save(receiptNote="  Returns within 7 days.  ", lowStockAlert=12).status_code, 200)
+        sale = self.sell().json()
+        self.assertEqual(self.client.get(f"/api/sales/{sale['id']}/receipt/").json()["note"], "Returns within 7 days.")
+        # New products start at the alert, unless they're given their own.
+        made = self.client.post("/api/products/", {"sku": "N-1", "name": "New", "price": 1}, format="json").json()
+        own = self.client.post("/api/products/", {"sku": "N-2", "name": "Own", "price": 1, "lowStockThreshold": 2}, format="json").json()
+        self.assertEqual((made["lowStockThreshold"], own["lowStockThreshold"]), (12, 2))
+        bought = self.buy(items=[{"newProduct": {"name": "Fresh"}, "quantity": 1, "unitCost": "10"}]).json()
+        self.assertEqual(Product.objects.get(pk=bought["items"][0]["productId"]).low_stock_threshold, 12)

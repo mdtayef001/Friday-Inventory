@@ -12,7 +12,7 @@ import { useCategories } from "@/lib/data/queries"
 import type { Product } from "@/lib/types"
 import { useAttempt, useRequired, Field, SimpleSelect } from "./common"
 import { ScanButton } from "./scanner"
-import { useScope } from "./session-provider"
+import { useBusiness, useScope } from "./session-provider"
 
 export const UNITS = ["pcs", "box", "pack", "set", "roll", "kg", "g", "litre", "metre", "pair"]
 
@@ -37,6 +37,7 @@ export function ProductForm({
   onCancel?: () => void
 }) {
   const { locations } = useScope()
+  const lowStockAlert = useBusiness().settings.lowStockAlert
   const { addProduct, updateProduct } = actions
   const categories = useCategories()
 
@@ -48,7 +49,7 @@ export function ProductForm({
     unit: product?.unit ?? "pcs",
     price: product ? String(product.price) : "",
     cost: product ? String(product.cost) : "",
-    lowStockThreshold: product ? String(product.lowStockThreshold) : "5",
+    lowStockThreshold: String(product ? product.lowStockThreshold : lowStockAlert),
     description: product?.description ?? "",
     rentable: product?.rentable ?? false,
     daily: product?.rentRates?.daily?.toString() ?? "",

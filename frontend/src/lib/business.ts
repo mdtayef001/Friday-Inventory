@@ -41,7 +41,8 @@ export const MODULES: Record<ModuleId, { label: string; description: string }> =
   rentals: { label: "Rentals", description: "Rent items out by day, week, month or a fixed price." },
   tracking: { label: "Orders & delivery tracking", description: "Track orders from pending to delivered." },
   transfers: { label: "Stock transfers", description: "Move stock between warehouses and shops." },
-  trackingLinks: { label: "Client tracking links", description: "Send clients a link to check their order status. No login needed." },
+  trackingLinks: { label: "Client tracking links", description: "Send clients a link to check their order status. No login needed. Needs orders & delivery tracking." },
+  purchases: { label: "Buying", description: "Purchases, suppliers and returns to suppliers: what you buy, what you owe and what goes back." },
 }
 
 export const PERMISSIONS: Record<PermissionId, { label: string; description: string; role: "manager" | "staff" }> = {
@@ -51,6 +52,7 @@ export const PERMISSIONS: Record<PermissionId, { label: string; description: str
   managerActivity: { label: "See the activity log", description: "Who did what, and when.", role: "manager" },
   managerProfit: { label: "See cost and profit", description: "On the Sales page and when selling. Otherwise they see prices only.", role: "manager" },
   managerPurchases: { label: "Handle purchases", description: "Record stock bought from suppliers at their shops. They see what you paid.", role: "manager" },
+  managerReturns: { label: "Return sales", description: "Take a sale back and refund it at their shops. Otherwise they ask you, and you decide.", role: "manager" },
   staffCreateProducts: { label: "Create new products", description: "When a scanned code is unknown. Otherwise staff only add stock.", role: "staff" },
 }
 
@@ -60,8 +62,8 @@ export const CURRENCY_LABEL: Record<string, string> = { BDT: "৳ Bangladeshi ta
 
 export function defaultSettings(): BusinessSettings {
   return {
-    currency: "USD",
-    modules: { rentals: true, tracking: true, transfers: true, trackingLinks: true },
+    currency: "BDT",
+    modules: { rentals: true, tracking: true, transfers: true, trackingLinks: true, purchases: true },
     permissions: {
       managerUsers: true,
       managerActivity: false,
@@ -70,8 +72,11 @@ export function defaultSettings(): BusinessSettings {
       managerLocations: false,
       staffCreateProducts: true,
       managerPurchases: false,
+      managerReturns: false,
     },
     payments: { mobile: false, card: false },
+    receiptNote: "",
+    lowStockAlert: 5,
   }
 }
 
