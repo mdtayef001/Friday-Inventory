@@ -63,3 +63,39 @@ export async function logout() {
   await deleteSession()
   redirect("/login")
 }
+
+export interface ResetState {
+  error?: string
+  done?: boolean
+}
+
+/** Forgot password: Django emails a link if the account exists, and says the same either way. */
+export async function requestPasswordReset(_prev: ResetState, formData: FormData): Promise<ResetState> {
+  const parsed = z.email("Enter a valid email address").trim().safeParse(formData.get("email"))
+  if (!parsed.success) return { error: parsed.error.issues[0].message }
+  try {
+    await api("auth/password-reset/", { method: "POST", body: { email: parsed.data }, token: null })
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 429) return { error: "Too many requests for this email. Try again in an hour." }
+    return { error: "Couldn't send the email. Please try again." }
+  }
+  return { done: true }
+}
+
+/** Sets the new password from the emailed link. */
+export async function resetPassword(_prev: ResetState, formData: FormData): Promise<ResetState> {
+  const password = String(formData.get("password") ?? "")
+  if (password.length < 8) return { error: "Use at least 8 characters." }
+  if (password !== formData.get("confirm")) return { error: "The two passwords don't match." }
+  try {
+    await api("auth/password-reset/confirm/", {
+      method: "POST",
+      body: { uid: formData.get("uid"), token: formData.get("token"), password },
+      token: null,
+    })
+  } catch (err) {
+    if (err instanceof ApiError && err.status < 500) return { error: err.message }
+    return { error: "Couldn't reach the server. Please try again." }
+  }
+  return { done: true }
+}

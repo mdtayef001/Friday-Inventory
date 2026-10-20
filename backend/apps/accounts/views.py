@@ -2,17 +2,24 @@ import hmac
 import time
 
 from django.conf import settings
+from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.tokens import default_token_generator
 from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.mail import send_mail
 from django.core.management import call_command
 from django.http import HttpResponse
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from django.utils import timezone
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
@@ -49,6 +56,61 @@ class LoginThrottle(SimpleRateThrottle):
 class LoginView(TokenObtainPairView):
     serializer_class = LoginSerializer
     throttle_classes = [LoginThrottle]
+
+
+class PasswordResetThrottle(LoginThrottle):
+    scope = "password_reset"
+
+
+class PasswordResetView(APIView):
+    """Forgot password: emails a link to set a new one. Always answers the same, so it
+    can't be used to find out which emails have accounts."""
+
+    authentication_classes = []
+    permission_classes = []
+    throttle_classes = [PasswordResetThrottle]
+
+    def post(self, request):
+        email = str(request.data.get("email", "")).strip().lower()
+        user = User.objects.filter(email=email, is_active=True).first() if email else None
+        if user:
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            link = f"{settings.FRONTEND_URL}/reset-password?uid={uid}&token={default_token_generator.make_token(user)}"
+            send_mail(
+                "Set a new password for Friday Inventory",
+                f"Hi {user.name},\n\nSomeone asked to reset the password for {user.email}. If it was you, open this link "
+                f"within 3 days to choose a new one:\n\n{link}\n\nIf it wasn't you, ignore this email. Your password stays the same.",
+                None,
+                [user.email],
+                fail_silently=False,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PasswordResetConfirmView(APIView):
+    """Sets the new password from the emailed link, and logs the account out everywhere else."""
+
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+        try:
+            user = User.objects.get(pk=urlsafe_base64_decode(str(request.data.get("uid", ""))).decode(), is_active=True)
+        except (ValueError, TypeError, OverflowError, User.DoesNotExist):
+            user = None
+        if not user or not default_token_generator.check_token(user, str(request.data.get("token", ""))):
+            raise ValidationError({"token": "This link has expired or was already used. Ask for a new one."})
+        serializer = PasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            validate_password(serializer.validated_data["password"], user)
+        except DjangoValidationError as err:
+            raise ValidationError({"password": err.messages}) from err
+        user.set_password(serializer.validated_data["password"])
+        user.save(update_fields=["password"])
+        for token in OutstandingToken.objects.filter(user=user):
+            BlacklistedToken.objects.get_or_create(token=token)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class LogoutView(APIView):

@@ -1,6 +1,7 @@
 "use client"
 
 import { useActionState, useRef, useState } from "react"
+import Link from "next/link"
 import { Eye, EyeOff, Loader2, LockKeyhole, TriangleAlert } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -12,7 +13,7 @@ const DEMO_ACCOUNTS = [
   { role: "Super admin", email: "super@friday.app", password: "super123", note: "Runs the platform: all businesses" },
   { role: "Owner", email: "owner@friday.app", password: "owner123", note: "Friday Demo Store: full access" },
   { role: "Manager", email: "manager@friday.app", password: "manager123", note: "Downtown & Uptown outlets" },
-  { role: "Staff", email: "staff@friday.app", password: "staff123", note: "Product entry only" },
+  { role: "Staff", email: "staff@friday.app", password: "staff123", note: "Main Warehouse: sells, adds stock, rents out" },
   { role: "Staff (sell only)", email: "seller@friday.app", password: "staff123", note: "Main Warehouse: sells, can't add products" },
   { role: "Staff (products only)", email: "stocker@friday.app", password: "staff123", note: "Main Warehouse: adds products, can't sell" },
   { role: "Owner (on trial)", email: "cafe@friday.app", password: "cafe1234", note: "Green Leaf Café: trial ends in 2 days" },
@@ -60,7 +61,12 @@ export function LoginForm({ showDemoAccounts }: { showDemoAccounts: boolean }) {
           />
         </div>
         <div className="grid gap-1.5">
-          <Label htmlFor="password">Password</Label>
+          <div className="flex items-center justify-between">
+            <Label htmlFor="password">Password</Label>
+            <Link href="/forgot-password" className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
+              Forgot password?
+            </Link>
+          </div>
           <div className="relative">
             <Input
               ref={passwordRef}
@@ -87,6 +93,17 @@ export function LoginForm({ showDemoAccounts }: { showDemoAccounts: boolean }) {
         </Button>
         <p className="text-center text-xs text-muted-foreground">
           No account? Ask your business owner to create one for you.
+        </p>
+        <p className="text-center text-xs text-muted-foreground">
+          By logging in you agree to the{" "}
+          <Link href="/terms" className="underline underline-offset-2 hover:text-foreground">
+            Terms of Service
+          </Link>{" "}
+          and{" "}
+          <Link href="/privacy" className="underline underline-offset-2 hover:text-foreground">
+            Privacy Policy
+          </Link>
+          .
         </p>
       </form>
 

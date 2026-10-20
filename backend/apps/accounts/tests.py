@@ -312,3 +312,45 @@ class LeavingTests(APITestCase):
         res = self.client.post(f"/api/platform/businesses/{self.biz.id}/stop-deletion/", format="json")
         self.assertIsNone(res.json()["deletionRequestedAt"])
         self.assertEqual(self.client.post(f"/api/platform/businesses/{self.biz.id}/approve-deletion/", format="json").status_code, 400)
+
+
+class PasswordResetTests(APITestCase):
+    """Forgot password: a link by email, good once, and it logs the account out elsewhere."""
+
+    def setUp(self):
+        cache.clear()
+        self.biz = Business.objects.create(name="Shop")
+        self.owner = User.objects.create_user(email="owner@x.com", password=PASSWORD, name="Owner", role="owner", business=self.biz)
+
+    def link(self):
+        from urllib.parse import parse_qs, urlparse
+
+        from django.core import mail
+
+        url = next(w for w in mail.outbox[-1].body.split() if "/reset-password?" in w)
+        query = parse_qs(urlparse(url).query)
+        return query["uid"][0], query["token"][0]
+
+    def test_reset_by_email_link(self):
+        from django.core import mail
+
+        old = self.client.post("/api/auth/login/", {"email": "owner@x.com", "password": PASSWORD}, format="json").json()["refresh"]
+        self.assertEqual(self.client.post("/api/auth/password-reset/", {"email": " Owner@X.com "}, format="json").status_code, 204)
+        self.assertEqual((len(mail.outbox), mail.outbox[0].to), (1, ["owner@x.com"]))
+        uid, token = self.link()
+
+        confirm = lambda pw, t=token: self.client.post("/api/auth/password-reset/confirm/", {"uid": uid, "token": t, "password": pw}, format="json")  # noqa: E731
+        self.assertEqual(confirm("12345678").status_code, 400)  # too common
+        self.assertEqual(confirm("x", "wrong-token").status_code, 400)
+        self.assertEqual(confirm("a-brand-new-pass-7").status_code, 204)
+        self.assertEqual(confirm("another-new-pass-8").status_code, 400)  # the link works once
+        self.assertEqual(self.client.post("/api/auth/login/", {"email": "owner@x.com", "password": "a-brand-new-pass-7"}, format="json").status_code, 200)
+        self.assertEqual(self.client.post("/api/auth/refresh/", {"refresh": old}, format="json").status_code, 401)  # logged out elsewhere
+
+    def test_unknown_email_looks_the_same_and_is_limited(self):
+        from django.core import mail
+
+        for _ in range(3):
+            self.assertEqual(self.client.post("/api/auth/password-reset/", {"email": "nobody@x.com"}, format="json").status_code, 204)
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(self.client.post("/api/auth/password-reset/", {"email": "nobody@x.com"}, format="json").status_code, 429)

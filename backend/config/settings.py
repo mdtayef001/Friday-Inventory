@@ -103,14 +103,39 @@ CACHES = {
     )
 }
 
+# ---------- Email ----------
+# Any SMTP account (Gmail with an app password, Zoho, a provider like Brevo). Without
+# EMAIL_HOST, emails are printed to the console instead of sent, as in development.
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+EMAIL_BACKEND = (
+    "django.core.mail.backends.smtp.EmailBackend" if EMAIL_HOST else "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
+EMAIL_TIMEOUT = 15
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "Friday Inventory <noreply@localhost>")
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
+# Who gets an email with the full error whenever something breaks on the live server.
+ADMINS = [("Admin", e) for e in env_list("ADMIN_EMAILS", "")]
+
 # Send warnings and errors (with tracebacks) to stdout, where Vercel's logs pick them up.
-# Django's default only prints them while DEBUG is on.
+# Django's default only prints them while DEBUG is on. Server errors are also emailed to
+# ADMINS when email is set up and DEBUG is off.
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "filters": {"live": {"()": "django.utils.log.RequireDebugFalse"}},
+    "handlers": {
+        "console": {"class": "logging.StreamHandler"},
+        "mail_admins": {"class": "django.utils.log.AdminEmailHandler", "level": "ERROR", "filters": ["live"]},
+    },
     "root": {"handlers": ["console"], "level": "WARNING"},
-    "loggers": {"django": {"handlers": ["console"], "level": "WARNING", "propagate": False}},
+    "loggers": {
+        "django": {"handlers": ["console"], "level": "WARNING", "propagate": False},
+        "django.request": {"handlers": ["console", *(["mail_admins"] if EMAIL_HOST and ADMINS else [])], "level": "WARNING", "propagate": False},
+    },
 }
 
 AUTH_USER_MODEL = "accounts.User"
@@ -162,6 +187,7 @@ REST_FRAMEWORK = {
     "COERCE_DECIMAL_TO_STRING": False,
     "DEFAULT_THROTTLE_RATES": {
         "login": "5/min",
+        "password_reset": "3/hour",
     },
 }
 
