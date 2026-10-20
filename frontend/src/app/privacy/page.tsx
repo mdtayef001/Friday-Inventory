@@ -39,7 +39,6 @@ export default function PrivacyPage() {
             <li>Vercel: runs the app.</li>
             <li>Supabase: stores the database, in Singapore.</li>
             <li>SSLCommerz: takes online payments.</li>
-            <li>Our email provider: sends us error reports when something breaks.</li>
           </ul>
           <p>Each only gets what it needs for its part. We share data with authorities only when Bangladeshi law requires it.</p>
         </section>
