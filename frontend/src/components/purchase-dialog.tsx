@@ -2,20 +2,20 @@
 
 import { useEffect, useRef, useState } from "react"
 import { format } from "date-fns"
-import { Loader2, PackagePlus, Plus, X } from "lucide-react"
+import { Keyboard, Loader2, PackagePlus, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Field, Pill, SimpleSelect, useAttempt } from "@/components/common"
 import { UNITS } from "@/components/product-form"
+import { ProductPicker } from "@/components/product-picker"
 import { ScanButton } from "@/components/scanner"
 import { usePermissions, useScope } from "@/components/session-provider"
 import { SupplierPicker } from "@/components/supplier-dialog"
 import { request } from "@/lib/api/client"
 import { actions, type NewProductInput } from "@/lib/data/actions"
-import { useDebounced, useProducts, withParams } from "@/lib/data/queries"
+import { withParams } from "@/lib/data/queries"
 import { formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { Page, Product, SupplierBrief } from "@/lib/types"
@@ -88,20 +88,18 @@ export function PurchaseDialog({ onClose, supplier: initialSupplier = null }: { 
     setLines((ls) => [...ls, { key: newKey(), draft, quantity, unitCost }])
   }
 
-  /** A scan, or Enter in the search box: the exact barcode or SKU first, then `fallback` (the highlighted match). */
-  function scan(raw: string, fallback?: Product) {
+  function scan(raw: string) {
     const code = raw.trim()
-    if (code) queue.current = queue.current.then(() => find(code, fallback))
+    if (code) queue.current = queue.current.then(() => find(code))
   }
 
-  async function find(code: string, fallback?: Product) {
+  async function find(code: string) {
     // A new product already on this bill, scanned again.
     const draft = linesNow.current.find((l) => l.draft?.barcode && l.draft.barcode === code)
     if (draft) return update(draft.key, { quantity: draft.quantity + 1 })
     try {
       const { results } = await request<Page<Product>>(withParams("products/", { code, page: 1, pageSize: 1 }))
       if (results[0]) addProduct(results[0])
-      else if (fallback) addProduct(fallback)
       else if (canCreateProducts) setCreating(looksLikeCode(code) ? { name: "", barcode: code } : { name: code })
       else toast.error(`No product matches ${code}. Ask the owner to add it first.`)
     } catch (err) {
@@ -167,15 +165,20 @@ export function PurchaseDialog({ onClose, supplier: initialSupplier = null }: { 
               </Field>
             </div>
 
-            <Field
-              label="Products"
-              hint={`Type a name, SKU or barcode, or scan one.${canCreateProducts ? " A product you don't have yet can be created here." : ""}`}
-            >
-              <div className="flex items-start gap-2">
-                <ProductSearch onPick={addProduct} onEnter={scan} onCreate={canCreateProducts ? (text) => setCreating(looksLikeCode(text) ? { name: "", barcode: text } : { name: text }) : undefined} />
+            <Field label="Products" hint={canCreateProducts ? "Search, or scan a barcode. A product you don't have yet can be created here." : undefined}>
+              <div className="flex gap-2">
+                <ProductPicker
+                  value={null}
+                  onChange={addProduct}
+                  placeholder="Add a product…"
+                  describe={(p) => `Cost ${formatMoney(p.cost)}`}
+                  onCreate={canCreateProducts ? (name) => setCreating({ name }) : undefined}
+                  className="flex-1"
+                />
                 <ScanButton onScan={scan} />
               </div>
             </Field>
+            <CodeBox onCode={scan} />
 
             {lines.length === 0 ? (
               <p className="rounded-xl border border-dashed p-4 text-center text-sm text-muted-foreground">Add the products on the supplier&apos;s bill.</p>
@@ -280,80 +283,29 @@ export function PurchaseDialog({ onClose, supplier: initialSupplier = null }: { 
 const looksLikeCode = (text: string) => /^\d{6,}$/.test(text) || (!/\s/.test(text) && /\d/.test(text) && text.length >= 6)
 
 /**
- * The one box for adding products: type to search by name, SKU or barcode, and the
- * matches show right under it. USB and Bluetooth scanners type the code and press
- * Enter, so Enter adds the exact code match first, then the highlighted one. It's
- * not a form of its own (it sits inside the purchase form), so Enter is caught here.
+ * For USB and Bluetooth scanners, which type the code and press Enter. Not a form of
+ * its own (it sits inside the purchase form), so Enter is caught here.
  */
-function ProductSearch({
-  onPick,
-  onEnter,
-  onCreate,
-}: {
-  onPick: (product: Product) => void
-  onEnter: (text: string, highlighted?: Product) => void
-  onCreate?: (text: string) => void
-}) {
-  const [search, setSearch] = useState("")
-  const [active, setActive] = useState("")
-  const typed = search.trim()
-  const term = useDebounced(typed)
-  const { data, isFetching } = useProducts({ page: 1, search: term, ordering: "name" }, { pageSize: 8, enabled: !!term })
-  // Only matches for what's in the box now, never a stale search.
-  const results = term && term === typed ? (data?.results ?? []) : []
-  const searching = !!typed && (term !== typed || isFetching)
-  const clear = () => {
-    setSearch("")
-    setActive("")
-  }
-
+function CodeBox({ onCode }: { onCode: (code: string) => void }) {
+  const [value, setValue] = useState("")
   return (
-    <Command shouldFilter={false} value={active} onValueChange={setActive} className="size-auto min-w-0 flex-1 border bg-background p-0">
-      <CommandInput
-        value={search}
-        onValueChange={setSearch}
-        placeholder="Search name, SKU or barcode, or scan…"
-        aria-label="Add a product"
-        autoComplete="off"
+    <div className="relative">
+      <Keyboard className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
           if (e.key !== "Enter") return
           e.preventDefault()
-          if (!typed) return
-          onEnter(typed, results.find((p) => p.id === active))
-          clear()
+          if (value.trim()) onCode(value)
+          setValue("")
         }}
+        placeholder="Or type / scan a barcode or SKU and press Enter"
+        aria-label="Barcode or SKU"
+        className="pl-9 font-mono"
+        autoComplete="off"
       />
-      {typed && (
-        <CommandList className="p-1">
-          <CommandEmpty>{searching ? "Searching…" : "No product matches."}</CommandEmpty>
-          {results.map((p) => (
-            <CommandItem
-              key={p.id}
-              value={p.id}
-              onSelect={() => {
-                onPick(p)
-                clear()
-              }}
-            >
-              <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{p.name}</span>
-              <span className="shrink-0 text-xs text-muted-foreground">Cost {formatMoney(p.cost)}</span>
-            </CommandItem>
-          ))}
-          {onCreate && !searching && (
-            <CommandItem
-              value="create-new-product"
-              onSelect={() => {
-                onCreate(typed)
-                clear()
-              }}
-            >
-              <Plus />
-              <span className="[overflow-wrap:anywhere]">Create &ldquo;{typed}&rdquo;</span>
-            </CommandItem>
-          )}
-        </CommandList>
-      )}
-    </Command>
+    </div>
   )
 }
 
