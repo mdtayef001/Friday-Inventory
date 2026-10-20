@@ -5,7 +5,7 @@ import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Field, Pill, SimpleSelect, useAttempt, type PillTone } from "@/components/common"
+import { Field, Pill, SimpleSelect, useAttempt, useRequired, type PillTone } from "@/components/common"
 import { actions } from "@/lib/data/actions"
 import { useLocations } from "@/lib/data/queries"
 import { formatMoney } from "@/lib/format"
@@ -32,16 +32,18 @@ const REASONS = ["Broken", "Damaged in delivery", "Wrong item", "Expired", "Not 
 /** Sends some of a purchase's product back to the supplier. */
 export function ReturnToSupplierDialog({ purchase, item, onClose }: { purchase: Purchase; item: PurchaseItem; onClose: () => void }) {
   const [run, pending] = useAttempt()
+  const required = useRequired()
   const left = item.quantity - item.returned
   const [quantity, setQuantity] = useState(1)
   const [reason, setReason] = useState("")
   const location = useLocations().find((l) => l.id === purchase.locationId)?.name
-  const valid = Number.isInteger(quantity) && quantity > 0 && quantity <= left && reason.trim() !== ""
+  const qtyOk = Number.isInteger(quantity) && quantity > 0 && quantity <= left
+  const reasonOk = reason.trim() !== ""
   const value = quantity * item.unitCost
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!valid) return
+    if (!required.check(qtyOk && reasonOk, e)) return
     if (await run(() => actions.returnToSupplier(item.id, quantity, reason.trim()), "Return recorded. The stock is out.")) onClose()
   }
 
@@ -55,7 +57,7 @@ export function ReturnToSupplierDialog({ purchase, item, onClose }: { purchase: 
               {item.productName} from {purchase.code} · paid {formatMoney(item.unitCost)} each · {left} of {item.quantity} can be returned
             </DialogDescription>
           </DialogHeader>
-          <Field label="How many" htmlFor="ret-qty">
+          <Field label="How many" htmlFor="ret-qty" required missing={required.shown && !qtyOk}>
             <Input
               id="ret-qty"
               type="number"
@@ -69,7 +71,7 @@ export function ReturnToSupplierDialog({ purchase, item, onClose }: { purchase: 
               autoFocus
             />
           </Field>
-          <Field label="What's wrong" htmlFor="ret-reason">
+          <Field label="What's wrong" htmlFor="ret-reason" required missing={required.shown && !reasonOk}>
             <Input id="ret-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} placeholder="e.g. Broken screen" />
             <div className="mt-1 flex flex-wrap gap-1">
               {REASONS.map((r) => (
@@ -92,7 +94,7 @@ export function ReturnToSupplierDialog({ purchase, item, onClose }: { purchase: 
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!valid || pending}>
+            <Button type="submit" disabled={pending}>
               {pending && <Loader2 className="animate-spin" />}
               Return {quantity > 0 ? quantity : ""} · {formatMoney(Number.isFinite(value) ? value : 0)}
             </Button>
@@ -108,6 +110,7 @@ export type SettleMode = "replacement" | "refund" | "credit" | "close"
 /** The supplier settles a return: new units, money back, taken off what's owed, or the owner gives up on the rest. */
 export function SettleReturnDialog({ ret: r, mode, onClose }: { ret: SupplierReturn; mode: SettleMode; onClose: () => void }) {
   const [run, pending] = useAttempt()
+  const required = useRequired()
   const [quantity, setQuantity] = useState(r.unitsToReplace)
   const [amount, setAmount] = useState(String(r.outstanding))
   const [method, setMethod] = useState<RefundMethod>("cash")
@@ -124,7 +127,7 @@ export function SettleReturnDialog({ ret: r, mode, onClose }: { ret: SupplierRet
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!valid) return
+    if (!required.check(valid, e)) return
     const done = {
       replacement: () => actions.receiveReplacement(r.id, quantity),
       refund: () => actions.receiveRefund(r.id, money, method),
@@ -152,7 +155,7 @@ export function SettleReturnDialog({ ret: r, mode, onClose }: { ret: SupplierRet
             </DialogDescription>
           </DialogHeader>
           {mode === "replacement" && (
-            <Field label="How many arrived" htmlFor="set-qty" hint={`Up to ${r.unitsToReplace}. They go into stock${location ? ` at ${location}` : ""}.`}>
+            <Field label="How many arrived" htmlFor="set-qty" required missing={required.shown && !valid} hint={`Up to ${r.unitsToReplace}. They go into stock${location ? ` at ${location}` : ""}.`}>
               <Input
                 id="set-qty"
                 type="number"
@@ -168,7 +171,7 @@ export function SettleReturnDialog({ ret: r, mode, onClose }: { ret: SupplierRet
           )}
           {mode === "refund" && (
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Amount" htmlFor="set-amount" hint={`Up to ${formatMoney(r.outstanding)}.`}>
+              <Field label="Amount" htmlFor="set-amount" required missing={required.shown && !valid} hint={`Up to ${formatMoney(r.outstanding)}.`}>
                 <Input
                   id="set-amount"
                   type="number"
@@ -181,7 +184,7 @@ export function SettleReturnDialog({ ret: r, mode, onClose }: { ret: SupplierRet
                   autoFocus
                 />
               </Field>
-              <Field label="How it came" htmlFor="set-method">
+              <Field label="How it came" htmlFor="set-method" required>
                 <SimpleSelect
                   id="set-method"
                   value={method}
@@ -193,7 +196,7 @@ export function SettleReturnDialog({ ret: r, mode, onClose }: { ret: SupplierRet
           )}
           {mode === "credit" && (
             <>
-              <Field label="Amount" htmlFor="set-credit" hint={`Up to ${formatMoney(r.outstanding)}.`}>
+              <Field label="Amount" htmlFor="set-credit" required missing={required.shown && !valid} hint={`Up to ${formatMoney(r.outstanding)}.`}>
                 <Input
                   id="set-credit"
                   type="number"
@@ -217,7 +220,7 @@ export function SettleReturnDialog({ ret: r, mode, onClose }: { ret: SupplierRet
               <p className="text-sm">
                 The supplier won&apos;t settle the rest. <strong>{formatMoney(r.outstanding)}</strong> is written off as a loss, and the return is closed.
               </p>
-              <Field label="Note" htmlFor="set-note" hint="Optional.">
+              <Field label="Note" htmlFor="set-note">
                 <Input id="set-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} placeholder="e.g. Supplier refused" autoFocus />
               </Field>
             </>
@@ -226,7 +229,7 @@ export function SettleReturnDialog({ ret: r, mode, onClose }: { ret: SupplierRet
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" variant={mode === "close" ? "destructive" : "default"} disabled={!valid || pending}>
+            <Button type="submit" variant={mode === "close" ? "destructive" : "default"} disabled={pending}>
               {pending && <Loader2 className="animate-spin" />}
               {{ replacement: "Put back in stock", refund: "Record refund", credit: "Take it off", close: "Close return" }[mode]}
             </Button>

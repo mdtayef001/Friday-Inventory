@@ -7,7 +7,7 @@ import { toast } from "sonner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Field, SimpleSelect } from "@/components/common"
+import { Field, SimpleSelect, useRequired } from "@/components/common"
 import { useBusiness, useSessionUser } from "@/components/session-provider"
 import { PRICE_LABEL, REMINDER_DAYS, SUBSCRIPTION, accessEndsAt, daysLeft, formatTaka } from "@/lib/business"
 import { sendManualPayment, startPayment, type ManualPaymentInput } from "@/lib/billing/actions"
@@ -104,9 +104,11 @@ export function ManualPayForm({ options }: { options: PaymentOptions }) {
   const bank = method === "bank" ? options.bank : null
   const wallet = options.wallets.find((w) => w.id === method)
   const amount = formatTaka(SUBSCRIPTION.price * Number(months))
+  const required = useRequired()
 
   function submit(e: React.FormEvent) {
     e.preventDefault()
+    if (!required.check(!!reference.trim(), e)) return
     startTransition(async () => {
       const result = await sendManualPayment({ method, months: Number(months), reference, sentFrom })
       if (!result.ok) return void toast.error(result.error)
@@ -136,7 +138,7 @@ export function ManualPayForm({ options }: { options: PaymentOptions }) {
         ))}
       </div>
 
-      <Field label="How many months" htmlFor="pay-months">
+      <Field label="How many months" htmlFor="pay-months" required>
         <SimpleSelect id="pay-months" value={months} onChange={setMonths} options={MONTHS.map((n) => ({ value: String(n), label: `${n} ${n === 1 ? "month" : "months"} · ${formatTaka(SUBSCRIPTION.price * n)}` }))} />
       </Field>
 
@@ -181,14 +183,14 @@ export function ManualPayForm({ options }: { options: PaymentOptions }) {
         )}
       </div>
 
-      <Field label={bank ? "Bank reference" : "Transaction ID (TrxID)"} htmlFor="pay-ref" hint={bank ? "From your bank's receipt or app." : "In the SMS you got after sending."}>
-        <Input id="pay-ref" value={reference} onChange={(e) => setReference(e.target.value)} className="font-mono" maxLength={100} required />
+      <Field label={bank ? "Bank reference" : "Transaction ID (TrxID)"} htmlFor="pay-ref" required missing={required.shown && !reference.trim()} hint={bank ? "From your bank's receipt or app." : "In the SMS you got after sending."}>
+        <Input id="pay-ref" value={reference} onChange={(e) => setReference(e.target.value)} className="font-mono" maxLength={100} />
       </Field>
       <Field label={bank ? "Sent from (account name)" : "Sent from (your number)"} htmlFor="pay-from">
         <Input id="pay-from" value={sentFrom} onChange={(e) => setSentFrom(e.target.value)} maxLength={100} inputMode={bank ? undefined : "tel"} />
       </Field>
 
-      <Button type="submit" size="lg" className="h-11" disabled={pending || !reference.trim()}>
+      <Button type="submit" size="lg" className="h-11" disabled={pending}>
         {pending ? <Loader2 className="animate-spin" /> : <Send />}
         I&apos;ve sent {amount}
       </Button>

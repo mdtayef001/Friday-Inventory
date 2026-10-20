@@ -7,7 +7,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Field, Pill, SimpleSelect, useAttempt } from "@/components/common"
+import { Field, Pill, SimpleSelect, useAttempt, useRequired } from "@/components/common"
 import { UNITS } from "@/components/product-form"
 import { ProductPicker } from "@/components/product-picker"
 import { ScanButton } from "@/components/scanner"
@@ -111,20 +111,17 @@ export function PurchaseDialog({ onClose, supplier: initialSupplier = null }: { 
   const paidNow = payMode === "full" ? total : payMode === "part" ? Number(partPaid) : 0
   const owed = Number.isFinite(total) && Number.isFinite(paidNow) ? Math.max(total - paidNow, 0) : 0
   // Credit needs someone to owe; part payment must be some but not all of the bill.
-  const paymentOk =
-    payMode === "full" || (!!supplier && (payMode === "credit" || (partPaid !== "" && paidNow > 0 && paidNow < total)) && (!dueDate || dueDate >= today()))
-  const valid =
-    !!locationId &&
-    lines.length > 0 &&
-    lines.every((l) => Number.isInteger(l.quantity) && l.quantity > 0 && l.unitCost !== "" && Number(l.unitCost) >= 0) &&
-    !!date &&
-    date <= today() &&
-    paymentOk
+  const supplierOk = payMode === "full" || !!supplier
+  const partPaidOk = payMode !== "part" || (partPaid !== "" && paidNow > 0 && paidNow < total)
+  const dueDateOk = payMode === "full" || !dueDate || dueDate >= today()
+  const dateOk = !!date && date <= today()
+  const valid = supplierOk && !!locationId && lines.length > 0 && lines.every(lineOk) && dateOk && partPaidOk && dueDateOk
+  const required = useRequired()
   const newCount = lines.filter((l) => l.draft).length
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!valid) return
+    if (!required.check(valid, e)) return
     const ok = await run(
       () =>
         actions.recordPurchase({
@@ -157,15 +154,15 @@ export function PurchaseDialog({ onClose, supplier: initialSupplier = null }: { 
               <DialogDescription>Stock you bought. It goes into stock where it arrives, and each product&apos;s cost is updated.</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Supplier" hint="Optional.">
+              <Field label="Supplier" required={payMode !== "full"} missing={required.shown && !supplierOk}>
                 <SupplierPicker value={supplier} onChange={setSupplier} allowNone />
               </Field>
-              <Field label="Arrives at">
+              <Field label="Arrives at" required missing={required.shown && !locationId}>
                 <SimpleSelect value={locationId} onChange={setLocationId} options={locations.map((l) => ({ value: l.id, label: l.name }))} />
               </Field>
             </div>
 
-            <Field label="Products" hint={canCreateProducts ? "Search, or scan a barcode. A product you don't have yet can be created here." : undefined}>
+            <Field label="Products" required missing={required.shown && lines.length === 0} hint={canCreateProducts ? "Search, or scan a barcode. A product you don't have yet can be created here." : undefined}>
               <div className="flex gap-2">
                 <ProductPicker
                   value={null}
@@ -184,19 +181,19 @@ export function PurchaseDialog({ onClose, supplier: initialSupplier = null }: { 
             ) : (
               <ul className="grid gap-3">
                 {lines.map((line, i) => (
-                  <PurchaseRow key={line.key} index={i} line={line} onChange={(patch) => update(line.key, patch)} onRemove={() => remove(line.key)} />
+                  <PurchaseRow key={line.key} index={i} line={line} showMissing={required.shown} onChange={(patch) => update(line.key, patch)} onRemove={() => remove(line.key)} />
                 ))}
               </ul>
             )}
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Supplier's bill number" htmlFor="pur-ref" hint="Optional.">
+              <Field label="Supplier's bill number" htmlFor="pur-ref">
                 <Input id="pur-ref" value={reference} onChange={(e) => setReference(e.target.value)} maxLength={60} autoComplete="off" placeholder="e.g. INV-1182" />
               </Field>
-              <Field label="Date bought" htmlFor="pur-date">
+              <Field label="Date bought" htmlFor="pur-date" required missing={required.shown && !dateOk}>
                 <Input id="pur-date" type="date" value={date} max={today()} onChange={(e) => setDate(e.target.value)} />
               </Field>
-              <Field label="Note" htmlFor="pur-note" hint="Optional." className="sm:col-span-2">
+              <Field label="Note" htmlFor="pur-note" className="sm:col-span-2">
                 <Input id="pur-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} />
               </Field>
             </div>
@@ -225,17 +222,17 @@ export function PurchaseDialog({ onClose, supplier: initialSupplier = null }: { 
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 {payMode === "part" && (
-                  <Field label="Paid now" htmlFor="pur-paid">
+                  <Field label="Paid now" htmlFor="pur-paid" required missing={required.shown && !partPaidOk}>
                     <Input id="pur-paid" type="number" inputMode="decimal" min="0.01" step="0.01" value={partPaid} onChange={(e) => setPartPaid(e.target.value)} />
                   </Field>
                 )}
                 {payMode !== "credit" && (
-                  <Field label="Paid with" htmlFor="pur-method">
+                  <Field label="Paid with" htmlFor="pur-method" required>
                     <SimpleSelect id="pur-method" value={payMethod} onChange={(v) => setPayMethod(v as PayMethod)} options={PAY_METHODS} />
                   </Field>
                 )}
                 {payMode !== "full" && (
-                  <Field label="Rest due by" htmlFor="pur-due" hint="Optional.">
+                  <Field label="Rest due by" htmlFor="pur-due" missing={required.shown && !dueDateOk}>
                     <Input id="pur-due" type="date" value={dueDate} min={today()} onChange={(e) => setDueDate(e.target.value)} />
                   </Field>
                 )}
@@ -255,7 +252,7 @@ export function PurchaseDialog({ onClose, supplier: initialSupplier = null }: { 
               <Button type="button" variant="outline" onClick={onClose}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={!valid || pending}>
+              <Button type="submit" disabled={pending}>
                 {pending ? <Loader2 className="animate-spin" /> : <PackagePlus />}
                 Save purchase {lines.length > 0 && Number.isFinite(total) ? `· ${formatMoney(total)}` : ""}
               </Button>
@@ -278,17 +275,23 @@ export function PurchaseDialog({ onClose, supplier: initialSupplier = null }: { 
   )
 }
 
+const qtyOk = (quantity: number) => Number.isInteger(quantity) && quantity > 0
+const costOk = (unitCost: string) => unitCost !== "" && Number(unitCost) >= 0
+const lineOk = (l: PurchaseLine) => qtyOk(l.quantity) && costOk(l.unitCost)
+
 /** A long run of digits (or one without spaces that has digits) is a barcode or SKU, not a product name. */
 const looksLikeCode = (text: string) => /^\d{6,}$/.test(text) || (!/\s/.test(text) && /\d/.test(text) && text.length >= 6)
 
 function PurchaseRow({
   index,
   line,
+  showMissing,
   onChange,
   onRemove,
 }: {
   index: number
   line: PurchaseLine
+  showMissing: boolean
   onChange: (patch: Partial<Pick<PurchaseLine, "quantity" | "unitCost">>) => void
   onRemove: () => void
 }) {
@@ -313,7 +316,7 @@ function PurchaseRow({
         </Button>
       </div>
       <div className="grid grid-cols-[5rem_1fr] items-end gap-2">
-        <Field label={`Qty (${unit})`} htmlFor={`pur-qty-${index}`}>
+        <Field label={`Qty (${unit})`} htmlFor={`pur-qty-${index}`} required missing={showMissing && !qtyOk(line.quantity)}>
           <Input
             id={`pur-qty-${index}`}
             type="number"
@@ -324,7 +327,7 @@ function PurchaseRow({
             onChange={(e) => onChange({ quantity: Math.floor(Number(e.target.value)) || 0 })}
           />
         </Field>
-        <Field label="Paid per unit" htmlFor={`pur-cost-${index}`}>
+        <Field label="Paid per unit" htmlFor={`pur-cost-${index}`} required missing={showMissing && !costOk(line.unitCost)}>
           <Input
             id={`pur-cost-${index}`}
             type="number"
@@ -362,13 +365,16 @@ function NewProductDialog({
   const [quantity, setQuantity] = useState(1)
   const [unitCost, setUnitCost] = useState("")
   const taken = !!barcode.trim() && takenBarcodes.includes(barcode.trim())
-  const valid = name.trim().length >= 2 && quantity > 0 && unitCost !== "" && Number(unitCost) >= 0 && (price === "" || Number(price) >= 0) && !taken
+  const nameOk = name.trim().length >= 2
+  const priceOk = price === "" || Number(price) >= 0
+  const valid = nameOk && qtyOk(quantity) && costOk(unitCost) && priceOk && !taken
+  const required = useRequired()
 
   function submit(e: React.FormEvent) {
     // Its own form inside the purchase dialog: don't let the submit reach the purchase.
     e.preventDefault()
     e.stopPropagation()
-    if (!valid) return
+    if (!required.check(valid, e)) return
     onAdd({ name: name.trim(), unit, price: price === "" ? undefined : Number(price), barcode: barcode.trim() || undefined }, quantity, unitCost)
   }
 
@@ -380,22 +386,22 @@ function NewProductDialog({
             <DialogTitle>New product</DialogTitle>
             <DialogDescription>It&apos;s created when you save the purchase. Add the rest later on its page.</DialogDescription>
           </DialogHeader>
-          <Field label="Name" htmlFor="np-name">
+          <Field label="Name" htmlFor="np-name" required missing={required.shown && !nameOk}>
             <Input id="np-name" value={name} onChange={(e) => setName(e.target.value)} autoFocus={!initial.name} maxLength={200} />
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Unit" htmlFor="np-unit">
+            <Field label="Unit" htmlFor="np-unit" required>
               <SimpleSelect id="np-unit" value={unit} onChange={setUnit} options={UNITS.map((u) => ({ value: u, label: u }))} />
             </Field>
-            <Field label="Selling price" htmlFor="np-price" hint="Optional.">
+            <Field label="Selling price" htmlFor="np-price" missing={required.shown && !priceOk}>
               <Input id="np-price" type="number" inputMode="decimal" min="0" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} />
             </Field>
           </div>
-          <Field label="Barcode" htmlFor="np-barcode" hint={taken ? "Another new product on this bill has this barcode." : "Optional. A SKU is made for you."}>
+          <Field label="Barcode" htmlFor="np-barcode" hint={taken ? "Another new product on this bill has this barcode." : "A SKU is made for you."}>
             <Input id="np-barcode" value={barcode} onChange={(e) => setBarcode(e.target.value)} className="font-mono" aria-invalid={taken} maxLength={128} />
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label={`Qty bought (${unit})`} htmlFor="np-qty">
+            <Field label={`Qty bought (${unit})`} htmlFor="np-qty" required missing={required.shown && !qtyOk(quantity)}>
               <Input
                 id="np-qty"
                 type="number"
@@ -406,7 +412,7 @@ function NewProductDialog({
                 onChange={(e) => setQuantity(Math.floor(Number(e.target.value)) || 0)}
               />
             </Field>
-            <Field label="Paid per unit" htmlFor="np-cost">
+            <Field label="Paid per unit" htmlFor="np-cost" required missing={required.shown && !costOk(unitCost)}>
               <Input
                 id="np-cost"
                 type="number"
@@ -423,7 +429,7 @@ function NewProductDialog({
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!valid}>
+            <Button type="submit">
               Add to purchase
             </Button>
           </DialogFooter>

@@ -166,7 +166,7 @@ function RejectDialog({ payment: p, onClose }: { payment: Payment; onClose: () =
               {formatTaka(p.amount)} by {p.method}, TrxID {p.reference}. {p.businessName} stays as it is, and the owner sees your reason.
             </DialogDescription>
           </DialogHeader>
-          <Field label="Reason (optional)" htmlFor="reject-note">
+          <Field label="Reason" htmlFor="reject-note">
             <Input id="reject-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Not received, or the amount was ৳500" maxLength={300} autoFocus />
           </Field>
           <DialogFooter>

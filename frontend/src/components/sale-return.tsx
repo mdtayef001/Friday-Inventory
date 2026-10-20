@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
-import { Field, Pill, useAttempt } from "@/components/common"
+import { Field, Pill, useAttempt, useRequired } from "@/components/common"
 import { useScope, useSessionUser } from "@/components/session-provider"
 import { PAYMENT_METHODS } from "@/lib/business"
 import { actions } from "@/lib/data/actions"
@@ -143,13 +143,16 @@ const TITLE: Record<Mode, string> = { return: "Return and refund", request: "Ask
 function ReturnDialog({ sale: s, mode, onClose }: { sale: Sale; mode: Mode; onClose: () => void }) {
   const { locations } = useScope()
   const [run, pending] = useAttempt()
+  const required = useRequired()
   const [text, setText] = useState(mode === "approve" ? s.refundReason : "")
+  const textOk = mode !== "request" || !!text.trim()
   const shop = locations.find((l) => l.id === s.locationId)?.name
   const money = formatMoney(s.revenue)
   const how = s.paymentMethod ? PAYMENT_METHODS[s.paymentMethod].label.toLowerCase() : "the way they paid"
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
+    if (!required.check(textOk, e)) return
     const done = {
       return: () => actions.returnSale(s.id, text),
       approve: () => actions.returnSale(s.id, text),
@@ -195,7 +198,8 @@ function ReturnDialog({ sale: s, mode, onClose }: { sale: Sale; mode: Mode; onCl
           <Field
             label={mode === "decline" ? "Note for the manager" : "Reason"}
             htmlFor="return-text"
-            hint={mode === "request" ? "Required." : "Optional."}
+            required={mode === "request"}
+            missing={required.shown && !textOk}
           >
             <Textarea
               id="return-text"
@@ -211,7 +215,7 @@ function ReturnDialog({ sale: s, mode, onClose }: { sale: Sale; mode: Mode; onCl
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" variant={mode === "decline" ? "outline" : "default"} disabled={pending || (mode === "request" && !text.trim())}>
+            <Button type="submit" variant={mode === "decline" ? "outline" : "default"} disabled={pending}>
               {pending && <Loader2 className="animate-spin" />}
               {{ return: `Return and refund ${money}`, approve: `Approve and refund ${money}`, request: "Send request", decline: "Decline" }[mode]}
             </Button>

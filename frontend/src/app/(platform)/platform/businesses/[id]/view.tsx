@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ConfirmAction, Field, PageBody, PageHeader, Pill, SimpleSelect } from "@/components/common"
+import { ConfirmAction, Field, PageBody, PageHeader, Pill, SimpleSelect, useRequired } from "@/components/common"
 import { BusinessStatusPill, PaymentsTable } from "@/components/platform"
 import { initials } from "@/components/user-menu"
 import { deleteBusiness, grantAccess, resetOwnerPassword, setBusinessSuspended } from "@/lib/auth/platform-actions"
@@ -238,6 +238,7 @@ function OnOff({ on, label }: { on: boolean; label: string }) {
 function ResetPasswordDialog({ user, onClose }: { user: ManagedUser; onClose: () => void }) {
   const [password, setPassword] = useState("")
   const [pending, startTransition] = useTransition()
+  const required = useRequired()
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
@@ -245,6 +246,7 @@ function ResetPasswordDialog({ user, onClose }: { user: ManagedUser; onClose: ()
           className="grid gap-4"
           onSubmit={(e) => {
             e.preventDefault()
+            if (!required.check(password.length >= 8, e)) return
             startTransition(async () => {
               if (showResult(await resetOwnerPassword(user.id, password), "Password changed")) onClose()
             })
@@ -254,14 +256,14 @@ function ResetPasswordDialog({ user, onClose }: { user: ManagedUser; onClose: ()
             <DialogTitle>Reset owner password</DialogTitle>
             <DialogDescription>Set a new password for {user.name}, then share it with them directly.</DialogDescription>
           </DialogHeader>
-          <Field label="New password" htmlFor="op" hint="At least 8 characters.">
+          <Field label="New password" htmlFor="op" required missing={required.shown && password.length < 8} hint="At least 8 characters.">
             <Input id="op" type="text" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} className="font-mono" autoFocus />
           </Field>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={pending || password.length < 8}>
+            <Button type="submit" disabled={pending}>
               Save password
             </Button>
           </DialogFooter>
@@ -294,7 +296,9 @@ function GrantDialog({ business, onClose }: { business: BusinessSummary; onClose
     setMonths(v)
     setAmount(String(SUBSCRIPTION.price * (Number(v) || 0)))
   }
-  const valid = n >= 1 && n <= 24 && Number.isInteger(n) && (free || Number(amount) >= 0)
+  const monthsOk = n >= 1 && n <= 24 && Number.isInteger(n)
+  const amountOk = free || (amount !== "" && Number(amount) >= 0)
+  const required = useRequired()
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -303,6 +307,7 @@ function GrantDialog({ business, onClose }: { business: BusinessSummary; onClose
           className="grid gap-4"
           onSubmit={(e) => {
             e.preventDefault()
+            if (!required.check(monthsOk && amountOk, e)) return
             startTransition(async () => {
               const result = await grantAccess(business.id, { months: n, amount: free ? 0 : Number(amount), method, reference, note })
               if (showResult(result, `${business.name} has ${n} more ${n === 1 ? "month" : "months"}`)) onClose()
@@ -317,31 +322,31 @@ function GrantDialog({ business, onClose }: { business: BusinessSummary; onClose
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Months" htmlFor="grant-months">
+            <Field label="Months" htmlFor="grant-months" required missing={required.shown && !monthsOk}>
               <Input id="grant-months" type="number" min={1} max={24} value={months} onChange={(e) => changeMonths(e.target.value)} />
             </Field>
-            <Field label="Paid by" htmlFor="grant-method">
+            <Field label="Paid by" htmlFor="grant-method" required>
               <SimpleSelect id="grant-method" value={method} onChange={setMethod} options={GRANT_METHODS} />
             </Field>
           </div>
           {!free && (
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Amount received" htmlFor="grant-amount" hint={`${formatTaka(SUBSCRIPTION.price)} a month`}>
+              <Field label="Amount received" htmlFor="grant-amount" required missing={required.shown && !amountOk} hint={`${formatTaka(SUBSCRIPTION.price)} a month`}>
                 <Input id="grant-amount" type="number" min={0} step="any" value={amount} onChange={(e) => setAmount(e.target.value)} />
               </Field>
-              <Field label="Reference (optional)" htmlFor="grant-ref" hint="TrxID or bank reference">
+              <Field label="Reference" htmlFor="grant-ref" hint="TrxID or bank reference">
                 <Input id="grant-ref" value={reference} onChange={(e) => setReference(e.target.value)} maxLength={100} className="font-mono" />
               </Field>
             </div>
           )}
-          <Field label="Note (optional)" htmlFor="grant-note">
+          <Field label="Note" htmlFor="grant-note">
             <Input id="grant-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder={free ? "e.g. Sorry for the outage" : "e.g. Called on WhatsApp"} maxLength={300} />
           </Field>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={pending || !valid}>
+            <Button type="submit" disabled={pending}>
               Give {n >= 1 ? n : ""} {n === 1 ? "month" : "months"}
             </Button>
           </DialogFooter>

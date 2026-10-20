@@ -14,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   useAttempt,
+  useRequired,
   EmptyState,
   Field,
   ListSkeleton,
@@ -251,7 +252,11 @@ function NewRentalDialog({ onClose }: { onClose: () => void }) {
   const rateNum = Number(rate)
   const quote = quoteRental(plan, rateNum, dayCount ?? 1, qty)
   const daysOk = dayCount === null || (Number.isInteger(dayCount) && dayCount > 0)
-  const valid = clientId && product && Number.isInteger(qty) && qty > 0 && qty <= available && daysOk && rate !== "" && rateNum >= 0 && Number(deposit) >= 0
+  const qtyOk = Number.isInteger(qty) && qty > 0 && qty <= available
+  const rateOk = rate !== "" && rateNum >= 0
+  const depositOk = Number(deposit) >= 0
+  const valid = !!clientId && !!locationId && !!product && qtyOk && daysOk && rateOk && depositOk
+  const required = useRequired()
 
   /** Scanning picks the product (and moves to a shop that has it free). */
   async function scanProduct(code: string) {
@@ -274,7 +279,7 @@ function NewRentalDialog({ onClose }: { onClose: () => void }) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!valid || !product) return
+    if (!required.check(valid, e) || !product) return
     const ok = await run(
       () =>
         actions.createRental(
@@ -307,10 +312,10 @@ function NewRentalDialog({ onClose }: { onClose: () => void }) {
           </DialogHeader>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Rented to" className="sm:col-span-2">
+            <Field label="Rented to" required missing={required.shown && !clientId} className="sm:col-span-2">
               <ClientPicker value={client} onChange={setClient} />
             </Field>
-            <Field label="From location">
+            <Field label="From location" required missing={required.shown && !locationId}>
               <SimpleSelect
                 value={locationId}
                 onChange={(v) => {
@@ -320,7 +325,7 @@ function NewRentalDialog({ onClose }: { onClose: () => void }) {
                 options={scope.locations.map((l) => ({ value: l.id, label: l.name }))}
               />
             </Field>
-            <Field label="Product" hint="Rentable products free at this location.">
+            <Field label="Product" required missing={required.shown && !product} hint="Rentable products free at this location.">
               <div className="flex min-w-0 gap-2">
                 <ProductPicker
                   value={product}
@@ -333,10 +338,10 @@ function NewRentalDialog({ onClose }: { onClose: () => void }) {
                 <ScanButton onScan={scanProduct} />
               </div>
             </Field>
-            <Field label="Quantity" htmlFor="rn-qty" hint={product ? `${available} available` : undefined}>
+            <Field label="Quantity" htmlFor="rn-qty" required missing={required.shown && !!product && !qtyOk} hint={product ? `${available} available` : undefined}>
               <Input id="rn-qty" type="number" min="1" step="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
             </Field>
-            <Field label="Expected days" htmlFor="rn-days" hint="Optional. Only for the due date and overdue reminder.">
+            <Field label="Expected days" htmlFor="rn-days" missing={required.shown && !daysOk} hint="Only for the due date and overdue reminder.">
               <Input id="rn-days" type="number" min="1" step="1" value={days} onChange={(e) => setDays(e.target.value)} placeholder="Open" />
             </Field>
           </div>
@@ -352,10 +357,10 @@ function NewRentalDialog({ onClose }: { onClose: () => void }) {
               ))}
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label={plan === "fixed" ? "Fixed price (per unit)" : `${PLAN_LABEL[plan]} rate`} htmlFor="rn-rate">
+              <Field label={plan === "fixed" ? "Fixed price (per unit)" : `${PLAN_LABEL[plan]} rate`} htmlFor="rn-rate" required missing={required.shown && !rateOk}>
                 <Input id="rn-rate" type="number" min="0" step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="0.00" />
               </Field>
-              <Field label="Deposit" htmlFor="rn-deposit" hint="Refundable, not included in the total.">
+              <Field label="Deposit" htmlFor="rn-deposit" missing={required.shown && !depositOk} hint="Refundable, not included in the total.">
                 <Input id="rn-deposit" type="number" min="0" step="0.01" value={deposit} onChange={(e) => setDeposit(e.target.value)} />
               </Field>
             </div>
@@ -383,7 +388,7 @@ function NewRentalDialog({ onClose }: { onClose: () => void }) {
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!valid || pending}>
+            <Button type="submit" disabled={pending}>
               <LogOut />
               Scan out
             </Button>

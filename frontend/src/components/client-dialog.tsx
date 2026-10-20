@@ -11,7 +11,7 @@ import { actions } from "@/lib/data/actions"
 import { useClients, useDebounced } from "@/lib/data/queries"
 import type { Client, ClientBrief } from "@/lib/types"
 import { cn } from "@/lib/utils"
-import { useAttempt, Field } from "./common"
+import { useAttempt, useRequired, Field } from "./common"
 
 const { addClient, updateClient } = actions
 
@@ -27,11 +27,14 @@ export function ClientDialog({ client, onClose, onSaved }: { client?: Client; on
   const emailOk = !form.email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)
 
   const [run, pending] = useAttempt()
+  const required = useRequired()
+  const nameOk = form.name.trim().length >= 2
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     // Opened from inside another form (selling, an order, a purchase): don't let this submit reach it.
     e.stopPropagation()
+    if (!required.check(nameOk, e)) return
     const data = {
       name: form.name.trim(),
       company: form.company.trim() || undefined,
@@ -63,11 +66,11 @@ export function ClientDialog({ client, onClose, onSaved }: { client?: Client; on
             <DialogDescription>Only the name is required.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Name" htmlFor="cl-name">
+            <Field label="Name" htmlFor="cl-name" required missing={required.shown && !nameOk}>
               <Input id="cl-name" value={form.name} onChange={set("name")} autoFocus />
             </Field>
             <Field label="Company" htmlFor="cl-company">
-              <Input id="cl-company" value={form.company} onChange={set("company")} placeholder="Optional" />
+              <Input id="cl-company" value={form.company} onChange={set("company")} />
             </Field>
             <Field label="Phone" htmlFor="cl-phone">
               <Input id="cl-phone" type="tel" value={form.phone} onChange={set("phone")} />
@@ -83,7 +86,7 @@ export function ClientDialog({ client, onClose, onSaved }: { client?: Client; on
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={form.name.trim().length < 2 || !emailOk || pending}>
+            <Button type="submit" disabled={!emailOk || pending}>
               {client ? "Save" : "Add client"}
             </Button>
           </DialogFooter>

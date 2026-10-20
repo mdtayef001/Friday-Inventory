@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import {
   attempt,
   useAttempt,
+  useRequired,
   ConfirmAction,
   EmptyState,
   Field,
@@ -155,9 +156,13 @@ function LocationDialog({ location, onClose }: { location?: Location; onClose: (
   const [phone, setPhone] = useState(location?.phone ?? "")
 
   const [run, pending] = useAttempt()
+  const required = useRequired()
+  const nameOk = name.trim().length >= 2
+  const addressOk = !!address.trim()
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
+    if (!required.check(nameOk && addressOk, e)) return
     const data = { name: name.trim(), type, address: address.trim(), phone: phone.trim() || undefined }
     const ok = await run(
       () => (location ? updateLocation(location.id, data) : addLocation(data)),
@@ -174,10 +179,10 @@ function LocationDialog({ location, onClose }: { location?: Location; onClose: (
             <DialogTitle>{location ? "Edit location" : "Add location"}</DialogTitle>
             <DialogDescription>A warehouse stores bulk stock; a shop or outlet sells to customers.</DialogDescription>
           </DialogHeader>
-          <Field label="Name" htmlFor="loc-name">
+          <Field label="Name" htmlFor="loc-name" required missing={required.shown && !nameOk}>
             <Input id="loc-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Riverside Shop" autoFocus />
           </Field>
-          <Field label="Type">
+          <Field label="Type" required>
             <SimpleSelect
               value={type}
               onChange={(v) => setType(v as LocationType)}
@@ -187,17 +192,17 @@ function LocationDialog({ location, onClose }: { location?: Location; onClose: (
               ]}
             />
           </Field>
-          <Field label="Address" htmlFor="loc-address">
+          <Field label="Address" htmlFor="loc-address" required missing={required.shown && !addressOk}>
             <Input id="loc-address" value={address} onChange={(e) => setAddress(e.target.value)} />
           </Field>
           <Field label="Phone" htmlFor="loc-phone">
-            <Input id="loc-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Optional" />
+            <Input id="loc-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
           </Field>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={name.trim().length < 2 || !address.trim() || pending}>
+            <Button type="submit" disabled={pending}>
               {location ? "Save" : "Add location"}
             </Button>
           </DialogFooter>

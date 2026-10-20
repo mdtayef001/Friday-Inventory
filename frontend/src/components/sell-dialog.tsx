@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { ClientPicker } from "@/components/client-dialog"
-import { Field, SimpleSelect, useAttempt } from "@/components/common"
+import { Field, SimpleSelect, useAttempt, useRequired } from "@/components/common"
 import { PaymentPicker } from "@/components/payment-picker"
 import { ReceiptShare } from "@/components/receipt-share"
 import { useBusiness, usePermissions, useScope, useSessionUser } from "@/components/session-provider"
@@ -83,6 +83,7 @@ export function CheckoutDialog({
   const user = useSessionUser()
   const { locations } = useScope()
   const [run, pending] = useAttempt()
+  const required = useRequired()
   const showProfit = usePermissions().can("managerProfit")
   // Loaded fresh, so the stock shown is what's there now.
   const products = useQueries({ queries: lines.map((l) => apiQuery<Product>(`products/${l.productId}/`)) })
@@ -116,23 +117,18 @@ export function CheckoutDialog({
   // Card machines are checked by a person, so they tick that it went through.
   // Mobile banking needs the transaction ID from the customer's payment instead.
   const needsConfirm = method === "card"
-  const valid =
-    !!locationId &&
-    lines.length > 0 &&
-    products.every((p) => p.data) &&
-    lines.every((l) => Number.isInteger(l.quantity) && l.quantity > 0 && l.unitPrice !== "" && Number(l.unitPrice) >= 0) &&
-    !short &&
-    off >= 0 &&
-    total >= 0 &&
-    (!needsConfirm || received) &&
-    (method !== "mobile" || reference.trim() !== "")
+  const loading = !products.every((p) => p.data)
+  const discountOk = off >= 0 && total >= 0
+  const receivedOk = !needsConfirm || received
+  const referenceOk = method !== "mobile" || reference.trim() !== ""
+  const valid = !!locationId && lines.length > 0 && !loading && lines.every(lineOk) && !short && discountOk && receivedOk && referenceOk
   // Staff don't see the client list, so they sell without one.
   const canPickClient = user.role !== "staff"
   const single = lines.length === 1
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!valid) return
+    if (loading || !required.check(valid, e)) return
     let sale: Sale | undefined
     // No toast: the Sold screen says it went through.
     const ok = await run(async () => {
@@ -156,7 +152,7 @@ export function CheckoutDialog({
             <DialogTitle>{single ? "Sell" : "Checkout"}</DialogTitle>
             <DialogDescription>{single ? lines[0]?.name : `${lines.length} items on one receipt`}</DialogDescription>
           </DialogHeader>
-          <Field label="Sold from">
+          <Field label="Sold from" required missing={required.shown && !locationId}>
             <SimpleSelect value={locationId} onChange={setLocationId} options={locations.map((l) => ({ value: l.id, label: l.name }))} />
           </Field>
           {lines.length === 0 ? (
@@ -171,6 +167,7 @@ export function CheckoutDialog({
                   product={productFor(i)}
                   available={qtyAt(productFor(i), locationId)}
                   over={!!productFor(i) && wanted(line.productId) > qtyAt(productFor(i), locationId)}
+                  showMissing={required.shown}
                   onChange={(patch) => update(i, patch)}
                   onRemove={single ? undefined : () => remove(i)}
                   autoFocus={single}
@@ -178,11 +175,11 @@ export function CheckoutDialog({
               ))}
             </ul>
           )}
-          <Field label="Discount" htmlFor="sell-discount" hint={single ? "Taken off the total. Optional." : "One discount on the whole bill. Optional."}>
+          <Field label="Discount" htmlFor="sell-discount" missing={required.shown && !discountOk} hint={single ? "Taken off the total." : "One discount on the whole bill."}>
             <Input id="sell-discount" type="number" inputMode="decimal" min="0" step="0.01" placeholder="0.00" value={discount} onChange={(e) => setDiscount(e.target.value)} />
           </Field>
           {canPickClient && (
-            <Field label="Client" hint="Optional. Leave empty for a walk-in customer.">
+            <Field label="Client" hint="Leave empty for a walk-in customer.">
               <ClientPicker value={client} onChange={setClient} />
             </Field>
           )}
@@ -212,13 +209,13 @@ export function CheckoutDialog({
             }}
           />
           {method === "mobile" && (
-            <Field label="Transaction ID" htmlFor="sell-trx" hint="From the bKash / Nagad payment message. It goes on the receipt.">
+            <Field label="Transaction ID" htmlFor="sell-trx" required missing={required.shown && !referenceOk} hint="From the bKash / Nagad payment message. It goes on the receipt.">
               <Input id="sell-trx" value={reference} onChange={(e) => setReference(e.target.value)} maxLength={60} autoComplete="off" placeholder="e.g. 9AB3CD7XYZ" />
             </Field>
           )}
           {needsConfirm && (
             <label className="flex items-center gap-2 text-sm">
-              <Checkbox checked={received} onCheckedChange={(on) => setReceived(on === true)} />
+              <Checkbox checked={received} onCheckedChange={(on) => setReceived(on === true)} aria-invalid={required.shown && !receivedOk} />
               The card payment went through
             </label>
           )}
@@ -227,7 +224,7 @@ export function CheckoutDialog({
             <Button type="button" variant="outline" onClick={onClose}>
               {single ? "Cancel" : "Keep shopping"}
             </Button>
-            <Button type="submit" disabled={!valid || pending}>
+            <Button type="submit" disabled={loading || pending}>
               {pending ? <Loader2 className="animate-spin" /> : <ShoppingCart />}
               Sell {Number.isFinite(total) && total >= 0 ? `· ${formatMoney(total)}` : ""}
             </Button>
@@ -238,12 +235,17 @@ export function CheckoutDialog({
   )
 }
 
+const qtyOk = (quantity: number) => Number.isInteger(quantity) && quantity > 0
+const priceOk = (unitPrice: string) => unitPrice !== "" && Number(unitPrice) >= 0
+const lineOk = (l: CheckoutLine) => qtyOk(l.quantity) && priceOk(l.unitPrice)
+
 function CheckoutRow({
   index,
   line,
   product,
   available,
   over,
+  showMissing,
   onChange,
   onRemove,
   autoFocus,
@@ -253,6 +255,7 @@ function CheckoutRow({
   product: Product | undefined
   available: number
   over: boolean
+  showMissing: boolean
   onChange: (patch: Partial<CheckoutLine>) => void
   onRemove?: () => void
   autoFocus?: boolean
@@ -274,7 +277,7 @@ function CheckoutRow({
         )}
       </div>
       <div className="grid grid-cols-[5rem_1fr] items-end gap-2">
-        <Field label="Qty" htmlFor={`sell-qty-${index}`}>
+        <Field label="Qty" htmlFor={`sell-qty-${index}`} required missing={showMissing && (over || !qtyOk(line.quantity))}>
           <Input
             id={`sell-qty-${index}`}
             type="number"
@@ -286,7 +289,7 @@ function CheckoutRow({
             autoFocus={autoFocus}
           />
         </Field>
-        <Field label="Price per unit" htmlFor={`sell-price-${index}`} hint={product && line.unitPrice !== "" && price !== product.price ? `List price ${formatMoney(product.price)}` : undefined}>
+        <Field label="Price per unit" htmlFor={`sell-price-${index}`} required missing={showMissing && !priceOk(line.unitPrice)} hint={product && line.unitPrice !== "" && price !== product.price ? `List price ${formatMoney(product.price)}` : undefined}>
           <Input id={`sell-price-${index}`} type="number" inputMode="decimal" min="0" step="0.01" value={line.unitPrice} onChange={(e) => onChange({ unitPrice: e.target.value })} />
         </Field>
       </div>

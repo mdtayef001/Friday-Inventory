@@ -139,22 +139,62 @@ export function Field({
   label,
   htmlFor,
   hint,
+  required,
+  missing,
   children,
   className,
 }: {
   label: string
   htmlFor?: string
   hint?: React.ReactNode
+  /** Shows a red * after the label. */
+  required?: boolean
+  /** Outlines the box in red: a required field left empty when saving (see useRequired). */
+  missing?: boolean
   children: React.ReactNode
   className?: string
 }) {
   return (
-    <div className={cn("grid gap-1.5", className)}>
-      <Label htmlFor={htmlFor}>{label}</Label>
+    <div
+      data-invalid={missing || undefined}
+      className={cn(
+        "grid gap-1.5 data-invalid:[&_:is(input,textarea,[role=combobox],[data-slot=select-trigger])]:border-destructive",
+        className,
+      )}
+    >
+      <Label htmlFor={htmlFor}>
+        <span>
+          {label}
+          {required && (
+            <span aria-hidden className="ml-0.5 text-destructive">
+              *
+            </span>
+          )}
+        </span>
+      </Label>
       {children}
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   )
+}
+
+/**
+ * For forms with required fields: Save stays clickable, and a click with something
+ * missing outlines the empty required fields in red (Field's `missing`) and moves to
+ * the first one instead of saving.
+ */
+export function useRequired() {
+  const [shown, setShown] = useState(false)
+  /** True when everything required is filled in; otherwise shows what's missing. Pass the submit event. */
+  function check(ok: boolean, e?: React.FormEvent) {
+    if (ok) return true
+    setShown(true)
+    const form = e?.currentTarget
+    // After the red outlines render.
+    setTimeout(() => form?.querySelector<HTMLElement>("[data-invalid] :is(input, textarea, button)")?.focus())
+    return false
+  }
+  return { shown, check }
 }
 
 export interface Option {

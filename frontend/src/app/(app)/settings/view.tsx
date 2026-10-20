@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
-import { Field, PageBody, PageHeader, SimpleSelect } from "@/components/common"
+import { Field, PageBody, PageHeader, SimpleSelect, useRequired } from "@/components/common"
 import { BusinessStatusPill } from "@/components/platform"
 import { useBusiness } from "@/components/session-provider"
 import { updateBusinessSettings } from "@/lib/auth/business-actions"
@@ -30,8 +30,12 @@ export function SettingsView() {
   const setPermission = (id: PermissionId, on: boolean) => setSettings((s) => ({ ...s, permissions: { ...s.permissions, [id]: on } }))
   const setPayments = (patch: Partial<BusinessSettings["payments"]>) => setSettings((s) => ({ ...s, payments: { ...s.payments, ...patch } }))
 
+  const required = useRequired()
+  const nameOk = name.trim().length >= 2
+
   function save(e: React.FormEvent) {
     e.preventDefault()
+    if (!required.check(nameOk, e)) return
     startTransition(async () => {
       const result = await updateBusinessSettings({ name, industry, settings })
       if (result.ok) toast.success("Settings saved. Everyone sees the change on their next page load.")
@@ -66,13 +70,13 @@ export function SettingsView() {
             </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-3">
-            <Field label="Business name" htmlFor="b-name">
+            <Field label="Business name" htmlFor="b-name" required missing={required.shown && !nameOk}>
               <Input id="b-name" value={name} onChange={(e) => setName(e.target.value)} />
             </Field>
             <Field label="Industry" htmlFor="b-industry">
               <Input id="b-industry" value={industry} onChange={(e) => setIndustry(e.target.value)} placeholder="e.g. Hardware store" />
             </Field>
-            <Field label="Currency">
+            <Field label="Currency" required>
               <SimpleSelect
                 value={settings.currency}
                 onChange={(currency) => setSettings((s) => ({ ...s, currency }))}

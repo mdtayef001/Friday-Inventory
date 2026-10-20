@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator"
 import { actions, type ProductInput } from "@/lib/data/actions"
 import { useCategories } from "@/lib/data/queries"
 import type { Product } from "@/lib/types"
-import { useAttempt, Field, SimpleSelect } from "./common"
+import { useAttempt, useRequired, Field, SimpleSelect } from "./common"
 import { ScanButton } from "./scanner"
 import { useScope } from "./session-provider"
 
@@ -61,18 +61,21 @@ export function ProductForm({
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
 
   const [run, pending] = useAttempt()
+  const required = useRequired()
+  const nameOk = form.name.trim().length >= 2
+  const categoryOk = !!form.category.trim()
+  const locationOk = !!product || Number(form.quantity) <= 0 || !!form.locationId
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setError("")
+    if (!required.check(nameOk && categoryOk && locationOk, e)) return
     const price = Number(form.price)
     const cost = form.cost === "" ? 0 : Number(form.cost)
     const threshold = Number(form.lowStockThreshold)
     const quantity = Number(form.quantity)
     const rates = { daily: num(form.daily), weekly: num(form.weekly), monthly: num(form.monthly) }
 
-    if (form.name.trim().length < 2) return setError("Enter a product name.")
-    if (!form.category.trim()) return setError("Enter a category.")
     if (!Number.isFinite(price) || price < 0) return setError("Enter a valid selling price.")
     if (!Number.isFinite(cost) || cost < 0) return setError("Enter a valid cost price.")
     if (!Number.isInteger(threshold) || threshold < 0) return setError("Low-stock alert must be a whole number.")
@@ -83,7 +86,6 @@ export function ProductForm({
       return setError("Rent prices must be valid numbers.")
     }
     if (!product && (!Number.isInteger(quantity) || quantity < 0)) return setError("Opening stock must be a whole number.")
-    if (!product && quantity > 0 && !form.locationId) return setError("Choose where this stock is stored.")
 
     const input: ProductInput = {
       name: form.name.trim(),
@@ -114,10 +116,10 @@ export function ProductForm({
   return (
     <form onSubmit={submit} className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Product name" htmlFor="name" className="sm:col-span-2">
+        <Field label="Product name" htmlFor="name" required missing={required.shown && !nameOk} className="sm:col-span-2">
           <Input id="name" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Cordless Drill 20V" autoFocus />
         </Field>
-        <Field label="Category" htmlFor="category" hint="Pick an existing one or type a new category.">
+        <Field label="Category" htmlFor="category" required missing={required.shown && !categoryOk} hint="Pick an existing one or type a new category.">
           <Input id="category" list="categories" value={form.category} onChange={(e) => set("category", e.target.value)} placeholder="e.g. Tools" />
           <datalist id="categories">
             {categories.map((c) => (
@@ -136,7 +138,7 @@ export function ProductForm({
             </Button>
           </div>
         </Field>
-        <Field label="Barcode / QR code" htmlFor="barcode" hint="Optional. Scan it or type the number.">
+        <Field label="Barcode / QR code" htmlFor="barcode" hint="Scan it or type the number.">
           <div className="flex gap-2">
             <Input id="barcode" value={form.barcode} onChange={(e) => set("barcode", e.target.value)} placeholder="e.g. 8901234567011" className="font-mono" />
             <ScanButton onScan={(code) => set("barcode", code)} />
@@ -157,7 +159,7 @@ export function ProductForm({
           <Input id="threshold" type="number" inputMode="numeric" min="0" step="1" value={form.lowStockThreshold} onChange={(e) => set("lowStockThreshold", e.target.value)} />
         </Field>
         <Field label="Description" htmlFor="description" className="sm:col-span-3">
-          <Textarea id="description" value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Optional notes, size, colour, model…" rows={2} />
+          <Textarea id="description" value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Notes, size, colour, model…" rows={2} />
         </Field>
       </div>
 
@@ -189,7 +191,7 @@ export function ProductForm({
           <Field label="Opening stock" htmlFor="quantity">
             <Input id="quantity" type="number" inputMode="numeric" min="0" step="1" value={form.quantity} onChange={(e) => set("quantity", e.target.value)} />
           </Field>
-          <Field label="Stored at" htmlFor="location">
+          <Field label="Stored at" htmlFor="location" required={Number(form.quantity) > 0} missing={required.shown && !locationOk}>
             <SimpleSelect
               id="location"
               value={form.locationId}

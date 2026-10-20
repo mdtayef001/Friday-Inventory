@@ -23,6 +23,7 @@ import {
   SCROLL_LIST,
   SearchInput,
   SimpleSelect,
+  useRequired,
 } from "@/components/common"
 import { ClientPicker } from "@/components/client-dialog"
 import { PaymentPicker } from "@/components/payment-picker"
@@ -214,7 +215,7 @@ function ShipmentDetail({ shipment: s }: { shipment: Shipment }) {
 
         {!closed && (
           <div className="space-y-3">
-            <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note to the next update (optional)" rows={2} />
+            <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note to the next update" rows={2} />
             {delivering && (
               <div className="space-y-2 rounded-xl border p-3">
                 <p className="text-sm">
@@ -319,7 +320,10 @@ function NewOrderDialog({ onClose }: { onClose: () => void }) {
   const available = qtyAt(product, from)
   const qty = Number(quantity)
   const unitPrice = Number(price)
-  const valid = from && clientId && productId && Number.isInteger(qty) && qty > 0 && qty <= available && price !== "" && unitPrice >= 0
+  const qtyOk = Number.isInteger(qty) && qty > 0 && qty <= available
+  const priceOk = price !== "" && unitPrice >= 0
+  const valid = !!from && !!clientId && !!productId && qtyOk && priceOk
+  const required = useRequired()
 
   const chooseProduct = (p: Product) => {
     setProduct(p)
@@ -328,7 +332,7 @@ function NewOrderDialog({ onClose }: { onClose: () => void }) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!valid) return
+    if (!required.check(valid, e)) return
     let created: Shipment | undefined
     const ok = await run(async () => {
       created = await actions.createShipment({ productId, quantity: qty, unitPrice, clientId, fromLocationId: from, notes: notes.trim() || undefined })
@@ -349,10 +353,10 @@ function NewOrderDialog({ onClose }: { onClose: () => void }) {
             <DialogTitle>New order</DialogTitle>
             <DialogDescription>Stock is reserved as soon as the order is created.</DialogDescription>
           </DialogHeader>
-          <Field label="Client">
+          <Field label="Client" required missing={required.shown && !clientId}>
             <ClientPicker value={client} onChange={setClient} />
           </Field>
-          <Field label="Ship from">
+          <Field label="Ship from" required missing={required.shown && !from}>
             <SimpleSelect
               value={from}
               onChange={(v) => {
@@ -363,7 +367,7 @@ function NewOrderDialog({ onClose }: { onClose: () => void }) {
             />
           </Field>
           <div className="grid gap-4 sm:grid-cols-[1fr_7rem]">
-            <Field label="Product">
+            <Field label="Product" required missing={required.shown && !productId}>
               <ProductPicker
                 value={product}
                 onChange={chooseProduct}
@@ -372,11 +376,11 @@ function NewOrderDialog({ onClose }: { onClose: () => void }) {
                 disabled={!from}
               />
             </Field>
-            <Field label="Quantity" htmlFor="ord-qty" hint={productId ? `${available} available` : undefined}>
+            <Field label="Quantity" htmlFor="ord-qty" required missing={required.shown && !!productId && !qtyOk} hint={productId ? `${available} available` : undefined}>
               <Input id="ord-qty" type="number" min="1" step="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
             </Field>
           </div>
-          <Field label="Price per unit" htmlFor="ord-price" hint={productId && price !== "" && qty > 0 ? `Order total ${formatMoney(qty * unitPrice)}. Recorded as a sale when delivered.` : "Recorded as a sale when the order is delivered."}>
+          <Field label="Price per unit" htmlFor="ord-price" required missing={required.shown && !priceOk} hint={productId && price !== "" && qty > 0 ? `Order total ${formatMoney(qty * unitPrice)}. Recorded as a sale when delivered.` : "Recorded as a sale when the order is delivered."}>
             <Input id="ord-price" type="number" inputMode="decimal" min="0" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} disabled={!productId} />
           </Field>
           <Field label="Notes" htmlFor="ord-notes">
@@ -386,7 +390,7 @@ function NewOrderDialog({ onClose }: { onClose: () => void }) {
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!valid || pending}>
+            <Button type="submit" disabled={pending}>
               Create order
             </Button>
           </DialogFooter>

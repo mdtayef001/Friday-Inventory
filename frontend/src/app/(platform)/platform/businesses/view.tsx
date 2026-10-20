@@ -10,7 +10,7 @@ import { Card } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { EmptyState, Field, PageBody, PageHeader, SimpleSelect } from "@/components/common"
+import { EmptyState, Field, PageBody, PageHeader, SimpleSelect, useRequired } from "@/components/common"
 import { BusinessStatusPill, STATUS } from "@/components/platform"
 import { createBusiness } from "@/lib/auth/platform-actions"
 import { formatDate, timeAgo } from "@/lib/format"
@@ -121,6 +121,11 @@ function CreateBusinessDialog({ onClose }: { onClose: () => void }) {
   const [form, setForm] = useState({ name: "", industry: "", ownerName: "", ownerEmail: "", ownerPassword: "" })
   const [error, setError] = useState("")
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
+  const required = useRequired()
+  const nameOk = form.name.trim().length >= 2
+  const ownerOk = form.ownerName.trim().length >= 2
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.ownerEmail.trim())
+  const passwordOk = form.ownerPassword.length >= 8
 
   const generate = () => {
     const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
@@ -131,6 +136,7 @@ function CreateBusinessDialog({ onClose }: { onClose: () => void }) {
   function submit(e: React.FormEvent) {
     e.preventDefault()
     setError("")
+    if (!required.check(nameOk && ownerOk && emailOk && passwordOk, e)) return
     startTransition(async () => {
       const result = await createBusiness(form)
       if (result.ok) {
@@ -149,7 +155,7 @@ function CreateBusinessDialog({ onClose }: { onClose: () => void }) {
             <DialogDescription>Creates the business and its owner&apos;s login. The owner sets up shops, staff and features.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Business name" htmlFor="nb-name">
+            <Field label="Business name" htmlFor="nb-name" required missing={required.shown && !nameOk}>
               <Input id="nb-name" value={form.name} onChange={(e) => set("name", e.target.value)} autoFocus />
             </Field>
             <Field label="Industry" htmlFor="nb-industry">
@@ -163,14 +169,14 @@ function CreateBusinessDialog({ onClose }: { onClose: () => void }) {
           <div className="space-y-4 rounded-lg border p-3">
             <p className="text-sm font-medium">Owner account</p>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Full name" htmlFor="nb-owner">
+              <Field label="Full name" htmlFor="nb-owner" required missing={required.shown && !ownerOk}>
                 <Input id="nb-owner" value={form.ownerName} onChange={(e) => set("ownerName", e.target.value)} />
               </Field>
-              <Field label="Email" htmlFor="nb-email">
+              <Field label="Email" htmlFor="nb-email" required missing={required.shown && !emailOk}>
                 <Input id="nb-email" type="email" autoComplete="off" value={form.ownerEmail} onChange={(e) => set("ownerEmail", e.target.value)} />
               </Field>
             </div>
-            <Field label="Password" htmlFor="nb-pass" hint="At least 8 characters.">
+            <Field label="Password" htmlFor="nb-pass" required missing={required.shown && !passwordOk} hint="At least 8 characters.">
               <div className="flex gap-2">
                 <Input
                   id="nb-pass"

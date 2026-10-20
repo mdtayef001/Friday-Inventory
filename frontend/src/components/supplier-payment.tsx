@@ -6,7 +6,7 @@ import { HandCoins, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Field, SimpleSelect, useAttempt } from "@/components/common"
+import { Field, SimpleSelect, useAttempt, useRequired } from "@/components/common"
 import { PAY_METHODS } from "@/components/purchase-dialog"
 import { actions } from "@/lib/data/actions"
 import { formatMoney } from "@/lib/format"
@@ -24,16 +24,18 @@ const today = () => format(new Date(), "yyyy-MM-dd")
 /** Owners and admins: money paid to a supplier. It goes to their oldest unpaid bills first. */
 export function PaySupplierDialog({ supplier, owed, onClose }: { supplier: SupplierBrief; owed: number; onClose: () => void }) {
   const [run, pending] = useAttempt()
+  const required = useRequired()
   const [amount, setAmount] = useState(String(owed))
   const [method, setMethod] = useState<"cash" | "mobile" | "bank">("cash")
   const [date, setDate] = useState(today)
   const [note, setNote] = useState("")
   const money = Number(amount)
-  const valid = amount !== "" && money > 0 && money <= owed && !!date && date <= today()
+  const amountOk = amount !== "" && money > 0 && money <= owed
+  const dateOk = !!date && date <= today()
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!valid) return
+    if (!required.check(amountOk && dateOk, e)) return
     const ok = await run(
       () =>
         actions.paySupplier({
@@ -58,24 +60,24 @@ export function PaySupplierDialog({ supplier, owed, onClose }: { supplier: Suppl
             <DialogDescription>You owe {formatMoney(owed)}. The payment goes to the oldest unpaid bills first.</DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Amount" htmlFor="pay-amount" hint={`Up to ${formatMoney(owed)}.`}>
+            <Field label="Amount" htmlFor="pay-amount" required missing={required.shown && !amountOk} hint={`Up to ${formatMoney(owed)}.`}>
               <Input id="pay-amount" type="number" inputMode="decimal" min="0.01" max={owed} step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
             </Field>
-            <Field label="Paid with" htmlFor="pay-method">
+            <Field label="Paid with" htmlFor="pay-method" required>
               <SimpleSelect id="pay-method" value={method} onChange={(v) => setMethod(v as typeof method)} options={PAY_METHODS} />
             </Field>
           </div>
-          <Field label="Date paid" htmlFor="pay-date">
+          <Field label="Date paid" htmlFor="pay-date" required missing={required.shown && !dateOk}>
             <Input id="pay-date" type="date" value={date} max={today()} onChange={(e) => setDate(e.target.value)} />
           </Field>
-          <Field label="Note" htmlFor="pay-note" hint="Optional, e.g. the bKash transaction ID.">
+          <Field label="Note" htmlFor="pay-note" hint="e.g. the bKash transaction ID.">
             <Input id="pay-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} />
           </Field>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!valid || pending}>
+            <Button type="submit" disabled={pending}>
               {pending ? <Loader2 className="animate-spin" /> : <HandCoins />}
               Pay {Number.isFinite(money) && money > 0 ? formatMoney(money) : ""}
             </Button>

@@ -127,10 +127,10 @@ export function PaymentOptionsView({ accounts, onlineStatus }: { accounts: Payme
               <Field label="Account name" htmlFor="bank-account-name">
                 <Input id="bank-account-name" value={form.bankAccountName} onChange={text("bankAccountName")} maxLength={100} />
               </Field>
-              <Field label="Account number" htmlFor="bank-account-number">
+              <Field label="Account number" htmlFor="bank-account-number" required>
                 <Input id="bank-account-number" value={form.bankAccountNumber} onChange={text("bankAccountNumber")} maxLength={40} className="font-mono" />
               </Field>
-              <Field label="Routing number (optional)" htmlFor="bank-routing">
+              <Field label="Routing number" htmlFor="bank-routing">
                 <Input id="bank-routing" value={form.bankRouting} onChange={text("bankRouting")} maxLength={20} className="font-mono" />
               </Field>
               {bankMissing && <p className="self-end text-sm text-amber-700 sm:pb-2 dark:text-amber-400">Owners won&apos;t see the bank until the account number is filled in.</p>}

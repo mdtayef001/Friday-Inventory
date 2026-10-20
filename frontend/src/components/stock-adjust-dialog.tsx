@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { actions } from "@/lib/data/actions"
 import { qtyAt, useProduct } from "@/lib/data/queries"
-import { useAttempt, Field, SimpleSelect } from "./common"
+import { useAttempt, useRequired, Field, SimpleSelect } from "./common"
 import { useScope } from "./session-provider"
 
 const REASONS = {
@@ -36,15 +36,16 @@ export function StockAdjustDialog({
   const [quantity, setQuantity] = useState("1")
   const [reason, setReason] = useState(REASONS.add[0])
   const [run, pending] = useAttempt()
+  const required = useRequired()
 
   if (!product) return null
   const current = qtyAt(product, locationId)
   const qty = Number(quantity)
-  const valid = Number.isInteger(qty) && qty > 0 && !!locationId && (mode === "add" || qty <= current)
+  const qtyOk = Number.isInteger(qty) && qty > 0 && (mode === "add" || qty <= current)
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!valid || !product) return
+    if (!product || !required.check(qtyOk && !!locationId, e)) return
     const ok = await run(
       () => actions.adjustStock(productId, locationId, mode === "add" ? qty : -qty, reason),
       mode === "add" ? `Added ${qty} ${product.unit}` : `Removed ${qty} ${product.unit}`,
@@ -81,13 +82,13 @@ export function StockAdjustDialog({
               </TabsTrigger>
             </TabsList>
           </Tabs>
-          <Field label="Location" hint={`Currently ${current} ${product.unit} here`}>
+          <Field label="Location" required missing={required.shown && !locationId} hint={`Currently ${current} ${product.unit} here`}>
             <SimpleSelect value={locationId} onChange={setLocationId} options={locations.map((l) => ({ value: l.id, label: l.name }))} />
           </Field>
-          <Field label="Quantity" htmlFor="adjust-qty">
+          <Field label="Quantity" htmlFor="adjust-qty" required missing={required.shown && !qtyOk}>
             <Input id="adjust-qty" type="number" inputMode="numeric" min="1" step="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} autoFocus />
           </Field>
-          <Field label="Reason">
+          <Field label="Reason" required>
             <SimpleSelect value={reason} onChange={setReason} options={REASONS[mode].map((r) => ({ value: r, label: r }))} />
           </Field>
           {mode === "remove" && qty > current && <p className="text-sm text-destructive">Only {current} available at this location.</p>}
@@ -96,7 +97,7 @@ export function StockAdjustDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!valid || pending} variant={mode === "remove" ? "destructive" : "default"}>
+            <Button type="submit" disabled={pending} variant={mode === "remove" ? "destructive" : "default"}>
               {mode === "add" ? "Add" : "Remove"} {Number.isFinite(qty) && qty > 0 ? qty : ""} {product.unit}
             </Button>
           </DialogFooter>

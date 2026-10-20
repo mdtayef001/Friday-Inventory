@@ -18,7 +18,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ConfirmAction, Field, PageBody, PageHeader, Pill, SimpleSelect, type PillTone } from "@/components/common"
+import { cn } from "@/lib/utils"
+import { ConfirmAction, Field, PageBody, PageHeader, Pill, SimpleSelect, useRequired, type PillTone } from "@/components/common"
 import { useBusiness, useScope, useSessionUser } from "@/components/session-provider"
 import { initials } from "@/components/user-menu"
 import { canManageUser, creatableRoles, roleLabel } from "@/lib/auth/roles"
@@ -206,6 +207,11 @@ function UserDialog({ user, onClose }: { user?: ManagedUser; onClose: () => void
   const [canSell, setCanSell] = useState(user?.canSell ?? true)
   const [canAddStock, setCanAddStock] = useState(user?.canAddStock ?? true)
   const [error, setError] = useState("")
+  const required = useRequired()
+  const nameOk = name.trim().length >= 2
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+  const passwordOk = !!user || password.length >= 8
+  const placesOk = role === "owner" || kept.length + locationIds.length > 0
 
   const toggle = (id: string, on: boolean) => setLocationIds((ids) => (on ? [...ids, id] : ids.filter((x) => x !== id)))
   const generate = () => {
@@ -217,6 +223,7 @@ function UserDialog({ user, onClose }: { user?: ManagedUser; onClose: () => void
   function submit(e: React.FormEvent) {
     e.preventDefault()
     setError("")
+    if (!required.check(nameOk && emailOk && passwordOk && placesOk, e)) return
     startTransition(async () => {
       const where = role === "owner" ? [] : [...kept, ...locationIds]
       const result = user
@@ -242,20 +249,20 @@ function UserDialog({ user, onClose }: { user?: ManagedUser; onClose: () => void
             </DialogDescription>
           </DialogHeader>
           {roles.length > 1 && (
-            <Field label="Role" hint={ROLE_HELP[role]}>
+            <Field label="Role" required hint={ROLE_HELP[role]}>
               <SimpleSelect value={role} onChange={(v) => setRole(v as TenantRole)} options={roles.map((r) => ({ value: r, label: r === "owner" ? "Admin" : roleLabel({ role: r, isMainOwner: false }) }))} />
             </Field>
           )}
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Full name" htmlFor="u-name">
+            <Field label="Full name" htmlFor="u-name" required missing={required.shown && !nameOk}>
               <Input id="u-name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
             </Field>
-            <Field label="Email" htmlFor="u-email">
+            <Field label="Email" htmlFor="u-email" required missing={required.shown && !emailOk}>
               <Input id="u-email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} />
             </Field>
           </div>
           {!user && (
-            <Field label="Password" htmlFor="u-pass" hint="At least 8 characters.">
+            <Field label="Password" htmlFor="u-pass" required missing={required.shown && !passwordOk} hint="At least 8 characters.">
               <div className="flex gap-2">
                 <Input id="u-pass" type="text" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} className="font-mono" />
                 <Button type="button" variant="outline" onClick={generate}>
@@ -265,8 +272,8 @@ function UserDialog({ user, onClose }: { user?: ManagedUser; onClose: () => void
             </Field>
           )}
           {role !== "owner" && (
-            <Field label="Works at">
-              <div className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">
+            <Field label="Works at" required missing={required.shown && !placesOk}>
+              <div className={cn("grid gap-2 rounded-lg border p-3 sm:grid-cols-2", required.shown && !placesOk && "border-destructive")}>
                 {scope.locations.map((l) => (
                   <label key={l.id} className="flex items-center gap-2 text-sm">
                     <Checkbox checked={locationIds.includes(l.id)} onCheckedChange={(on) => toggle(l.id, on)} />
@@ -312,6 +319,7 @@ function UserDialog({ user, onClose }: { user?: ManagedUser; onClose: () => void
 function ResetPasswordDialog({ user, onClose }: { user: ManagedUser; onClose: () => void }) {
   const [password, setPassword] = useState("")
   const [pending, startTransition] = useTransition()
+  const required = useRequired()
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
@@ -319,6 +327,7 @@ function ResetPasswordDialog({ user, onClose }: { user: ManagedUser; onClose: ()
           className="grid gap-4"
           onSubmit={(e) => {
             e.preventDefault()
+            if (!required.check(password.length >= 8, e)) return
             startTransition(async () => {
               if (showResult(await resetUserPassword(user.id, password), "Password changed")) onClose()
             })
@@ -328,14 +337,14 @@ function ResetPasswordDialog({ user, onClose }: { user: ManagedUser; onClose: ()
             <DialogTitle>Reset password</DialogTitle>
             <DialogDescription>Set a new password for {user.name}.</DialogDescription>
           </DialogHeader>
-          <Field label="New password" htmlFor="rp" hint="At least 8 characters.">
+          <Field label="New password" htmlFor="rp" required missing={required.shown && password.length < 8} hint="At least 8 characters.">
             <Input id="rp" type="text" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} className="font-mono" autoFocus />
           </Field>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={pending || password.length < 8}>
+            <Button type="submit" disabled={pending}>
               Save password
             </Button>
           </DialogFooter>

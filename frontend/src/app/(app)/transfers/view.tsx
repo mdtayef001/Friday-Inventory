@@ -23,6 +23,7 @@ import {
   QueryError,
   SearchInput,
   SimpleSelect,
+  useRequired,
   type PillTone,
 } from "@/components/common"
 import { ProductPicker } from "@/components/product-picker"
@@ -226,13 +227,15 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
   const productId = product?.id ?? ""
   const available = qtyAt(product, from)
   const qty = Number(quantity)
-  const valid = from && to && from !== to && productId && Number.isInteger(qty) && qty > 0 && qty <= available
+  const toOk = !!to && from !== to
+  const qtyOk = Number.isInteger(qty) && qty > 0 && qty <= available
 
   const [run, pending] = useAttempt()
+  const required = useRequired()
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!valid) return
+    if (!required.check(!!from && toOk && !!productId && qtyOk, e)) return
     const ok = await run(() => actions.createTransfer({ productId, quantity: qty, fromLocationId: from, toLocationId: to }), "Transfer sent")
     if (ok) onClose()
   }
@@ -246,7 +249,7 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
             <DialogDescription>Stock is taken from the first location now and added to the second when received.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="From">
+            <Field label="From" required missing={required.shown && !from}>
               <SimpleSelect
                 value={from}
                 onChange={(v) => {
@@ -256,7 +259,7 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
                 options={scope.locations.map((l) => ({ value: l.id, label: l.name }))}
               />
             </Field>
-            <Field label="To">
+            <Field label="To" required missing={required.shown && !toOk}>
               <SimpleSelect
                 value={to}
                 onChange={setTo}
@@ -265,7 +268,7 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
               />
             </Field>
           </div>
-          <Field label="Product" hint="Only products with stock at this location.">
+          <Field label="Product" required missing={required.shown && !productId} hint="Only products with stock at this location.">
             <ProductPicker
               value={product}
               onChange={setProduct}
@@ -274,14 +277,14 @@ function NewTransferDialog({ onClose }: { onClose: () => void }) {
               disabled={!from}
             />
           </Field>
-          <Field label="Quantity" htmlFor="tr-qty" hint={productId ? `${available} available` : undefined}>
+          <Field label="Quantity" htmlFor="tr-qty" required missing={required.shown && !!productId && !qtyOk} hint={productId ? `${available} available` : undefined}>
             <Input id="tr-qty" type="number" min="1" step="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
           </Field>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!valid || pending}>
+            <Button type="submit" disabled={pending}>
               Send transfer
             </Button>
           </DialogFooter>
@@ -479,11 +482,12 @@ function ApproveRequestDialog({ request: r, onClose }: { request: StockRequest; 
   const [quantity, setQuantity] = useState(String(r.quantity))
   const available = qtyAt(product, from)
   const qty = Number(quantity)
-  const valid = !!from && Number.isInteger(qty) && qty > 0 && qty <= available
+  const qtyOk = Number.isInteger(qty) && qty > 0 && qty <= available
+  const required = useRequired()
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!valid) return
+    if (!from || !required.check(qtyOk, e)) return
     const ok = await run(() => actions.approveRequest(r.id, { fromLocationId: from, quantity: qty }), `Sent ${qty} × ${r.productName}. The shop receives it when it arrives.`)
     if (ok) onClose()
   }
@@ -504,10 +508,10 @@ function ApproveRequestDialog({ request: r, onClose }: { request: StockRequest; 
             <p className="text-sm text-destructive">None of your locations has this product in stock to send.</p>
           ) : (
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Send from" hint={from ? `${available} available` : undefined}>
+              <Field label="Send from" required hint={from ? `${available} available` : undefined}>
                 <SimpleSelect value={from} onChange={setFrom} options={sources.map((l) => ({ value: l.id, label: l.name }))} />
               </Field>
-              <Field label="Quantity" htmlFor="appr-qty">
+              <Field label="Quantity" htmlFor="appr-qty" required missing={required.shown && !qtyOk}>
                 <Input id="appr-qty" type="number" min="1" step="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
               </Field>
             </div>
@@ -517,7 +521,7 @@ function ApproveRequestDialog({ request: r, onClose }: { request: StockRequest; 
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!valid || pending}>
+            <Button type="submit" disabled={!from || pending}>
               <Send />
               Approve and send
             </Button>
@@ -547,7 +551,7 @@ function DeclineRequestDialog({ request: r, onClose }: { request: StockRequest; 
             <DialogTitle>Decline request</DialogTitle>
             <DialogDescription>The shop sees your reason next to the request.</DialogDescription>
           </DialogHeader>
-          <Field label="Reason" htmlFor="decl-note" hint="Optional.">
+          <Field label="Reason" htmlFor="decl-note">
             <Input id="decl-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} placeholder="e.g. New delivery arrives Monday" />
           </Field>
           <DialogFooter>
