@@ -467,7 +467,19 @@ export interface Transfer {
   createdAt: string
   createdBy: string
   receivedAt?: string
+  /** How many actually arrived, once received. */
+  receivedQuantity: number | null
+  /** Sent but didn't arrive: quantity − receivedQuantity. */
+  missing: number
+  /** "" when nothing went missing; "open" until the owner or a sending manager sorts it out. */
+  missingStatus: MissingStatus | ""
+  missingNote: string
+  missingResolvedBy: string
+  missingResolvedAt: string | null
 }
+
+/** Never sent (back at the sender), lost on the way, or turned up later. */
+export type MissingStatus = "open" | "returned" | "lost" | "arrived"
 
 export interface Activity {
   id: string
@@ -589,6 +601,8 @@ export interface StockRequest {
   decisionNote: string
   transferId: string | null
   fromLocationId: string | null
+  /** How many arrived, once the shop received it. */
+  receivedQuantity: number | null
 }
 
 // ---------- Totals worked out by the server ----------
@@ -610,6 +624,8 @@ export interface Badges {
   overdueRentals: number
   openOrders: number
   waitingRequests: number
+  /** Transfers received short, for the owner or a manager of the sending location to sort out. */
+  missingTransfers: number
   /** Sales staff asked to take back. Owners only; 0 for everyone else. */
   returnRequests: number
 }

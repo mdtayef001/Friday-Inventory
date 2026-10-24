@@ -15,6 +15,7 @@ import {
   Factory,
   type LucideIcon,
   Package,
+  PackageSearch,
   PackageX,
   Receipt,
   Repeat,
@@ -126,6 +127,8 @@ export function DashboardView() {
   if (overview.returnRequests) attention.push({ href: "/sales", icon: Undo2, label: "Refunds asked for by staff", detail: formatNumber(overview.returnRequests), tone: "amber" })
   if (overview.waitingRequests && canOpen("/transfers"))
     attention.push({ href: "/transfers?tab=requests", icon: Repeat, label: "Stock requests waiting", detail: formatNumber(overview.waitingRequests), tone: "amber" })
+  if (overview.missingTransfers && canOpen("/transfers"))
+    attention.push({ href: "/transfers?status=missing", icon: PackageSearch, label: "Transfers that arrived short", detail: formatNumber(overview.missingTransfers), tone: "amber" })
   if (owedBack && owedBack.openCount > 0)
     attention.push({ href: "/supplier-returns", icon: PackageX, label: "Returns waiting on suppliers", detail: `${owedBack.openCount} · ${formatMoney(owedBack.owed)} back`, tone: "blue" })
   if (showOrders && openOrders) attention.push({ href: "/tracking", icon: Truck, label: "Orders on their way", detail: formatNumber(openOrders), tone: "blue" })

@@ -113,9 +113,10 @@ def tables(business):
          s.get_status_display(), safe(s.notes)]
         for s in Shipment.objects.filter(**of).select_related("product", "client", "from_location").order_by("created_at", "id")
     )
-    yield "transfers.csv", ["Transfer", "Date", "Product", "Quantity", "From", "To", "Status", "Received"], (
+    yield "transfers.csv", ["Transfer", "Date", "Product", "Quantity", "From", "To", "Status", "Received", "Arrived", "Missing", "Missing stock", "Missing note"], (
         [t.code, when(t.created_at), name(t.product), t.quantity, name(t.from_location), name(t.to_location), t.get_status_display(),
-         when(t.received_at)]
+         when(t.received_at), "" if t.received_quantity is None else t.received_quantity, t.missing or "", t.get_missing_status_display(),
+         safe(t.missing_note)]
         for t in Transfer.objects.filter(**of).select_related("product", "from_location", "to_location").order_by("created_at", "id")
     )
     yield "stock-requests.csv", ["Request", "Date", "Product", "Quantity", "For", "Asked by", "Status", "Note", "Answer"], (

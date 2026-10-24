@@ -44,8 +44,10 @@ from .serializers import (
     ReplacementSerializer,
     PublicTrackingSerializer,
     ReceiptSerializer,
+    ReceiveTransferSerializer,
     RentalReturnSerializer,
     RentalSerializer,
+    ResolveMissingSerializer,
     SaleSerializer,
     SellSerializer,
     ShipmentSerializer,
@@ -809,15 +811,17 @@ class TransferViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModel
     search_fields = ("code", "product__name")
 
     def get_queryset(self):
-        qs = super().get_queryset().select_related("created_by", "product")
+        qs = super().get_queryset().select_related("created_by", "product", "missing_resolved_by")
         return self.scope_to_locations(qs, "from_location_id", "to_location_id")
 
     def filter_queryset(self, qs):
-        """?search=, ?status=, ?product=, ?to=<location>, and ?location= for either end."""
+        """?search=, ?status=, ?product=, ?to=<location>, ?location= for either end, and ?missing=open."""
         qs = self.filter_by_ids(self.search(qs), product="product_id", to="to_location_id")
         location = self.id_param("location")
         if location is not None:
             qs = qs.filter(Q(from_location_id=location) | Q(to_location_id=location))
+        if self.request.query_params.get("missing") == "open":
+            qs = qs.filter(missing_status=Transfer.Missing.OPEN)
         status_ = self.request.query_params.get("status")
         if status_:
             if status_ not in Transfer.Status.values:
@@ -832,9 +836,25 @@ class TransferViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModel
 
     @action(detail=True, methods=["post"])
     def receive(self, request, pk=None):
+        """Body: receivedQuantity (how many arrived, all of them if left out) and an optional note."""
+        body = ReceiveTransferSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
         transfer = self.get_object()
         self.check_location(transfer.to_location)
-        transfer = services.receive_transfer(request.user, transfer)
+        data = body.validated_data
+        transfer = services.receive_transfer(request.user, transfer, data.get("received_quantity"), data.get("note", ""))
+        return Response(TransferSerializer(transfer, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def missing(self, request, pk=None):
+        """Sort out stock that didn't arrive. The owner, or a manager of the sending location."""
+        body = ResolveMissingSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        transfer = self.get_object()
+        if request.user.role == User.Role.STAFF:
+            raise PermissionDenied("Ask your manager to sort out missing stock.")
+        self.check_location(transfer.from_location)
+        transfer = services.resolve_missing(request.user, transfer, **body.validated_data)
         return Response(TransferSerializer(transfer, context={"request": request}).data)
 
     @action(detail=True, methods=["post"])
@@ -930,6 +950,10 @@ class OverviewView(APIView):
             "overdue_rentals": overdue.count() if rentals_on else 0,
             "open_orders": shipments.filter(status__in=Shipment.OPEN).count() if tracking_on else 0,
             "waiting_requests": self.waiting_requests(user) if transfers_on else 0,
+            # Received short, for whoever can sort it out: the owner or a manager of the sending location.
+            "missing_transfers": scoped(
+                Transfer.objects.filter(business=business, missing_status=Transfer.Missing.OPEN), "from_location_id"
+            ).count() if transfers_on else 0,
             # Sales staff asked to take back; only an owner can accept them.
             "return_requests": Sale.objects.filter(
                 business=business, return_request=Sale.ReturnRequest.REQUESTED, refunded_at__isnull=True

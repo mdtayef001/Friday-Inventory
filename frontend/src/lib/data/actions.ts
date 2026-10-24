@@ -4,6 +4,7 @@ import { request } from "@/lib/api/client"
 import type {
   Client,
   Location,
+  MissingStatus,
   PaymentMethod,
   Product,
   Purchase,
@@ -232,8 +233,12 @@ export const actions = {
     if (input.fromLocationId === input.toLocationId) throw new Error("Choose two different locations.")
     return call<Transfer>("transfers/", "POST", input, "transfers", ...STOCK)
   },
-  async receiveTransfer(id: string) {
-    await call(`transfers/${id}/receive/`, "POST", {}, "transfers", "stock-requests", ...STOCK)
+  /** Leave receivedQuantity out when everything arrived. */
+  async receiveTransfer(id: string, input: { receivedQuantity?: number; note?: string } = {}) {
+    await call(`transfers/${id}/receive/`, "POST", input, "transfers", "stock-requests", ...STOCK)
+  },
+  async resolveMissing(id: string, outcome: Exclude<MissingStatus, "open">, note = "") {
+    await call(`transfers/${id}/missing/`, "POST", { outcome, note }, "transfers", ...STOCK)
   },
   async cancelTransfer(id: string) {
     await call(`transfers/${id}/cancel/`, "POST", {}, "transfers", "stock-requests", ...STOCK)

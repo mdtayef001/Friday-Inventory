@@ -649,6 +649,108 @@ class StockRequestTests(ApiTestCase):
         self.assertEqual(self.client.get("/api/stock-requests/").status_code, 403)
 
 
+class MissingStockTests(ApiTestCase):
+    """10 sent, only 5 arrive: the shop says so and the owner decides what happened."""
+
+    def setUp(self):
+        super().setUp()
+        self.manager = self.make_user("shop@a.com", User.Role.MANAGER, self.biz)
+        self.manager.locations.set([self.outlet])
+        self.login("owner@a.com")
+        res = self.client.post(
+            "/api/transfers/",
+            {"productId": self.product.id, "quantity": 10, "fromLocationId": self.warehouse.id, "toLocationId": self.outlet.id},
+            format="json",
+        )
+        self.transfer = res.json()["id"]
+
+    def as_user(self, email):
+        self.client.credentials()
+        self.login(email)
+
+    def receive(self, **body):
+        return self.client.post(f"/api/transfers/{self.transfer}/receive/", body, format="json")
+
+    def resolve(self, outcome, note=""):
+        return self.client.post(f"/api/transfers/{self.transfer}/missing/", {"outcome": outcome, "note": note}, format="json")
+
+    def receive_short(self):
+        self.as_user("shop@a.com")
+        res = self.receive(receivedQuantity=5, note="Box was half empty")
+        self.assertEqual(res.status_code, 200, res.content)
+        self.as_user("owner@a.com")
+        return res.json()
+
+    def test_receiving_everything_by_default(self):
+        res = self.receive().json()
+        self.assertEqual((res["receivedQuantity"], res["missing"], res["missingStatus"]), (10, 0, ""))
+        self.assertEqual(self.qty(self.outlet), 10)
+
+    def test_short_delivery_only_adds_what_arrived_and_flags_the_rest(self):
+        res = self.receive_short()
+        self.assertEqual((res["status"], res["receivedQuantity"], res["missing"], res["missingStatus"]), ("received", 5, 5, "open"))
+        self.assertEqual(res["missingNote"], "Box was half empty")
+        self.assertEqual((self.qty(self.warehouse), self.qty(self.outlet)), (0, 5))
+        self.assertEqual(self.client.get("/api/overview/?only=badges").json()["missingTransfers"], 1)
+        self.assertEqual(len(self.client.get("/api/transfers/?missing=open").json()), 1)
+
+    def test_cannot_receive_more_than_was_sent(self):
+        self.assertEqual(self.receive(receivedQuantity=11).status_code, 400)
+        self.assertEqual(self.receive(receivedQuantity=-1).status_code, 400)
+        self.assertEqual(self.qty(self.outlet), 0)
+
+    def test_never_sent_goes_back_to_the_warehouse(self):
+        self.receive_short()
+        res = self.resolve("returned", "Left on the shelf")
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual((res.json()["missingStatus"], res.json()["missingResolvedBy"]), ("returned", "owner@a.com"))
+        self.assertEqual((self.qty(self.warehouse), self.qty(self.outlet)), (5, 5))
+        self.assertEqual(self.client.get("/api/overview/?only=badges").json()["missingTransfers"], 0)
+
+    def test_lost_on_the_way_is_written_off(self):
+        self.receive_short()
+        self.assertEqual(self.resolve("lost").status_code, 200)
+        self.assertEqual((self.qty(self.warehouse), self.qty(self.outlet)), (0, 5))
+
+    def test_turned_up_later_goes_to_the_shop(self):
+        self.receive_short()
+        self.assertEqual(self.resolve("arrived").status_code, 200)
+        self.assertEqual(self.qty(self.outlet), 10)
+
+    def test_can_only_be_sorted_out_once(self):
+        self.receive_short()
+        self.resolve("returned")
+        self.assertEqual(self.resolve("arrived").status_code, 400)
+        self.assertEqual((self.qty(self.warehouse), self.qty(self.outlet)), (5, 5))
+
+    def test_nothing_to_sort_out_when_all_arrived(self):
+        self.receive()
+        self.assertEqual(self.resolve("lost").status_code, 400)
+
+    def test_shop_manager_cannot_sort_out_their_own_shortage(self):
+        self.receive_short()
+        self.as_user("shop@a.com")
+        self.assertEqual(self.resolve("arrived").status_code, 403)
+        self.assertEqual(self.client.get("/api/overview/?only=badges").json()["missingTransfers"], 0)
+        self.assertEqual(self.qty(self.outlet), 5)
+
+    def test_staff_cannot_sort_it_out(self):
+        self.receive_short()
+        self.staff.locations.set([self.warehouse, self.outlet])
+        self.as_user("staff@a.com")
+        self.assertEqual(self.resolve("lost").status_code, 403)
+
+    def test_request_shows_how_many_arrived(self):
+        self.as_user("shop@a.com")
+        req = self.client.post("/api/stock-requests/", {"productId": self.product.id, "quantity": 4, "toLocationId": self.outlet.id}, format="json").json()
+        self.as_user("owner@a.com")
+        StockLevel.objects.create(business=self.biz, product=self.product, location=self.warehouse, quantity=4)
+        approved = self.client.post(f"/api/stock-requests/{req['id']}/approve/", {"fromLocationId": self.warehouse.id}, format="json").json()
+        self.client.post(f"/api/transfers/{approved['transferId']}/receive/", {"receivedQuantity": 3}, format="json")
+        row = next(r for r in self.client.get("/api/stock-requests/").json() if r["id"] == req["id"])
+        self.assertEqual((row["stage"], row["receivedQuantity"]), ("received", 3))
+
+
 class PaymentsBase(SalesBase):
     def settings_with(self, **payments):
         current = self.client.get("/api/business/").json()["settings"]
@@ -998,7 +1100,7 @@ class ListingTests(ApiTestCase):
         self.assertTrue(o["recentActivity"])
         self.assertEqual([s["status"] for s in o["ordersByStatus"]], ["pending", "processing", "in_delivery"])
         badges = self.client.get("/api/overview/", {"only": "badges"}).json()
-        self.assertEqual(badges, {"overdueRentals": 1, "openOrders": 0, "waitingRequests": 0, "returnRequests": 0})
+        self.assertEqual(badges, {"overdueRentals": 1, "openOrders": 0, "waitingRequests": 0, "missingTransfers": 0, "returnRequests": 0})
 
     def test_staff_see_only_their_own_activity(self):
         self.login("staff@a.com")

@@ -94,12 +94,12 @@ export function AppSidebar() {
   const { setOpenMobile } = useSidebar()
   const business = useBusiness()
   const { canOpen } = usePermissions()
-  // Overdue rentals, orders in progress, and requests waiting for someone else to approve.
+  // Overdue rentals, orders in progress, requests waiting for someone else to approve, and transfers that arrived short.
   const counts = useBadges()
   const badges: Record<string, number | undefined> = {
     "/rentals": counts?.overdueRentals,
     "/tracking": counts?.openOrders,
-    "/transfers": counts?.waitingRequests,
+    "/transfers": counts && counts.waitingRequests + counts.missingTransfers,
     "/sales": counts?.returnRequests,
   }
 

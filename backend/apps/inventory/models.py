@@ -238,8 +238,27 @@ class Transfer(TenantModel):
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+")
     received_at = models.DateTimeField(null=True, blank=True)
 
+    class Missing(models.TextChoices):
+        """What happened to stock that was sent but didn't arrive."""
+
+        OPEN = "open", "Missing"
+        RETURNED = "returned", "Back at sender"
+        LOST = "lost", "Written off"
+        ARRIVED = "arrived", "Arrived later"
+
+    # How many actually arrived; set when it's received. Less than quantity means some went missing.
+    received_quantity = models.PositiveIntegerField(null=True, blank=True)
+    missing_status = models.CharField(max_length=10, choices=Missing.choices, blank=True)
+    missing_note = models.CharField(max_length=300, blank=True)
+    missing_resolved_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    missing_resolved_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         ordering = ["-created_at"]
+
+    @property
+    def missing(self):
+        return self.quantity - self.received_quantity if self.received_quantity is not None else 0
 
 
 class Activity(TenantModel):

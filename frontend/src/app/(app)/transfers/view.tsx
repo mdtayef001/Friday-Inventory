@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { ArrowLeftRight, ArrowRight, Check, Inbox, PackagePlus, Plus, Send, X } from "lucide-react"
+import { ArrowLeftRight, ArrowRight, Check, Inbox, PackagePlus, PackageSearch, Plus, Send, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -34,14 +34,15 @@ import { TransferStatusPill } from "@/components/status"
 import { actions } from "@/lib/data/actions"
 import { qtyAt, useDebounced, useLocations, usePaging, useProduct, useStockRequests, useTransfers } from "@/lib/data/queries"
 import { formatDateTime } from "@/lib/format"
-import type { Product, StockRequest, StockRequestStatus, TransferStatus } from "@/lib/types"
+import type { MissingStatus, Product, StockRequest, StockRequestStatus, Transfer, TransferStatus } from "@/lib/types"
 
 type Tab = "transfers" | "requests"
 
 export function TransfersView() {
   const scope = useScope()
-  // ?tab=requests opens the stock requests, e.g. from a link.
-  const [tab, setTab] = useState<Tab>(useSearchParams().get("tab") === "requests" ? "requests" : "transfers")
+  // ?tab=requests opens the stock requests and ?status=missing the transfers received short, e.g. from a link.
+  const params = useSearchParams()
+  const [tab, setTab] = useState<Tab>(params.get("tab") === "requests" ? "requests" : "transfers")
   const [creating, setCreating] = useState(false)
   const [requesting, setRequesting] = useState(false)
   const waiting = useStockRequests({ page: 1, status: "pending" }, { pageSize: 1 }).data?.count ?? 0
@@ -79,7 +80,7 @@ export function TransfersView() {
         </TabsList>
       </Tabs>
 
-      {tab === "transfers" ? <TransferList /> : <StockRequests />}
+      {tab === "transfers" ? <TransferList missingOnly={params.get("status") === "missing"} /> : <StockRequests />}
 
       {requesting && <RequestStockDialog onClose={() => setRequesting(false)} />}
       {creating && <NewTransferDialog onClose={() => setCreating(false)} />}
@@ -87,20 +88,38 @@ export function TransfersView() {
   )
 }
 
-const TRANSFER_FILTERS: { value: "all" | TransferStatus; label: string }[] = [
+const TRANSFER_FILTERS: { value: "all" | "missing" | TransferStatus; label: string }[] = [
   { value: "all", label: "Any status" },
   { value: "in_transit", label: "In transit" },
   { value: "received", label: "Received" },
+  { value: "missing", label: "Missing stock" },
   { value: "cancelled", label: "Cancelled" },
 ]
 
+/** What became of stock that didn't arrive, once sorted out. */
+const MISSING_OUTCOME: Record<Exclude<MissingStatus, "open">, string> = {
+  returned: "back at sender",
+  lost: "written off",
+  arrived: "arrived later",
+}
+
+/** Who may sort out missing stock: the owner, or a manager of the location it was sent from. */
+function useCanSortOut() {
+  const me = useSessionUser()
+  const scope = useScope()
+  return (t: Transfer) => me.role === "owner" || (me.role === "manager" && scope.has(t.fromLocationId))
+}
+
 /** Every transfer to or from the user's locations, newest first. */
-function TransferList() {
+function TransferList({ missingOnly }: { missingOnly: boolean }) {
   const scope = useScope()
   const locations = useLocations()
   const locationName = (id: string) => locations.find((l) => l.id === id)?.name
+  const canSortOut = useCanSortOut()
+  const [receiving, setReceiving] = useState<Transfer | null>(null)
+  const [sorting, setSorting] = useState<Transfer | null>(null)
   const [query, setQuery] = useState("")
-  const [status, setStatus] = useState<(typeof TRANSFER_FILTERS)[number]["value"]>("all")
+  const [status, setStatus] = useState<(typeof TRANSFER_FILTERS)[number]["value"]>(missingOnly ? "missing" : "all")
   const [location, setLocation] = useState("all")
   const search = useDebounced(query.trim())
   const paging = usePaging(search, status, location)
@@ -108,7 +127,8 @@ function TransferList() {
     {
       page: paging.page,
       search,
-      status: status === "all" ? undefined : status,
+      status: status === "all" || status === "missing" ? undefined : status,
+      missing: status === "missing" ? "open" : undefined,
       location: location === "all" ? undefined : location,
     },
     { pageSize: paging.pageSize },
@@ -161,7 +181,7 @@ function TransferList() {
                       <TableCell>
                         <div className="font-medium">{t.productName ?? "Deleted product"}</div>
                         <div className="text-xs text-muted-foreground">
-                          {t.quantity} {t.productUnit}
+                          {t.missing > 0 ? `${t.receivedQuantity} of ${t.quantity} arrived` : `${t.quantity} ${t.productUnit}`}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -172,7 +192,17 @@ function TransferList() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <TransferStatusPill status={t.status} />
+                        <div className="flex flex-wrap items-center gap-1">
+                          <TransferStatusPill status={t.status} />
+                          {t.missingStatus === "open" && <Pill tone="amber">{t.missing} missing</Pill>}
+                        </div>
+                        {t.missingStatus && t.missingStatus !== "open" && (
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {t.missing} {MISSING_OUTCOME[t.missingStatus]}
+                            {t.missingResolvedBy && ` · ${t.missingResolvedBy}`}
+                          </div>
+                        )}
+                        {t.missingNote && <div className="mt-1 max-w-56 truncate text-xs text-muted-foreground">“{t.missingNote}”</div>}
                       </TableCell>
                       <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
                         {formatDateTime(t.createdAt)}
@@ -182,7 +212,7 @@ function TransferList() {
                         {t.status === "in_transit" && (
                           <div className="flex justify-end gap-1">
                             {scope.has(t.toLocationId) && (
-                              <Button size="sm" onClick={() => attempt(() => actions.receiveTransfer(t.id), "Transfer received")}>
+                              <Button size="sm" onClick={() => setReceiving(t)}>
                                 <Check />
                                 Receive
                               </Button>
@@ -203,6 +233,12 @@ function TransferList() {
                             )}
                           </div>
                         )}
+                        {t.missingStatus === "open" && canSortOut(t) && (
+                          <Button size="sm" variant="outline" onClick={() => setSorting(t)}>
+                            <PackageSearch />
+                            Sort out
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   )
@@ -213,7 +249,130 @@ function TransferList() {
         </Card>
       )}
       {data && <Pager page={data.page} pageSize={paging.pageSize} count={data.count} onPage={paging.setPage} onPageSize={paging.setPageSize} busy={isPlaceholderData} />}
+      {receiving && <ReceiveTransferDialog transfer={receiving} onClose={() => setReceiving(null)} />}
+      {sorting && <SortOutMissingDialog transfer={sorting} locationName={locationName} onClose={() => setSorting(null)} />}
     </>
+  )
+}
+
+/** The shop counts what arrived. Anything short is flagged for the owner to sort out. */
+function ReceiveTransferDialog({ transfer: t, onClose }: { transfer: Transfer; onClose: () => void }) {
+  const [run, pending] = useAttempt()
+  const [quantity, setQuantity] = useState(String(t.quantity))
+  const [note, setNote] = useState("")
+  const qty = Number(quantity)
+  const qtyOk = quantity !== "" && Number.isInteger(qty) && qty >= 0 && qty <= t.quantity
+  const short = qtyOk ? t.quantity - qty : 0
+  const required = useRequired()
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!required.check(qtyOk, e)) return
+    const input = short ? { receivedQuantity: qty, note: note.trim() } : {}
+    const ok = await run(() => actions.receiveTransfer(t.id, input), short ? `Received ${qty}. ${short} marked missing.` : "Transfer received")
+    if (ok) onClose()
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <form onSubmit={submit} className="grid gap-4">
+          <DialogHeader>
+            <DialogTitle>Receive transfer</DialogTitle>
+            <DialogDescription>
+              {t.quantity} × {t.productName ?? "Deleted product"} were sent. Count what arrived.
+            </DialogDescription>
+          </DialogHeader>
+          <Field label="How many arrived?" htmlFor="rcv-qty" required missing={required.shown && !qtyOk} hint={`0 to ${t.quantity}`}>
+            <Input id="rcv-qty" type="number" min="0" max={t.quantity} step="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+          </Field>
+          {short > 0 && (
+            <>
+              <p className="text-sm text-amber-700 dark:text-amber-400">
+                {short} {t.productUnit} will be marked missing. The owner decides what happened to them.
+              </p>
+              <Field label="What happened?" htmlFor="rcv-note">
+                <Input id="rcv-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} placeholder="e.g. Box was half empty" />
+              </Field>
+            </>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={pending}>
+              <Check />
+              {short > 0 ? `Receive ${qty}` : "Receive all"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Never sent, lost on the way, or turned up later. */
+function SortOutMissingDialog({ transfer: t, locationName, onClose }: { transfer: Transfer; locationName: (id: string) => string | undefined; onClose: () => void }) {
+  const [run, pending] = useAttempt()
+  const [outcome, setOutcome] = useState<Exclude<MissingStatus, "open"> | "">("")
+  const [note, setNote] = useState("")
+  const required = useRequired()
+  const from = locationName(t.fromLocationId) ?? "the sender"
+  const to = locationName(t.toLocationId) ?? "the shop"
+  const choices: { value: Exclude<MissingStatus, "open">; label: string; detail: string }[] = [
+    { value: "returned", label: "It was never sent", detail: `Puts ${t.missing} back in stock at ${from}.` },
+    { value: "lost", label: "Lost or damaged on the way", detail: "Writes them off. Stock doesn't change." },
+    { value: "arrived", label: "It turned up later", detail: `Adds ${t.missing} to stock at ${to}.` },
+  ]
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!outcome || !required.check(!!outcome, e)) return
+    const ok = await run(() => actions.resolveMissing(t.id, outcome, note.trim()), "Missing stock sorted out")
+    if (ok) onClose()
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <form onSubmit={submit} className="grid gap-4">
+          <DialogHeader>
+            <DialogTitle>Sort out missing stock</DialogTitle>
+            <DialogDescription>
+              {t.missing} of {t.quantity} × {t.productName ?? "Deleted product"} didn&apos;t arrive at {to}.
+              {t.missingNote && ` They said: “${t.missingNote}”`}
+            </DialogDescription>
+          </DialogHeader>
+          <Field label="What happened?" required missing={required.shown && !outcome}>
+            <div className="grid gap-2" role="radiogroup">
+              {choices.map((c) => (
+                <label
+                  key={c.value}
+                  className="flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm has-checked:border-primary has-checked:bg-primary/5"
+                >
+                  <input type="radio" name="outcome" value={c.value} checked={outcome === c.value} onChange={() => setOutcome(c.value)} className="mt-0.5 accent-primary" />
+                  <span>
+                    <span className="font-medium">{c.label}</span>
+                    <span className="block text-xs text-muted-foreground">{c.detail}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </Field>
+          <Field label="Note" htmlFor="miss-note">
+            <Input id="miss-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} placeholder="e.g. Driver dropped a box" />
+          </Field>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Back
+            </Button>
+            <Button type="submit" disabled={pending}>
+              Save
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -423,6 +582,9 @@ function StockRequests() {
                       <TableCell className="text-sm">
                         <Pill tone={STAGE[r.stage].tone}>{STAGE[r.stage].label}</Pill>
                         {r.fromLocationId && <div className="mt-1 text-xs text-muted-foreground">from {locationName(r.fromLocationId)}</div>}
+                        {r.stage === "received" && r.receivedQuantity !== null && r.receivedQuantity !== r.quantity && (
+                          <div className="mt-1 text-xs text-muted-foreground">{r.receivedQuantity} arrived</div>
+                        )}
                         {r.status === "declined" && r.decisionNote && <div className="mt-1 text-xs text-muted-foreground">“{r.decisionNote}”</div>}
                       </TableCell>
                       <TableCell className="pr-4 text-right">

@@ -222,30 +222,77 @@ def create_transfer(user, *, product, quantity, from_location, to_location):
     return transfer
 
 
-def _close_transfer(user, transfer, status):
-    transfer = Transfer.objects.select_for_update().get(pk=transfer.pk)
-    if transfer.status != Transfer.Status.IN_TRANSIT:
-        raise ValidationError("This transfer is already closed.")
-    target = transfer.to_location if status == Transfer.Status.RECEIVED else transfer.from_location
-    change_stock(transfer.product, target, transfer.quantity)
-    transfer.status = status
-    if status == Transfer.Status.RECEIVED:
-        transfer.received_at = timezone.now()
-    transfer.save(update_fields=["status", "received_at"])
-    return transfer
-
-
 @transaction.atomic
-def receive_transfer(user, transfer):
-    transfer = _close_transfer(user, transfer, Transfer.Status.RECEIVED)
-    log(user, "Transfer received", transfer.code)
+def receive_transfer(user, transfer, received=None, note=""):
+    """The shop counts what arrived. Anything short is flagged as missing for the
+    owner, or a manager of the sending location, to sort out."""
+    transfer = _lock_open_transfer(transfer)
+    received = transfer.quantity if received is None else received
+    if not 0 <= received <= transfer.quantity:
+        raise ValidationError(f"Enter how many arrived, from 0 to {transfer.quantity}.")
+    if received:
+        change_stock(transfer.product, transfer.to_location, received)
+    transfer.status = Transfer.Status.RECEIVED
+    transfer.received_at = timezone.now()
+    transfer.received_quantity = received
+    if transfer.missing:
+        transfer.missing_status = Transfer.Missing.OPEN
+        transfer.missing_note = note.strip()
+    transfer.save(update_fields=["status", "received_at", "received_quantity", "missing_status", "missing_note"])
+    if transfer.missing:
+        detail = f"{transfer.code} · {received} of {transfer.quantity} arrived, {transfer.missing} missing"
+        log(user, "Transfer received short", detail + (f" · {transfer.missing_note}" if transfer.missing_note else ""))
+    else:
+        log(user, "Transfer received", transfer.code)
     return transfer
 
 
 @transaction.atomic
 def cancel_transfer(user, transfer):
-    transfer = _close_transfer(user, transfer, Transfer.Status.CANCELLED)
+    transfer = _lock_open_transfer(transfer)
+    change_stock(transfer.product, transfer.from_location, transfer.quantity)
+    transfer.status = Transfer.Status.CANCELLED
+    transfer.save(update_fields=["status"])
     log(user, "Transfer cancelled", transfer.code)
+    return transfer
+
+
+def _lock_open_transfer(transfer):
+    transfer = Transfer.objects.select_for_update(of=("self",)).get(pk=transfer.pk)
+    if transfer.status != Transfer.Status.IN_TRANSIT:
+        raise ValidationError("This transfer is already closed.")
+    return transfer
+
+
+MISSING_LOG = {
+    Transfer.Missing.RETURNED: "Missing stock back at sender",
+    Transfer.Missing.LOST: "Missing stock written off",
+    Transfer.Missing.ARRIVED: "Missing stock arrived",
+}
+
+
+@transaction.atomic
+def resolve_missing(user, transfer, outcome, note=""):
+    """Never sent (back into the sender's stock), lost on the way (written off),
+    or turned up later (into the shop's stock)."""
+    transfer = Transfer.objects.select_for_update(of=("self",)).get(pk=transfer.pk)
+    if transfer.missing_status != Transfer.Missing.OPEN:
+        raise ValidationError("Nothing is waiting to be sorted out on this transfer.")
+    if outcome == Transfer.Missing.RETURNED:
+        change_stock(transfer.product, transfer.from_location, transfer.missing)
+    elif outcome == Transfer.Missing.ARRIVED:
+        change_stock(transfer.product, transfer.to_location, transfer.missing)
+    elif outcome != Transfer.Missing.LOST:
+        raise ValidationError("Pick what happened to the missing stock.")
+    transfer.missing_status = outcome
+    note = note.strip()
+    if note:
+        transfer.missing_note = note
+    transfer.missing_resolved_by = user
+    transfer.missing_resolved_at = timezone.now()
+    transfer.save(update_fields=["missing_status", "missing_note", "missing_resolved_by", "missing_resolved_at"])
+    product = transfer.product.name if transfer.product else "deleted product"
+    log(user, MISSING_LOG[outcome], f"{transfer.code} · {transfer.missing} × {product}" + (f" · {note}" if note else ""))
     return transfer
 
 

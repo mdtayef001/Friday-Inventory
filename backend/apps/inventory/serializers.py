@@ -193,14 +193,31 @@ class TransferSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="created_by.name", read_only=True, default="")
     product_name = serializers.CharField(source="product.name", read_only=True, default=None)
     product_unit = serializers.CharField(source="product.unit", read_only=True, default=None)
+    missing = serializers.IntegerField(read_only=True)
+    missing_resolved_by = serializers.CharField(source="missing_resolved_by.name", read_only=True, default="")
 
     class Meta:
         model = Transfer
         fields = [
             "id", "code", "product_id", "product_name", "product_unit", "quantity", "from_location_id",
-            "to_location_id", "status", "created_at", "created_by", "received_at",
+            "to_location_id", "status", "created_at", "created_by", "received_at", "received_quantity", "missing",
+            "missing_status", "missing_note", "missing_resolved_by", "missing_resolved_at",
         ]
-        read_only_fields = ["code", "status", "created_at", "received_at"]
+        read_only_fields = [
+            "code", "status", "created_at", "received_at", "received_quantity", "missing_status", "missing_note", "missing_resolved_at",
+        ]
+
+
+class ReceiveTransferSerializer(serializers.Serializer):
+    """Leave received_quantity out when everything arrived."""
+
+    received_quantity = serializers.IntegerField(min_value=0, required=False)
+    note = serializers.CharField(required=False, allow_blank=True, max_length=300)
+
+
+class ResolveMissingSerializer(serializers.Serializer):
+    outcome = serializers.ChoiceField(choices=[c for c in Transfer.Missing.values if c != Transfer.Missing.OPEN])
+    note = serializers.CharField(required=False, allow_blank=True, max_length=300)
 
 
 class ActivitySerializer(serializers.ModelSerializer):
@@ -430,6 +447,7 @@ class StockRequestSerializer(serializers.ModelSerializer):
     from_location_id = serializers.SerializerMethodField()
     # "received" once the transfer it created has arrived.
     stage = serializers.SerializerMethodField()
+    received_quantity = serializers.IntegerField(source="transfer.received_quantity", read_only=True, default=None)
 
     class Meta:
         model = StockRequest
@@ -437,6 +455,7 @@ class StockRequestSerializer(serializers.ModelSerializer):
             "id", "code", "product_id", "product_name", "product_unit", "quantity", "to_location_id", "note", "status",
             "stage", "requested_by",
             "requested_by_id", "created_at", "decided_by", "decided_at", "decision_note", "transfer_id", "from_location_id",
+            "received_quantity",
         ]
         read_only_fields = ["code", "status", "created_at", "decided_at", "decision_note"]
 
