@@ -12,7 +12,7 @@ import { ClientPicker } from "@/components/client-dialog"
 import { Field, SimpleSelect, useAttempt, useRequired } from "@/components/common"
 import { PaymentPicker } from "@/components/payment-picker"
 import { ReceiptShare } from "@/components/receipt-share"
-import { useBusiness, usePermissions, useScope } from "@/components/session-provider"
+import { useBusiness, usePermissions, useScope, useSessionUser } from "@/components/session-provider"
 import { PAYMENT_METHODS } from "@/lib/business"
 import { actions } from "@/lib/data/actions"
 import { apiQuery, qtyAt, useProduct } from "@/lib/data/queries"
@@ -80,13 +80,15 @@ export function CheckoutDialog({
   onClose: () => void
   onSold?: () => void
 }) {
+  const user = useSessionUser()
   const { locations } = useScope()
   const [run, pending] = useAttempt()
   const required = useRequired()
   const { can } = usePermissions()
   const showProfit = can("managerProfit")
   // Staff must name the customer only when the owner turns off walk-in sales for them.
-  const needClient = !can("staffWalkInSales")
+  // (A staff switch reads as off for everyone else, so check the role too.)
+  const needClient = user.role === "staff" && !can("staffWalkInSales")
   // Loaded fresh, so the stock shown is what's there now.
   const products = useQueries({ queries: lines.map((l) => apiQuery<Product>(`products/${l.productId}/`)) })
   const productFor = (i: number) => products[i]?.data
