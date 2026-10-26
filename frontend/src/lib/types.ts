@@ -63,6 +63,8 @@ export interface Permissions {
   staffCreateProducts: boolean
   managerPurchases: boolean
   managerReturns: boolean
+  /** Off: staff must pick or add the customer for every sale. */
+  staffWalkInSales: boolean
 }
 export type PermissionId = keyof Permissions
 

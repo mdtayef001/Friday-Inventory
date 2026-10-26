@@ -12,7 +12,7 @@ import { ClientPicker } from "@/components/client-dialog"
 import { Field, SimpleSelect, useAttempt, useRequired } from "@/components/common"
 import { PaymentPicker } from "@/components/payment-picker"
 import { ReceiptShare } from "@/components/receipt-share"
-import { useBusiness, usePermissions, useScope, useSessionUser } from "@/components/session-provider"
+import { useBusiness, usePermissions, useScope } from "@/components/session-provider"
 import { PAYMENT_METHODS } from "@/lib/business"
 import { actions } from "@/lib/data/actions"
 import { apiQuery, qtyAt, useProduct } from "@/lib/data/queries"
@@ -80,11 +80,13 @@ export function CheckoutDialog({
   onClose: () => void
   onSold?: () => void
 }) {
-  const user = useSessionUser()
   const { locations } = useScope()
   const [run, pending] = useAttempt()
   const required = useRequired()
-  const showProfit = usePermissions().can("managerProfit")
+  const { can } = usePermissions()
+  const showProfit = can("managerProfit")
+  // Staff must name the customer only when the owner turns off walk-in sales for them.
+  const needClient = !can("staffWalkInSales")
   // Loaded fresh, so the stock shown is what's there now.
   const products = useQueries({ queries: lines.map((l) => apiQuery<Product>(`products/${l.productId}/`)) })
   const productFor = (i: number) => products[i]?.data
@@ -121,9 +123,8 @@ export function CheckoutDialog({
   const discountOk = off >= 0 && total >= 0
   const receivedOk = !needsConfirm || received
   const referenceOk = method !== "mobile" || reference.trim() !== ""
-  const valid = !!locationId && lines.length > 0 && !loading && lines.every(lineOk) && !short && discountOk && receivedOk && referenceOk
-  // Staff don't see the client list, so they sell without one.
-  const canPickClient = user.role !== "staff"
+  const clientOk = !needClient || !!client
+  const valid = !!locationId && lines.length > 0 && !loading && lines.every(lineOk) && !short && discountOk && receivedOk && referenceOk && clientOk
   const single = lines.length === 1
 
   async function submit(e: React.FormEvent) {
@@ -178,11 +179,14 @@ export function CheckoutDialog({
           <Field label="Discount" htmlFor="sell-discount" missing={required.shown && !discountOk} hint={single ? "Taken off the total." : "One discount on the whole bill."}>
             <Input id="sell-discount" type="number" inputMode="decimal" min="0" step="0.01" placeholder="0.00" value={discount} onChange={(e) => setDiscount(e.target.value)} />
           </Field>
-          {canPickClient && (
-            <Field label="Client" hint="Leave empty for a walk-in customer.">
-              <ClientPicker value={client} onChange={setClient} />
-            </Field>
-          )}
+          <Field
+            label="Customer"
+            required={needClient}
+            missing={required.shown && !clientOk}
+            hint={needClient ? "Pick the customer, or add them with New. Needed for every sale." : "Ask the customer. Leave it empty for a walk-in customer."}
+          >
+            <ClientPicker value={client} onChange={setClient} />
+          </Field>
           <div className="rounded-xl border bg-muted/30 p-3 text-sm">
             {!single && off > 0 && Number.isFinite(subtotal) && (
               <div className="mb-1 flex justify-between text-muted-foreground">

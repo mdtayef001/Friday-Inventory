@@ -21,6 +21,7 @@ const SettingsSchema = z.object({
       staffCreateProducts: flag,
       managerPurchases: flag,
       managerReturns: flag,
+      staffWalkInSales: flag,
     }),
     payments: z.object({ mobile: flag, card: flag }),
     receiptNote: z.string().trim().max(200, "Keep the receipt note under 200 characters."),

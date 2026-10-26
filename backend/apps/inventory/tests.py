@@ -270,10 +270,29 @@ class SalesTests(SalesBase):
         self.assertEqual(res.status_code, 201, res.content)
         for private in ("unitCost", "cost", "profit"):
             self.assertNotIn(private, res.json())
-        self.assertIsNone(res.json()["clientId"])
+        self.assertEqual(res.json()["clientId"], self.client_id)  # who they sold to is kept
         self.assertEqual(self.sell().status_code, 403)  # not their shop
         mine = self.client.get("/api/sales/").json()
         self.assertEqual([x["soldBy"] for x in mine], ["staff@a.com"])
+
+    def test_staff_sell_to_walk_ins_unless_the_owner_turns_it_off(self):
+        StockLevel.objects.create(business=self.biz, product=self.product, location=self.outlet, quantity=5)
+        self.client.credentials()
+        self.login("staff@a.com")
+        walk_in = self.sell(locationId=self.outlet.id, quantity=1)
+        self.assertEqual(walk_in.status_code, 201, walk_in.content)
+        self.assertIsNone(walk_in.json()["clientId"])
+
+        self.biz.settings["permissions"]["staffWalkInSales"] = False
+        self.biz.save()
+        refused = self.sell(locationId=self.outlet.id, quantity=1)
+        self.assertEqual(refused.status_code, 400)
+        self.assertIn("customer", str(refused.json()))
+        self.assertEqual(self.sell(locationId=self.outlet.id, quantity=1, clientId=self.client_id).status_code, 201)
+        # Owners still sell to walk-ins; the switch is for staff.
+        self.client.credentials()
+        self.login("owner@a.com")
+        self.assertEqual(self.sell(quantity=1).status_code, 201)
 
     def test_delivered_order_becomes_a_sale_and_return_refunds_it(self):
         order = self.client.post(

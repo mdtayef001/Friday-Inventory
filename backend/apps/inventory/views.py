@@ -1297,9 +1297,12 @@ class SaleViewSet(TenantViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixi
         serializer = SellSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        if data.get("client") and request.user.role == User.Role.STAFF:
-            # Staff can't see the client list, so they can't pick one either.
-            data["client"] = None
+        if (
+            not data.get("client")
+            and request.user.role == User.Role.STAFF
+            and not request.user.business.permission_on("staffWalkInSales")
+        ):
+            raise ValidationError({"client_id": "Enter the customer for this sale. Walk-in sales are turned off for staff."})
         self.check_location(data["location"])
         sales = services.sell(request.user, **data)
         # The first item, with every item of the checkout for the till's screen.

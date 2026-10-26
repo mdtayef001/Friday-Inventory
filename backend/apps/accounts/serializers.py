@@ -18,7 +18,7 @@ CURRENCIES = ["BDT", "USD"]
 MODULES = ["rentals", "tracking", "transfers", "trackingLinks", "purchases"]
 PERMISSIONS = [
     "managerUsers", "managerActivity", "managerProducts", "managerLocations", "staffCreateProducts", "managerProfit", "managerPurchases",
-    "managerReturns",
+    "managerReturns", "staffWalkInSales",
 ]
 
 

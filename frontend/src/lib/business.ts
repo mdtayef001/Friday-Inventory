@@ -53,6 +53,11 @@ export const PERMISSIONS: Record<PermissionId, { label: string; description: str
   managerPurchases: { label: "Handle purchases", description: "Record stock bought from suppliers at their shops. They see what you paid.", role: "manager" },
   managerReturns: { label: "Return sales", description: "Take a sale back and refund it at their shops. Otherwise they ask you, and you decide.", role: "manager" },
   staffCreateProducts: { label: "Create new products", description: "When a scanned code is unknown. Otherwise staff only add stock.", role: "staff" },
+  staffWalkInSales: {
+    label: "Sell to walk-in customers",
+    description: "The customer's name is optional when selling. Turn off to make staff pick or add the customer for every sale.",
+    role: "staff",
+  },
 }
 
 /** Currencies a business can choose. One set before this list was narrowed still works. */
@@ -72,6 +77,7 @@ export function defaultSettings(): BusinessSettings {
       staffCreateProducts: true,
       managerPurchases: false,
       managerReturns: false,
+      staffWalkInSales: true,
     },
     payments: { mobile: false, card: false },
     receiptNote: "",
